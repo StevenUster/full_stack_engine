@@ -19,6 +19,7 @@ use tokio_cron_scheduler::JobScheduler;
 pub mod auth;
 pub mod cron;
 pub mod error;
+pub mod prelude;
 pub mod rate_limiter;
 pub mod structs;
 
