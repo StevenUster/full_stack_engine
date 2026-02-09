@@ -23,17 +23,6 @@ pub mod prelude;
 pub mod rate_limiter;
 pub mod structs;
 
-// Re-exports for convenience
-pub use actix_web;
-pub use include_dir;
-pub use log;
-pub use reqwest;
-pub use serde;
-pub use serde_json;
-pub use sqlx;
-pub use tera;
-pub use tokio_cron_scheduler;
-
 #[derive(Clone, PartialEq, serde::Serialize)]
 pub enum Env {
     Dev,
