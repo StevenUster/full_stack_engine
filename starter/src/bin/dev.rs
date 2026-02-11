@@ -25,7 +25,7 @@ fn main() -> io::Result<()> {
 
     println!("🦀 Starting Rust backend with hot reload on port 8080...");
     let mut cargo_child = Command::new("cargo")
-        .args(["watch", "-x", "run --bin running_for_jesus_web"])
+        .args(["watch", "-x", "run --bin starter"])
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()?;

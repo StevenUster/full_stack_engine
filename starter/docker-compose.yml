@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/stevenuster/running_for_jesus_web:latest
+    image: ghcr.io/stevenuster/starter:latest
     pull_policy: always
     restart: unless-stopped
     environment:
@@ -14,7 +14,7 @@ services:
       - SMTP_PASS=${SMTP_PASS}
       - RUST_LOG=${RUST_LOG}
     volumes:
-      - running_for_jesus_web:/app/data
+      - starter:/app/data
 
 volumes:
-  running_for_jesus_web:
+  starter:

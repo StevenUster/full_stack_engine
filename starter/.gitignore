@@ -1,4 +1,13 @@
 /target
+/.idea
+/data
+*.db
+*.db-shm
+*.db-wal
 .env
-data
-uploads
+*.env
+!.example.env
+.DS_Store
+*.swp
+node_modules/
+dist/

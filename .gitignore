@@ -6,8 +6,8 @@
 *.db-wal
 .env
 *.env
-!.env.example
+!.example.env
 .DS_Store
-*.swpnode_modules/
+*.swp
+node_modules/
 dist/
-.sqlx/
