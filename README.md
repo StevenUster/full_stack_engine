@@ -44,35 +44,6 @@ The starter includes a `dev` binary that launches both the Rust backend and the 
 cargo run --bin dev
 ```
 
-## Using the Framework
-
-If you are adding the framework to an existing project, add it via path or git:
-
-```toml
-[dependencies]
-my_rust_framework = { path = "../framework" }
-```
-
-Then use the `prelude` to get access to all core types:
-
-```rust
-use my_rust_framework::prelude::*;
-
-mod cronjobs;
-mod services;
-
-static DIST_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/frontend/dist");
-
-#[main]
-async fn main() -> std::io::Result<()> {
-    FrameworkApp::new(&DIST_DIR)
-        .configure(services::configure)
-        .cronjobs(cronjobs::add_cronjobs)
-        .run()
-        .await
-}
-```
-
 ## License
 
 MIT OR Apache-2.0
