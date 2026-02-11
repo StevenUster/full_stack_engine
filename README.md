@@ -12,27 +12,37 @@ A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, a
 
 ## Quick Start
 
+The simplest way to use the framework is via the `prelude`, which re-exports common types and traits:
+
 ```rust
-use my_rust_framework::{FrameworkApp, include_dir::{Dir, include_dir}};
+use crate::include_dir::{include_dir, Dir};
+pub use my_rust_framework::prelude::*;
 
-// Include your frontend dist directory
-static DIST_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/frontend/dist");
+mod cronjobs;
+mod services;
 
-#[actix_web::main]
+static DIST_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/frontend/dist");
+
+#[main]
 async fn main() -> std::io::Result<()> {
     FrameworkApp::new(&DIST_DIR)
-        .configure(|cfg| {
-            // Register your services here
-            // cfg.service(web::resource("/").to(index));
-        })
-        .cronjobs(|sched, db| async move {
-            // Setup cron jobs here
-            Ok(())
-        })
+        .configure(services::configure)
+        .cronjobs(cronjobs::add_cronjobs)
         .run()
         .await
 }
 ```
+
+## Prelude
+
+The `prelude` module provides a flat namespace for common framework dependencies, ensuring you don't need to add them to your own `Cargo.toml`:
+
+- **Actix Web**: `web`, `HttpRequest`, `HttpResponse`, etc.
+- **Database**: `sqlx`, `SqlitePool`.
+- **Serialization**: `serde` (Serialize/Deserialize), `serde_json` (json macro).
+- **Templates**: `tera` (Context).
+- **Framework Core**: `FrameworkApp`, `AppData`, `AuthUser`, `AppResult`, etc.
+- **Logging**: `info`, `error`, `debug`, `warn`.
 
 ## Environment Variables
 

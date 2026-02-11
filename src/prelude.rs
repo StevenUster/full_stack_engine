@@ -4,19 +4,21 @@
 
 pub use crate::{
     AppData, Env, FrameworkApp,
-    auth::AuthUser,
+    auth::{AuthUser, create_jwt, hash_password, verify_password},
     error::{AppError, AppResult, ResultExt},
     structs::{Table, TableAction, TableHeader, User},
 };
 
 // Full crate re-exports (so users don't need them in Cargo.toml)
-pub use actix_web::{self, HttpRequest, HttpResponse, Responder, Scope, web};
+pub use actix_web::{
+    self, HttpResponse, Responder, cookie, delete, get, http, http::header::LOCATION, main, post,
+    put, web, web::Data, web::Form,
+};
 pub use include_dir;
 pub use log::{self, debug, error, info, warn};
 pub use reqwest;
 pub use serde::{self, Deserialize, Serialize};
 pub use serde_json::{self, json};
-pub use sqlx::{self, SqlitePool};
 pub use tera::{self, Context};
 pub use tokio_cron_scheduler;
 

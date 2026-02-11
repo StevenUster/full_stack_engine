@@ -130,7 +130,7 @@ impl AppData {
 type ConfigureFn = Box<dyn Fn(&mut web::ServiceConfig) + Send + Sync + 'static>;
 type CronjobsFn = Box<
     dyn FnOnce(
-        &JobScheduler,
+        JobScheduler,
         SqlitePool,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>,
@@ -164,7 +164,7 @@ impl FrameworkApp {
     /// Register an async cronjobs setup function
     pub fn cronjobs<F, Fut>(mut self, f: F) -> Self
     where
-        F: FnOnce(&JobScheduler, SqlitePool) -> Fut + 'static,
+        F: FnOnce(JobScheduler, SqlitePool) -> Fut + 'static,
         Fut: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> + 'static,
     {
         self.cronjobs_fn = Some(Box::new(move |sched, pool| Box::pin(f(sched, pool))));
@@ -234,7 +234,7 @@ impl FrameworkApp {
                 .await
                 .expect("Failed to create cron database pool");
 
-            (cronjobs_fn)(&sched, cron_db_pool)
+            (cronjobs_fn)(sched.clone(), cron_db_pool)
                 .await
                 .expect("Failed to add cron jobs");
         }
