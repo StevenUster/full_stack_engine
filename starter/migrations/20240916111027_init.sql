@@ -1,0 +1,8 @@
+CREATE TABLE
+    users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'none',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );

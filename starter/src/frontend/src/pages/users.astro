@@ -1,0 +1,17 @@
+---
+import Card from "../components/Card.astro";
+import Layout from "../layouts/Layout.astro";
+import Table from "../components/Table.astro";
+import Header from "../components/Header.astro";
+---
+
+<Layout title="Users">
+  <main class="grid place-items-center">
+    <div class="w-full">
+      <Header>Users</Header>
+      <Card padding={false}>
+        <Table />
+      </Card>
+    </div>
+  </main>
+</Layout>

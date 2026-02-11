@@ -1,0 +1,20 @@
+services:
+  app:
+    image: ghcr.io/stevenuster/running_for_jesus_web:latest
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      - ENV=prod
+      - DOMAIN=${DOMAIN}
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - REGISTER_KEY=${REGISTER_KEY}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - RUST_LOG=${RUST_LOG}
+    volumes:
+      - running_for_jesus_web:/app/data
+
+volumes:
+  running_for_jesus_web:

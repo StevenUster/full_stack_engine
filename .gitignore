@@ -8,4 +8,6 @@
 *.env
 !.env.example
 .DS_Store
-*.swp
+*.swpnode_modules/
+dist/
+.sqlx/

@@ -1,0 +1,40 @@
+---
+import Card from "../components/Card.astro";
+import Header from "../components/Header.astro";
+import Select from "../components/Select.astro";
+import Layout from "../layouts/Layout.astro";
+
+const options = [
+  { value: "admin", label: "Admin" },
+  { value: "none", label: "None" },
+];
+---
+
+<Layout title="User">
+  <main class="grid place-items-center h-full">
+    <div class="">
+      <Header backlink="/users">{"{{ email }}"}</Header>
+      <Card>
+        <form
+          action="/users/{{ id }}"
+          method="POST"
+          class="relative my-6 md:w-60"
+        >
+          <Select
+            options={options}
+            placeholder="Role"
+            id="role"
+            selected
+            required
+          />
+
+          <div class="flex justify-end mt-6">
+            <button type="submit" class="btn-primary w-full">
+              <span>Save</span>
+            </button>
+          </div>
+        </form>
+      </Card>
+    </div>
+  </main>
+</Layout>

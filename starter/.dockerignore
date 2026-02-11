@@ -1,0 +1,13 @@
+target/
+dist/
+node_modules/
+.git/
+.env
+example.env
+.DS_Store
+*.swp
+*.log
+tmp/
+src/frontend/dist
+src/frontend/node_modules
+data/

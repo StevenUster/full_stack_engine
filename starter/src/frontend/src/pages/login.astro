@@ -1,0 +1,51 @@
+---
+import Input from "../components/Input.astro";
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="Login" sidebar={false}>
+  <main class="h-screen w-screen grid place-items-center">
+    <form
+      class="overflow-hidden w-[400px] bg-white rounded shadow-md text-secondary-500 shadow-secondary-200"
+      action="/login"
+      method="POST"
+    >
+      <div class="p-6">
+        <header class="mb-4 text-center">
+          <h3 class="text-xl font-medium text-black">Login</h3>
+        </header>
+        <div class="flex flex-col gap-4 mt-12">
+          <Input
+            id="email"
+            type="email"
+            placeholder="Your email"
+            required={true}
+          />
+          <Input
+            id="password"
+            type="password"
+            placeholder="Your password"
+            required={true}
+          />
+        </div>
+      </div>
+      <div class="flex justify-end p-6">
+        <button
+          class="inline-flex items-center justify-center w-full h-10 gap-2 whitespace-nowrap btn-primary disabled:cursor-not-allowed disabled:border-primary-300 disabled:bg-primary-300 disabled:shadow-none"
+        >
+          <span>Log in</span>
+        </button>
+      </div>
+      {"{% if error %}"}
+      <div class="px-6 py-3">
+        <div
+          class="w-full px-4 py-3 mb-4 text-sm text-pink-500 border border-pink-100 rounded bg-pink-50"
+          role="alert"
+        >
+          <p>{"{{ error }}"}</p>
+        </div>
+      </div>
+      {"{% endif %}"}
+    </form>
+  </main>
+</Layout>

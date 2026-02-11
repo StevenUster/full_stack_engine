@@ -1,0 +1,148 @@
+---
+
+---
+
+<aside
+  id="nav-menu-1"
+  aria-label="Side navigation"
+  class="sticky top-0 bottom-0 h-screen left-0 z-40 flex flex-col bg-white border-r w-72 border-r-secondary-200"
+  transition:name="header"
+  transition:persist
+  transition:animate="none"
+>
+  <a
+    aria-label="Logo"
+    class="flex items-center justify-center gap-2 p-6 text-xl font-medium whitespace-nowrap focus:outline-none"
+    href="/"
+  >
+    <img src="/logo.svg" alt="Logo" class="h-10" />
+  </a>
+  <nav
+    aria-label="side navigation"
+    class="flex-1 overflow-auto divide-y divide-secondary-100"
+  >
+    <div>
+      <ul class="flex flex-col flex-1 gap-1 py-3">
+        <li class="px-3">
+          <a
+            href="/"
+            data-nav-link
+            class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-600 hover:bg-primary-50 focus:bg-primary-50 aria-[current=page]:text-primary-500 aria-[current=page]:bg-primary-50"
+          >
+            <div class="flex items-center self-center w-6">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                ><path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.5"
+                  d="M8.557 2.75H4.682A1.93 1.93 0 0 0 2.75 4.682v3.875a1.94 1.94 0 0 0 1.932 1.942h3.875a1.94 1.94 0 0 0 1.942-1.942V4.682A1.94 1.94 0 0 0 8.557 2.75m10.761 0h-3.875a1.94 1.94 0 0 0-1.942 1.932v3.875a1.943 1.943 0 0 0 1.942 1.942h3.875a1.94 1.94 0 0 0 1.932-1.942V4.682a1.93 1.93 0 0 0-1.932-1.932m0 10.75h-3.875a1.94 1.94 0 0 0-1.942 1.933v3.875a1.94 1.94 0 0 0 1.942 1.942h3.875a1.94 1.94 0 0 0 1.932-1.942v-3.875a1.93 1.93 0 0 0-1.932-1.932M8.557 13.5H4.682a1.943 1.943 0 0 0-1.932 1.943v3.875a1.93 1.93 0 0 0 1.932 1.932h3.875a1.94 1.94 0 0 0 1.942-1.932v-3.875a1.94 1.94 0 0 0-1.942-1.942"
+                ></path></svg
+              >
+            </div>
+            <div
+              class="flex flex-col items-start justify-center flex-1 w-full gap-0 overflow-hidden truncate"
+            >
+              Index
+            </div>
+          </a>
+        </li>
+      </ul>
+    </div>
+    <div>
+      <ul class="flex flex-col flex-1 gap-1 py-3">
+        <li class="px-3">
+          <a
+            href="/users"
+            data-nav-link
+            class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-600 hover:bg-primary-50 focus:bg-primary-50 aria-[current=page]:text-primary-500 aria-[current=page]:bg-primary-50"
+          >
+            <div class="flex items-center self-center w-6">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                ><g fill="none" stroke="currentColor" stroke-width="1.5"
+                  ><circle cx="12" cy="6" r="4"></circle><path
+                    d="M20 17.5c0 2.485 0 4.5-8 4.5s-8-2.015-8-4.5S7.582 13 12 13s8 2.015 8 4.5Z"
+                  ></path></g
+                ></svg
+              >
+            </div>
+            <div
+              class="flex flex-col items-start justify-center flex-1 w-full gap-0 overflow-hidden truncate"
+            >
+              Users
+            </div>
+          </a>
+        </li>
+      </ul>
+    </div>
+  </nav>
+
+  <footer class="p-3 border-t border-secondary-200">
+    <form action="/logout" method="POST">
+      <button
+        class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-500"
+        type="submit"
+      >
+        <div class="flex items-center self-center">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="1.5"
+            stroke="currentColor"
+            class="w-6 h-6"
+            aria-label="Dashboard icon"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M11.25 9l-3 3m0 0l3 3m-3-3h7.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            ></path>
+          </svg>
+        </div>
+        <div
+          class="flex flex-col items-start justify-center flex-1 w-full gap-0 overflow-hidden font-medium truncate"
+        >
+          Logout
+        </div>
+      </button>
+    </form>
+  </footer>
+</aside>
+
+<script>
+  function setActiveLink() {
+    const currentPath = window.location.pathname;
+    const links =
+      document.querySelectorAll<HTMLAnchorElement>("[data-nav-link]");
+
+    links.forEach((link) => {
+      const href = link.getAttribute("href");
+      if (!href) return;
+
+      if (href === "/" && currentPath === "/") {
+        link.setAttribute("aria-current", "page");
+        return;
+      }
+
+      if (href !== "/" && currentPath.startsWith(href)) {
+        link.setAttribute("aria-current", "page");
+      } else {
+        link.removeAttribute("aria-current");
+      }
+    });
+  }
+
+  setActiveLink();
+
+  document.addEventListener("astro:page-load", setActiveLink);
+</script>

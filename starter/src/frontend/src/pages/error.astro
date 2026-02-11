@@ -1,0 +1,14 @@
+---
+import Card from "../components/Card.astro";
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="Leads">
+  <main class="grid place-items-center h-full">
+    <div class="w-[800px]">
+      <Card>
+        <p class="text-red-600">{"{{ error }}"}</p>
+      </Card>
+    </div>
+  </main>
+</Layout>

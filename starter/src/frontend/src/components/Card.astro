@@ -1,0 +1,15 @@
+---
+interface Props {
+  padding?: boolean;
+  tailwind?: string;
+}
+
+const { padding = true, tailwind = "" } = Astro.props;
+---
+
+<div
+  class={`w-full flex flex-col gap-8 bg-white border shadow-xl rounded-xl border-secondary-200 ${tailwind} ` +
+    (padding ? "py-8 px-12" : "p-2")}
+>
+  <slot />
+</div>
