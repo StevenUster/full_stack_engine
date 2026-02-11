@@ -2,6 +2,12 @@
 name = "my_rust_framework"
 version = "0.0.1"
 edition = "2024"
+description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/StevenUster/my_rust_framework"
+readme = "README.md"
+keywords = ["web", "framework", "actix-web", "sqlx", "tera"]
+categories = ["web-programming"]
 
 [lib]
 name = "my_rust_framework"
