@@ -1,4 +1,13 @@
+<div align="center">
+  <h1>🛑 UNDER DEVELOPMENT 🛑</h1>
+  <p><strong>USE IT AT YOUR OWN RISK</strong></p>
+  <img src="https://img.shields.io/badge/STATUS-UNDER_DEVELOPMENT-red?style=for-the-badge&logo=rust" alt="Development Status">
+</div>
+
+<br/>
+
 # My Rust Framework
+
 
 A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera.
 
