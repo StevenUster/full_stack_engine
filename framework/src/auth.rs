@@ -139,14 +139,38 @@ impl FromRequest for AuthUser {
 
     fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
         let result = read_jwt(req)
-            .and_then(|claims| {
-                if claims.role == crate::structs::UserRole::Admin {
-                    return Ok(AuthUser { claims });
-                }
-                Err(JwtError::Unauthorized)
-            })
+            .map(|claims| AuthUser { claims })
             .map_err(AuthError::from)
             .map_err(Error::from);
+
+        ready(result)
+    }
+}
+
+#[derive(Debug)]
+pub struct AdminUser {
+    pub claims: Claims,
+}
+
+impl FromRequest for AdminUser {
+    type Error = Error;
+    type Future = Ready<Result<Self, Self::Error>>;
+
+    fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let auth_future = AuthUser::from_request(req, payload);
+
+        let result = match auth_future.into_inner() {
+            Ok(auth_user) => {
+                if auth_user.claims.role == crate::structs::UserRole::Admin {
+                    Ok(AdminUser {
+                        claims: auth_user.claims,
+                    })
+                } else {
+                    Err(AuthError::from(JwtError::Unauthorized).into())
+                }
+            }
+            Err(e) => Err(e),
+        };
 
         ready(result)
     }

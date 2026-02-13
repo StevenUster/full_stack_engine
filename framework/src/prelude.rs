@@ -4,7 +4,7 @@
 
 pub use crate::{
     AppData, Env, FrameworkApp,
-    auth::{AuthUser, create_jwt, hash_password, verify_password},
+    auth::{AdminUser, AuthUser, create_jwt, hash_password, verify_password},
     error::{AppError, AppResult, ResultExt},
     structs::{Table, TableAction, TableHeader, User, UserRole},
 };

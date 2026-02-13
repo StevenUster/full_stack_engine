@@ -1,5 +1,5 @@
 use crate::{
-    AppData, AppError, AppResult, AuthUser, Deserialize, Serialize, Table, TableHeader, User,
+    AdminUser, AppData, AppResult, Deserialize, Serialize, Table, TableHeader, User,
     actix_web::{HttpResponse, delete, get, post, web},
 };
 
@@ -13,11 +13,7 @@ struct Row {
 }
 
 #[get("/users")]
-pub async fn get(data: web::Data<AppData>, user: AuthUser) -> AppResult {
-    if user.claims.role != crate::UserRole::Admin {
-        return Err(AppError::NoAuth);
-    }
-
+pub async fn get(data: web::Data<AppData>, _user: AdminUser) -> AppResult {
     let users = sqlx::query_as!(User, "SELECT * FROM users ORDER BY created_at DESC")
         .fetch_all(&data.db)
         .await?;
@@ -69,11 +65,11 @@ pub async fn get(data: web::Data<AppData>, user: AuthUser) -> AppResult {
 }
 
 #[get("/users/{id}")]
-pub async fn get_user(data: web::Data<AppData>, user: AuthUser, path: web::Path<i64>) -> AppResult {
-    if user.claims.role != crate::UserRole::Admin {
-        return Err(AppError::NoAuth);
-    }
-
+pub async fn get_user(
+    data: web::Data<AppData>,
+    _user: AdminUser,
+    path: web::Path<i64>,
+) -> AppResult {
     let user_id = path.into_inner();
     let user_data = sqlx::query_as!(User, "SELECT * FROM users WHERE id = ?", user_id)
         .fetch_one(&data.db)
@@ -90,14 +86,10 @@ pub struct UserUpdateForm {
 #[post("/users/{id}")]
 pub async fn post_user(
     data: web::Data<AppData>,
-    user: AuthUser,
+    _user: AdminUser,
     path: web::Path<i64>,
     form: web::Form<UserUpdateForm>,
 ) -> AppResult {
-    if user.claims.role != crate::UserRole::Admin {
-        return Err(AppError::NoAuth);
-    }
-
     let user_id = path.into_inner();
 
     sqlx::query!("UPDATE users SET role = ? WHERE id = ?", form.role, user_id)
@@ -112,13 +104,9 @@ pub async fn post_user(
 #[delete("/users/{id}")]
 pub async fn delete_user(
     data: web::Data<AppData>,
-    user: AuthUser,
+    _user: AdminUser,
     path: web::Path<i64>,
 ) -> AppResult {
-    if user.claims.role != crate::UserRole::Admin {
-        return Err(AppError::NoAuth);
-    }
-
     let user_id = path.into_inner();
 
     sqlx::query!("DELETE FROM users WHERE id = ?", user_id)
