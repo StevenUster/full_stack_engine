@@ -264,12 +264,19 @@ impl FrameworkApp {
                     domain: domain.clone(),
                 }))
                 .wrap(
+                    ErrorHandlers::new()
+                        .handler(StatusCode::INTERNAL_SERVER_ERROR, render_error_page)
+                        .handler(StatusCode::NOT_FOUND, render_error_page)
+                        .handler(StatusCode::UNAUTHORIZED, render_error_page)
+                        .handler(StatusCode::FORBIDDEN, render_error_page),
+                )
+                .wrap(
                     DefaultHeaders::new()
                         .add((
                             "Content-Security-Policy",
                             "default-src 'self'; \
-                             script-src 'self' 'unsafe-inline'; \
-                             style-src 'self' 'unsafe-inline'; \
+                             script-src 'self'; \
+                             style-src 'self'; \
                              font-src 'self'; \
                              img-src 'self' data:; \
                              frame-ancestors 'none'; \
@@ -279,13 +286,6 @@ impl FrameworkApp {
                         .add(("X-Content-Type-Options", "nosniff"))
                         .add(("X-Frame-Options", "DENY"))
                         .add(("Referrer-Policy", "strict-origin-when-cross-origin")),
-                )
-                .wrap(
-                    ErrorHandlers::new()
-                        .handler(StatusCode::INTERNAL_SERVER_ERROR, render_error_page)
-                        .handler(StatusCode::NOT_FOUND, render_error_page)
-                        .handler(StatusCode::UNAUTHORIZED, render_error_page)
-                        .handler(StatusCode::FORBIDDEN, render_error_page),
                 );
 
             if let Some(ref configure_fn) = configure_fn {
@@ -308,12 +308,26 @@ impl FrameworkApp {
             )
             .default_service(web::to(move |req: actix_web::HttpRequest| async move {
                 let path = req.path().trim_start_matches('/');
-                if path.is_empty() {
-                    return Ok::<HttpResponse, actix_web::Error>(HttpResponse::NotFound().finish());
-                }
                 match serve_from_dist(dist_dir, path, req.method().as_str()).await {
                     Ok(res) => Ok(res),
-                    Err(_) => Ok(HttpResponse::NotFound().finish()),
+                    Err(_) => Ok::<HttpResponse, actix_web::Error>(
+                        HttpResponse::NotFound()
+                            .insert_header((
+                                "Content-Security-Policy",
+                                "default-src 'self'; \
+                             script-src 'self'; \
+                             style-src 'self'; \
+                             font-src 'self'; \
+                             img-src 'self' data:; \
+                             frame-ancestors 'none'; \
+                             base-uri 'self'; \
+                             form-action 'self';",
+                            ))
+                            .insert_header(("X-Content-Type-Options", "nosniff"))
+                            .insert_header(("X-Frame-Options", "DENY"))
+                            .insert_header(("Referrer-Policy", "strict-origin-when-cross-origin"))
+                            .finish(),
+                    ),
                 }
             }))
         })
@@ -371,6 +385,20 @@ async fn serve_from_dist(
 
     Ok(HttpResponse::Ok()
         .content_type(content_type)
+        .insert_header((
+            "Content-Security-Policy",
+            "default-src 'self'; \
+             script-src 'self'; \
+             style-src 'self'; \
+             font-src 'self'; \
+             img-src 'self' data:; \
+             frame-ancestors 'none'; \
+             base-uri 'self'; \
+             form-action 'self';",
+        ))
+        .insert_header(("X-Content-Type-Options", "nosniff"))
+        .insert_header(("X-Frame-Options", "DENY"))
+        .insert_header(("Referrer-Policy", "strict-origin-when-cross-origin"))
         .body(file.contents().to_vec()))
 }
 
