@@ -5,7 +5,7 @@ use actix_web::{
     body::MessageBody,
     dev::ServiceResponse,
     http::StatusCode,
-    middleware::{ErrorHandlerResponse, ErrorHandlers},
+    middleware::{DefaultHeaders, ErrorHandlerResponse, ErrorHandlers},
     web,
 };
 use dotenv::dotenv;
@@ -263,6 +263,23 @@ impl FrameworkApp {
                     env: env.clone(),
                     domain: domain.clone(),
                 }))
+                .wrap(
+                    DefaultHeaders::new()
+                        .add((
+                            "Content-Security-Policy",
+                            "default-src 'self'; \
+                             script-src 'self' 'unsafe-inline'; \
+                             style-src 'self' 'unsafe-inline'; \
+                             font-src 'self'; \
+                             img-src 'self' data:; \
+                             frame-ancestors 'none'; \
+                             base-uri 'self'; \
+                             form-action 'self';",
+                        ))
+                        .add(("X-Content-Type-Options", "nosniff"))
+                        .add(("X-Frame-Options", "DENY"))
+                        .add(("Referrer-Policy", "strict-origin-when-cross-origin")),
+                )
                 .wrap(
                     ErrorHandlers::new()
                         .handler(StatusCode::INTERNAL_SERVER_ERROR, render_error_page)
