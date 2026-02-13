@@ -23,7 +23,7 @@ const { title, sidebar = true } = Astro.props;
   <body class="bg-secondary-50">
     <div class="relative flex">
       {sidebar && <Sidebar />}
-      <div class={sidebar ? "py-6 px-12 w-full" : ""}>
+      <div class={`w-full ${sidebar ? "py-6 px-12" : ""}`}>
         <slot />
       </div>
     </div>

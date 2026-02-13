@@ -25,6 +25,9 @@ pub enum AppError {
 
     #[error("Internal error: {0}")]
     Internal(String),
+
+    #[error("{0}")]
+    User(String),
 }
 
 pub type AppResult<T = HttpResponse> = Result<T, AppError>;
@@ -35,16 +38,22 @@ impl From<String> for AppError {
     }
 }
 
+impl From<&str> for AppError {
+    fn from(s: &str) -> Self {
+        AppError::Internal(s.to_string())
+    }
+}
+
 impl AppError {
     pub fn user_message(&self) -> String {
         match self {
-            AppError::Db(_) => "A database error occurred.".to_string(),
-            AppError::Reqwest(_) => "Failed to communicate with an external service.".to_string(),
-            AppError::Serde(_) => "Failed to process data.".to_string(),
-            AppError::NotFound(msg) => msg.clone(),
-            AppError::Auth(msg) => msg.clone(),
-            AppError::NoAuth => "You do not have permission for this action.".to_string(),
-            AppError::Internal(_) => "An internal error occurred.".to_string(),
+            Self::Db(_) => "A database error occurred.".into(),
+            Self::Reqwest(_) => "Communication with an external service failed.".into(),
+            Self::Serde(_) => "Processing data failed.".into(),
+            Self::NoAuth => "Access denied.".into(),
+            Self::NotFound(msg) | Self::Auth(msg) | Self::Internal(msg) | Self::User(msg) => {
+                msg.clone()
+            }
         }
     }
 }
@@ -52,18 +61,15 @@ impl AppError {
 impl ResponseError for AppError {
     fn status_code(&self) -> StatusCode {
         match self {
-            AppError::Auth(_) | AppError::NoAuth => StatusCode::UNAUTHORIZED,
-            AppError::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::Auth(_) | Self::NoAuth => StatusCode::UNAUTHORIZED,
+            Self::NotFound(_) => StatusCode::NOT_FOUND,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     fn error_response(&self) -> HttpResponse {
-        let status = self.status_code();
-        let mut res = HttpResponse::new(status);
-
-        log::error!("Internal Error: {}", self);
-
+        log::error!("AppError ({}): {}", self.status_code(), self);
+        let mut res = HttpResponse::new(self.status_code());
         res.extensions_mut().insert(self.user_message());
         res
     }

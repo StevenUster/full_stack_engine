@@ -111,7 +111,7 @@ impl AppData {
                 Ok(ctx) => ctx,
                 Err(err) => {
                     error!("Context serialization error: {}", err);
-                    return HttpResponse::InternalServerError().body("Context serialization error");
+                    return HttpResponse::InternalServerError().finish();
                 }
             };
 
@@ -120,7 +120,7 @@ impl AppData {
                 Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
                 Err(err) => {
                     error!("Template rendering error ({}): {}", template_name, err);
-                    HttpResponse::InternalServerError().body("Template rendering error")
+                    HttpResponse::InternalServerError().finish()
                 }
             }
         }
@@ -365,39 +365,58 @@ where
     let data = req.app_data::<web::Data<AppData>>().cloned().unwrap();
     let status = res.status();
 
+    let is_logged_in = crate::auth::read_jwt(&req).is_ok();
+
     let template = match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => "noauth",
-        _ => "error",
-    };
-
-    let mut ctx = Context::new();
-    ctx.insert("status", &status.as_u16());
-
-    let error_msg = req.extensions().get::<String>().cloned();
-    if let Some(msg) = error_msg {
-        ctx.insert("error", &msg);
-    } else {
-        ctx.insert(
-            "error",
-            &status.canonical_reason().unwrap_or("Unknown Error"),
-        );
-    }
-
-    let rendered = match data.tera.render(template, &ctx) {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Error rendering error page ({}): {}", template, e);
-            "Internal Server Error".to_string()
+        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
+            if is_logged_in {
+                "noauth"
+            } else {
+                "public_noauth"
+            }
+        }
+        _ => {
+            if is_logged_in {
+                "error"
+            } else {
+                "public_error"
+            }
         }
     };
 
-    let res = res.set_body(rendered);
-    let res = res.map_into_boxed_body();
-    let res = res.map_into_right_body();
+    let error_msg = req.extensions().get::<String>().cloned();
+    if let Some(ref msg) = error_msg {
+        error!("Error [{}]: {}", status, msg);
+    }
 
-    Ok(ErrorHandlerResponse::Response(ServiceResponse::new(
-        req, res,
-    )))
+    let display_error = if data.env == Env::Dev {
+        error_msg.unwrap_or_else(|| {
+            status
+                .canonical_reason()
+                .unwrap_or("Unknown Error")
+                .to_string()
+        })
+    } else {
+        status
+            .canonical_reason()
+            .unwrap_or("An unexpected error occurred")
+            .to_string()
+    };
+
+    Ok(ErrorHandlerResponse::Future(Box::pin(async move {
+        let ctx = serde_json::json!({
+            "status": status.as_u16(),
+            "error": display_error,
+        });
+
+        let res_template = data.render_template(template, &ctx).await;
+        let mut res = res_template;
+        *res.status_mut() = status;
+
+        let res = ServiceResponse::new(req, res).map_into_right_body();
+
+        Ok(res)
+    })))
 }
 
 fn load_env_file() {
