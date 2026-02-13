@@ -174,8 +174,8 @@ impl FrameworkApp {
 
     /// Start the framework: loads env, database, cron, and HTTP server
     pub async fn run(self) -> std::io::Result<()> {
-        load_env_file();
         env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
+        load_env_file();
 
         info!("Starting application...");
 
@@ -468,10 +468,8 @@ where
 }
 
 fn load_env_file() {
-    if std::env::var("ENV").unwrap_or_default() != "prod" {
-        dotenv().ok();
-        debug!("Running in DEV mode, .env loaded.");
-    } else {
-        debug!("Running in PROD mode, skip loading .env file.");
+    match dotenv() {
+        Ok(path) => debug!(".env file loaded from: {:?}", path),
+        Err(_) => debug!("No .env file found, relying on system environment variables."),
     }
 }
