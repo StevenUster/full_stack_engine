@@ -1,6 +1,6 @@
-/target
-/.idea
-/data
+target
+.idea
+data
 *.db
 *.db-shm
 *.db-wal

@@ -12,7 +12,7 @@ A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, a
 
 ## Repository Structure
 
-This repository is organized as a Cargo Workspace:
+This repository contains two separate Cargo projects:
 
 - **[`/framework`](./framework)**: The core framework code.
 - **[`/starter`](./starter)**: A complete template application. Use this to start your own project!
@@ -33,9 +33,10 @@ The fastest way to get started is to explore the **[Starter App](./starter)**. I
 Copy the `starter` folder to your own repository or work directly inside it.
 
 ### 2. Configure Environment
-Copy the example environment file in the starter:
+Navigate to the starter directory and copy the example environment file:
 ```bash
-cp starter/example.env starter/.env
+cd starter
+cp .example.env .env
 ```
 
 ### 3. Run Development Mode

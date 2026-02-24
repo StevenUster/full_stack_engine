@@ -1,3 +1,0 @@
-[workspace]
-members = ["framework", "starter"]
-resolver = "2"
