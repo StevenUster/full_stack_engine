@@ -23,7 +23,7 @@ pub mod prelude;
 pub mod rate_limiter;
 pub mod structs;
 
-#[derive(Clone, PartialEq, serde::Serialize)]
+#[derive(Copy, Clone, PartialEq, serde::Serialize)]
 pub enum Env {
     Dev,
     Prod,
@@ -258,6 +258,38 @@ impl FrameworkApp {
         let configure_fn = self.configure_fn.map(std::sync::Arc::new);
 
         HttpServer::new(move || {
+            let mut default_headers = DefaultHeaders::new()
+                .add(("X-Content-Type-Options", "nosniff"))
+                .add(("X-Frame-Options", "DENY"))
+                .add(("Referrer-Policy", "strict-origin-when-cross-origin"));
+
+            if env == Env::Dev {
+                default_headers = default_headers.add((
+                    "Content-Security-Policy",
+                    "default-src 'self'; \
+                     script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
+                     style-src 'self' 'unsafe-inline'; \
+                     font-src 'self'; \
+                     img-src 'self' data:; \
+                     connect-src 'self' ws://localhost:4321 http://localhost:4321 ws://127.0.0.1:4321 http://127.0.0.1:4321 ws://0.0.0.0:4321 http://0.0.0.0:4321; \
+                     frame-ancestors 'none'; \
+                     base-uri 'self'; \
+                     form-action 'self';",
+                ));
+            } else {
+                default_headers = default_headers.add((
+                    "Content-Security-Policy",
+                    "default-src 'self'; \
+                     script-src 'self'; \
+                     style-src 'self'; \
+                     font-src 'self'; \
+                     img-src 'self' data:; \
+                     frame-ancestors 'none'; \
+                     base-uri 'self'; \
+                     form-action 'self';",
+                ));
+            }
+
             let mut app = App::new()
                 .app_data(web::Data::new(AppData {
                     tera: tera.clone(),
@@ -273,64 +305,38 @@ impl FrameworkApp {
                         .handler(StatusCode::UNAUTHORIZED, render_error_page)
                         .handler(StatusCode::FORBIDDEN, render_error_page),
                 )
-                .wrap(
-                    DefaultHeaders::new()
-                        .add((
-                            "Content-Security-Policy",
-                            "default-src 'self'; \
-                             script-src 'self'; \
-                             style-src 'self'; \
-                             font-src 'self'; \
-                             img-src 'self' data:; \
-                             frame-ancestors 'none'; \
-                             base-uri 'self'; \
-                             form-action 'self';",
-                        ))
-                        .add(("X-Content-Type-Options", "nosniff"))
-                        .add(("X-Frame-Options", "DENY"))
-                        .add(("Referrer-Policy", "strict-origin-when-cross-origin")),
-                );
+                .wrap(default_headers);
 
             if let Some(ref configure_fn) = configure_fn {
                 let cf = configure_fn.clone();
                 app = app.configure(move |cfg| (cf)(cfg));
             }
 
-            app.service(
-                web::scope("/_astro").route(
-                    "/{path:.*}",
-                    web::get().to(
-                        move |path: web::Path<String>, req: actix_web::HttpRequest| {
-                            let filename = format!("_astro/{}", path.into_inner());
-                            async move {
-                                serve_from_dist(dist_dir, &filename, req.method().as_str()).await
-                            }
-                        },
-                    ),
-                ),
-            )
+            app.service(web::scope("/_astro").route(
+                "/{path:.*}",
+                web::get().to(move |req: actix_web::HttpRequest| async move {
+                    if env == Env::Dev {
+                        if let Ok(res) = forward_to_dev_server(&req).await {
+                            return Ok(res);
+                        }
+                    }
+                    let path = req.path().trim_start_matches('/');
+                    serve_from_dist(dist_dir, path, req.method().as_str()).await
+                }),
+            ))
             .default_service(web::to(move |req: actix_web::HttpRequest| async move {
+                if env == Env::Dev {
+                    if let Ok(res) = forward_to_dev_server(&req).await {
+                        return Ok(res);
+                    }
+                }
+
                 let path = req.path().trim_start_matches('/');
                 match serve_from_dist(dist_dir, path, req.method().as_str()).await {
                     Ok(res) => Ok(res),
-                    Err(_) => Ok::<HttpResponse, actix_web::Error>(
-                        HttpResponse::NotFound()
-                            .insert_header((
-                                "Content-Security-Policy",
-                                "default-src 'self'; \
-                             script-src 'self'; \
-                             style-src 'self'; \
-                             font-src 'self'; \
-                             img-src 'self' data:; \
-                             frame-ancestors 'none'; \
-                             base-uri 'self'; \
-                             form-action 'self';",
-                            ))
-                            .insert_header(("X-Content-Type-Options", "nosniff"))
-                            .insert_header(("X-Frame-Options", "DENY"))
-                            .insert_header(("Referrer-Policy", "strict-origin-when-cross-origin"))
-                            .finish(),
-                    ),
+                    Err(_) => {
+                        Ok::<HttpResponse, actix_web::Error>(HttpResponse::NotFound().finish())
+                    }
                 }
             }))
         })
@@ -367,6 +373,37 @@ fn add_templates(tera: &mut Tera, dir: &Dir) {
     for subd in dir.dirs() {
         add_templates(tera, subd);
     }
+}
+
+async fn forward_to_dev_server(req: &actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
+    let url = format!("http://localhost:4321{}", req.uri());
+    debug!("Proxying request to Astro dev server: {}", url);
+    let response = reqwest::get(&url).await.map_err(|e| {
+        error!("Failed to proxy to Astro dev server: {}", e);
+        actix_web::error::ErrorInternalServerError("Proxy error")
+    })?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(actix_web::error::ErrorNotFound("Not found on dev server"));
+    }
+
+    let content_type = response
+        .headers()
+        .get("Content-Type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    let body = response.bytes().await.map_err(|e| {
+        error!("Failed to read body from Astro dev server: {}", e);
+        actix_web::error::ErrorInternalServerError("Body error")
+    })?;
+
+    let mut res =
+        HttpResponse::build(actix_web::http::StatusCode::from_u16(status.as_u16()).unwrap());
+    res.content_type(content_type);
+    Ok(res.body(body))
 }
 
 async fn serve_from_dist(
