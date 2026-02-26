@@ -1,4 +1,4 @@
-//! Prelude for the `my_rust_framework` crate.
+//! Prelude for the `full_stack_engine` crate.
 //!
 //! This module re-exports common types and traits for ease of use.
 

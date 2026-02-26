@@ -1,16 +1,16 @@
 [package]
-name = "my_rust_framework"
-version = "0.0.3"
+name = "full_stack_engine"
+version = "1.0.0"
 edition = "2024"
 description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/StevenUster/my_rust_framework"
+repository = "https://github.com/StevenUster/full_stack_engine"
 readme = "README.md"
 keywords = ["web", "framework", "actix-web", "sqlx", "tera"]
 categories = ["web-programming"]
 
 [lib]
-name = "my_rust_framework"
+name = "full_stack_engine"
 path = "src/lib.rs"
 
 [dependencies]

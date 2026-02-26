@@ -1,5 +1,5 @@
 use crate::web;
-use my_rust_framework::rate_limiter::auth_rate_limiter;
+use full_stack_engine::rate_limiter::auth_rate_limiter;
 
 mod index;
 mod login;

@@ -15,8 +15,8 @@ sqlx = { version = "0.8.6", features = [
     "tls-native-tls",
 ] }
 dotenv = "0.15.0"
-# my_rust_framework = "0.0.3"
-my_rust_framework = { path = "../framework" }
+# full_stack_engine = "0.0.3"
+full_stack_engine = { path = "../framework" }
 
 [profile.release]
 lto = true
