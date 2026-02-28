@@ -1,6 +1,6 @@
 [package]
 name = "starter"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 
 [dependencies]
@@ -15,7 +15,7 @@ sqlx = { version = "0.8.6", features = [
     "tls-native-tls",
 ] }
 dotenv = "0.15.0"
-# full_stack_engine = "1.0.0"
+# full_stack_engine = "1.0.1"
 full_stack_engine = { path = "../framework" }
 
 [profile.release]

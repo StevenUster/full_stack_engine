@@ -1192,7 +1192,7 @@ checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "full_stack_engine"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "actix-governor",
  "actix-web",
@@ -3514,7 +3514,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "starter"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "actix-web",
  "ctrlc",
