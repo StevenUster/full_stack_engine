@@ -51,6 +51,12 @@ pub struct User {
     pub password: String,
     pub role: UserRole,
     pub created_at: NaiveDateTime,
+    #[serde(default = "default_true")]
+    pub is_verified: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Serialize)]

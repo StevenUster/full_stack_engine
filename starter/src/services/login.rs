@@ -19,9 +19,13 @@ pub async fn get(data: Data<AppData>) -> impl Responder {
 }
 
 pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
-    let user_res = sqlx::query_as!(User, "SELECT * FROM users WHERE email = $1", form.email)
-        .fetch_one(&data.db)
-        .await;
+    let user_res = sqlx::query_as!(
+        User,
+        "SELECT id, email, password, role, created_at, is_verified FROM users WHERE email = $1",
+        form.email
+    )
+    .fetch_one(&data.db)
+    .await;
 
     let (user, user_exists) = match user_res {
         Ok(u) => (Some(u), true),
@@ -49,6 +53,17 @@ pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
         return Ok(data
             .render_tpl("login", &json!({"error": "Falsche Daten"}))
             .await);
+    }
+
+    if let Some(ref u) = user {
+        if !u.is_verified {
+            return Ok(data
+                .render_tpl(
+                    "login",
+                    &json!({"error": "Bitte bestätigen Sie zuerst Ihre E-Mail-Adresse."}),
+                )
+                .await);
+        }
     }
 
     let user = match user {

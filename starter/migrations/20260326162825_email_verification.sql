@@ -1,0 +1,3 @@
+ALTER TABLE users ADD COLUMN is_verified BOOLEAN NOT NULL DEFAULT 1;
+
+ALTER TABLE users ADD COLUMN verification_token TEXT;

@@ -19,6 +19,7 @@ use tokio_cron_scheduler::JobScheduler;
 pub mod auth;
 pub mod cron;
 pub mod error;
+pub mod mail;
 pub mod prelude;
 pub mod rate_limiter;
 pub mod structs;
@@ -35,6 +36,8 @@ pub struct AppData {
     pub env: Env,
     pub domain: String,
     pub jwt_secret: String,
+    pub smtp_from: String,
+    pub email_verification_enabled: bool,
 }
 
 impl AppData {
@@ -297,6 +300,10 @@ impl FrameworkApp {
                     env: env.clone(),
                     domain: domain.clone(),
                     jwt_secret: jwt_secret.clone(),
+                    smtp_from: env::var("SMTP_USER").unwrap_or_default(),
+                    email_verification_enabled: env::var("EMAIL_VERIFICATION_ENABLED")
+                        .unwrap_or_else(|_| "false".to_string())
+                        == "true",
                 }))
                 .wrap(NormalizePath::trim())
                 .wrap(

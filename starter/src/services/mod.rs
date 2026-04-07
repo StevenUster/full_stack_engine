@@ -21,6 +21,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route(web::post().to(register::post))
             .wrap(auth_rate_limiter()),
     );
+    cfg.service(register::verify_email);
     cfg.service(logout::post);
     cfg.service(users::get);
     cfg.service(users::get_user);
