@@ -21,7 +21,7 @@ pub async fn get(data: Data<AppData>) -> impl Responder {
 pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
     let user_res = sqlx::query_as!(
         User,
-        "SELECT id, email, password, role, created_at, is_verified FROM users WHERE email = $1",
+        "SELECT id, email, password, role, created_at, is_verified, verification_token FROM users WHERE email = $1",
         form.email
     )
     .fetch_one(&data.db)

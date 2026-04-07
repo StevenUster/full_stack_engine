@@ -53,6 +53,7 @@ pub struct User {
     pub created_at: NaiveDateTime,
     #[serde(default = "default_true")]
     pub is_verified: bool,
+    pub verification_token: Option<String>,
 }
 
 fn default_true() -> bool {

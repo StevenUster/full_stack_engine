@@ -21,7 +21,6 @@ pub use reqwest;
 pub use serde::{self, Deserialize, Serialize};
 pub use serde_json::{self, json};
 pub use tera::{self, Context};
-pub use tokio;
 pub use tokio_cron_scheduler;
 
 // Common traits/types

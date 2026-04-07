@@ -1,6 +1,6 @@
 use crate::{
     AppData, AppError, AppResult, Deserialize, HttpResponse, actix_web::get,
-    actix_web::http::header::LOCATION, hash_password, send_mail, serde_json::json, web,
+    actix_web::http::header::LOCATION, error, hash_password, send_mail, serde_json::json, web,
 };
 
 #[derive(Deserialize, Debug)]
@@ -96,14 +96,16 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
                 "<h1>Herzlich Willkommen!</h1><p>Bitte bestätigen Sie Ihre E-Mail-Adresse, indem Sie auf den folgenden Link klicken:</p><p><a href=\"{}\">E-Mail bestätigen</a></p>",
                 verify_url
             );
-            
+
             let email_clone = email.clone();
-            let smtp_from = data.smtp_from.clone();
-            
+
             // Sending email in a separate task to not block registration response
-            tokio::spawn(async move {
+            actix_web::rt::spawn(async move {
                 if let Err(e) = send_mail(&email_clone, "E-Mail Bestätigung", &body) {
-                    log::error!("Failed to send verification email to {}: {}", email_clone, e);
+                    error!(
+                        "Failed to send verification email to {}: {}",
+                        email_clone, e
+                    );
                 }
             });
 
@@ -141,11 +143,17 @@ pub async fn verify_email(
 
     if result.rows_affected() == 0 {
         return Ok(data
-            .render_tpl("login", &json!({"error": "Ungültiger oder abgelaufener Bestätigungslink"}))
+            .render_tpl(
+                "login",
+                &json!({"error": "Ungültiger oder abgelaufener Bestätigungslink"}),
+            )
             .await);
     }
 
     Ok(data
-        .render_tpl("login", &json!({"success": "E-Mail erfolgreich bestätigt. Sie können sich nun einloggen."}))
+        .render_tpl(
+            "login",
+            &json!({"success": "E-Mail erfolgreich bestätigt. Sie können sich nun einloggen."}),
+        )
         .await)
 }
