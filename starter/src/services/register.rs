@@ -1,5 +1,5 @@
 use crate::{
-    AppData, AppError, AppResult, Deserialize, HttpResponse, actix_web::get,
+    AppData, AppError, AppResult, DefaultRole, Deserialize, HttpResponse, actix_web::get,
     actix_web::http::header::LOCATION, error, hash_password, send_mail, serde_json::json, web,
 };
 
@@ -8,8 +8,6 @@ pub struct FormData {
     pub email: String,
     pub password: String,
     pub repeat_password: String,
-    // you can add a register key here to only allow trusted registers
-    // pub register_key: String,
 }
 
 #[get("/register")]
@@ -23,15 +21,6 @@ pub async fn register_success(data: web::Data<AppData>) -> HttpResponse {
 }
 
 pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppResult {
-    // Optional
-    // if let Some(register_key) = &data.register_key {
-    //     if form.register_key != *register_key {
-    //         return Ok(data
-    //             .render_tpl("register", &json!({"error": "Falscher Register-Schlüssel"}))
-    //             .await);
-    //     }
-    // }
-
     if form.password.len() < 8 {
         return Ok(data
             .render_tpl(
@@ -62,8 +51,6 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    // This should prevent someone from finding out if an email exists or not.
-    // A highly sophisticated attacker could still figure it out via a timing attack but this should be enough for now.
     if user_exists.is_some() {
         if data.email_verification_enabled {
             return Ok(HttpResponse::SeeOther()
@@ -83,11 +70,12 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
         None
     };
 
+    let role = DefaultRole::User;
     let _user_id = sqlx::query!(
         "INSERT INTO users (email, password, role, is_verified, verification_token) VALUES (?, ?, ?, ?, ?)",
         email,
         hashed_password,
-        crate::UserRole::User,
+        role,
         is_verified,
         verification_token
     )
@@ -106,7 +94,7 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
             {
                 Ok(html) => html,
                 Err(e) => {
-                    error!("Failed to render verification email template: {}", e);
+                    error!("Failed to render verification email template: {e}");
                     return Err(AppError::Internal(
                         "Failed to render email template".to_string(),
                     ));
@@ -115,13 +103,9 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
 
             let email_clone = email.clone();
 
-            // Sending email in a separate task to not block registration response
             actix_web::rt::spawn(async move {
                 if let Err(e) = send_mail(&email_clone, "Email Verification", &body) {
-                    error!(
-                        "Failed to send verification email to {}: {}",
-                        email_clone, e
-                    );
+                    error!("Failed to send verification email to {email_clone}: {e}");
                 }
             });
 

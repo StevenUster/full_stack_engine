@@ -194,7 +194,6 @@ impl FrameworkApp {
         }
     }
 
-    /// Register a route configuration function (like `services::configure`)
     pub fn configure<F>(mut self, f: F) -> Self
     where
         F: Fn(&mut web::ServiceConfig) + Send + Sync + 'static,
@@ -203,7 +202,6 @@ impl FrameworkApp {
         self
     }
 
-    /// Register an async cronjobs setup function
     pub fn cronjobs<F, Fut>(mut self, f: F) -> Self
     where
         F: FnOnce(JobScheduler, SqlitePool) -> Fut + 'static,
@@ -213,7 +211,6 @@ impl FrameworkApp {
         self
     }
 
-    /// Start the framework: loads env, database, cron, and HTTP server
     pub async fn run(self) -> std::io::Result<()> {
         env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
         load_env_file();
@@ -267,7 +264,6 @@ impl FrameworkApp {
             Err(_) => Env::Prod,
         };
 
-        // Cron scheduler
         let mut sched = JobScheduler::new()
             .await
             .expect("Failed to create job scheduler");
@@ -423,9 +419,9 @@ fn add_templates(tera: &mut Tera, dir: &Dir) {
 
 async fn forward_to_dev_server(req: &actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
     let url = format!("http://localhost:4321{}", req.uri());
-    debug!("Proxying request to Astro dev server: {}", url);
+    debug!("Proxying request to Astro dev server: {url}");
     let response = reqwest::get(&url).await.map_err(|e| {
-        error!("Failed to proxy to Astro dev server: {}", e);
+        error!("Failed to proxy to Astro dev server: {e}");
         actix_web::error::ErrorInternalServerError("Proxy error")
     })?;
 
@@ -442,7 +438,7 @@ async fn forward_to_dev_server(req: &actix_web::HttpRequest) -> actix_web::Resul
         .to_string();
 
     let body = response.bytes().await.map_err(|e| {
-        error!("Failed to read body from Astro dev server: {}", e);
+        error!("Failed to read body from Astro dev server: {e}");
         actix_web::error::ErrorInternalServerError("Body error")
     })?;
 
@@ -496,7 +492,7 @@ where
     let data = req.app_data::<web::Data<AppData>>().cloned().unwrap();
     let status = res.status();
 
-    let is_logged_in = crate::auth::read_jwt(&req).is_ok();
+    let is_logged_in = crate::auth::read_jwt::<crate::structs::DefaultRole>(&req).is_ok();
 
     let template = match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
@@ -517,7 +513,7 @@ where
 
     let error_msg = req.extensions().get::<String>().cloned();
     if let Some(ref msg) = error_msg {
-        error!("Error [{}]: {}", status, msg);
+        error!("Error [{status}]: {msg}");
     }
 
     let display_error = if data.env == Env::Dev {
@@ -552,7 +548,7 @@ where
 
 fn load_env_file() {
     match dotenv() {
-        Ok(path) => debug!(".env file loaded from: {:?}", path),
+        Ok(path) => debug!(".env file loaded from: {path:?}"),
         Err(_) => debug!("No .env file found, relying on system environment variables."),
     }
 }

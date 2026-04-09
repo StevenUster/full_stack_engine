@@ -1,22 +1,27 @@
 use crate::{
-    AdminUser, AppData, AppResult, Deserialize, Serialize, Table, TableHeader, User,
+    AdminUser, AppData, AppResult, DefaultRole, Deserialize, Serialize, Table, TableHeader,
     actix_web::{HttpResponse, delete, get, post, web},
 };
+
+type AppUser = crate::User<DefaultRole>;
 
 #[derive(Serialize)]
 struct Row {
     pub id: i64,
     pub email: String,
-    pub role: crate::UserRole,
+    pub role: DefaultRole,
     pub created_at: String,
     pub link: String,
 }
 
 #[get("/users")]
-pub async fn get(data: web::Data<AppData>, _user: AdminUser) -> AppResult {
-    let users = sqlx::query_as!(User, "SELECT * FROM users ORDER BY created_at DESC")
-        .fetch_all(&data.db)
-        .await?;
+pub async fn get(data: web::Data<AppData>, _user: AdminUser<DefaultRole>) -> AppResult {
+    let users = sqlx::query_as!(
+        AppUser,
+        "SELECT id, email, password, role as \"role: DefaultRole\", created_at, is_verified, verification_token FROM users ORDER BY created_at DESC"
+    )
+    .fetch_all(&data.db)
+    .await?;
 
     let rows: Vec<Row> = users
         .into_iter()
@@ -77,13 +82,17 @@ pub async fn get(data: web::Data<AppData>, _user: AdminUser) -> AppResult {
 #[get("/users/{id}")]
 pub async fn get_user(
     data: web::Data<AppData>,
-    _user: AdminUser,
+    _user: AdminUser<DefaultRole>,
     path: web::Path<i64>,
 ) -> AppResult {
     let user_id = path.into_inner();
-    let user_data = sqlx::query_as!(User, "SELECT * FROM users WHERE id = ?", user_id)
-        .fetch_one(&data.db)
-        .await?;
+    let user_data = sqlx::query_as!(
+        AppUser,
+        "SELECT id, email, password, role as \"role: DefaultRole\", created_at, is_verified, verification_token FROM users WHERE id = ?",
+        user_id
+    )
+    .fetch_one(&data.db)
+    .await?;
 
     Ok(data
         .render_tpl(
@@ -99,13 +108,13 @@ pub async fn get_user(
 
 #[derive(Deserialize)]
 pub struct UserUpdateForm {
-    pub role: crate::UserRole,
+    pub role: String,
 }
 
 #[post("/users/{id}")]
 pub async fn post_user(
     data: web::Data<AppData>,
-    _user: AdminUser,
+    _user: AdminUser<DefaultRole>,
     path: web::Path<i64>,
     form: web::Form<UserUpdateForm>,
 ) -> AppResult {
@@ -116,14 +125,14 @@ pub async fn post_user(
         .await?;
 
     Ok(HttpResponse::Found()
-        .append_header(("Location", format!("/users/{}", user_id)))
+        .append_header(("Location", format!("/users/{user_id}")))
         .finish())
 }
 
 #[delete("/users/{id}")]
 pub async fn delete_user(
     data: web::Data<AppData>,
-    _user: AdminUser,
+    _user: AdminUser<DefaultRole>,
     path: web::Path<i64>,
 ) -> AppResult {
     let user_id = path.into_inner();

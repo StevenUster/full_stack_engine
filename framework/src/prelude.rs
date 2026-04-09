@@ -1,16 +1,14 @@
-//! Prelude for the `full_stack_engine` crate.
-//!
-//! This module re-exports common types and traits for ease of use.
-
 pub use crate::{
     AppData, Env, FrameworkApp,
-    auth::{AdminUser, AuthUser, create_jwt, hash_password, verify_password},
+    auth::{
+        AdminUser, AuthUser, PermissionRequired, RequirePermission, create_jwt, hash_password,
+        verify_password,
+    },
     error::{AppError, AppResult, ResultExt},
     mail::send_mail,
-    structs::{Table, TableAction, TableHeader, User, UserRole},
+    structs::{DefaultRole, Role, Table, TableAction, TableHeader, User},
 };
 
-// Full crate re-exports (so users don't need them in Cargo.toml)
 pub use actix_web::{
     self, HttpResponse, Responder, cookie, delete, get, http, http::header::LOCATION, main, post,
     put, web, web::Data, web::Form,
@@ -23,5 +21,4 @@ pub use serde_json::{self, json};
 pub use tera::{self, Context};
 pub use tokio_cron_scheduler;
 
-// Common traits/types
 pub use std::convert::{TryFrom, TryInto};

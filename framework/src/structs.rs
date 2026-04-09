@@ -1,55 +1,88 @@
 use chrono::NaiveDateTime;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+
+pub trait Role:
+    Send + Sync + Clone + std::fmt::Debug + Serialize + DeserializeOwned + 'static
+{
+    fn as_str(&self) -> &str;
+    fn from_role_str(s: &str) -> Self;
+    fn is_admin(&self) -> bool;
+    fn is_none(&self) -> bool;
+    fn has_permission(&self, permission: &str) -> bool;
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
 #[sqlx(rename_all = "lowercase")]
-pub enum UserRole {
+#[serde(rename_all = "lowercase")]
+pub enum DefaultRole {
     Admin,
     User,
     None,
 }
 
-impl std::fmt::Display for UserRole {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Role for DefaultRole {
+    fn as_str(&self) -> &str {
         match self {
-            UserRole::Admin => write!(f, "admin"),
-            UserRole::User => write!(f, "user"),
-            UserRole::None => write!(f, "none"),
+            Self::Admin => "admin",
+            Self::User => "user",
+            Self::None => "none",
         }
+    }
+
+    fn from_role_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "admin" => Self::Admin,
+            "user" => Self::User,
+            _ => Self::None,
+        }
+    }
+
+    fn is_admin(&self) -> bool {
+        matches!(self, Self::Admin)
+    }
+
+    fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    fn has_permission(&self, _permission: &str) -> bool {
+        self.is_admin()
     }
 }
 
-impl std::str::FromStr for UserRole {
+impl std::fmt::Display for DefaultRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for DefaultRole {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "admin" => Ok(UserRole::Admin),
-            "user" => Ok(UserRole::User),
-            "none" => Ok(UserRole::None),
-            _ => Err(format!("Unknown role: {}", s)),
-        }
+        Ok(Self::from_role_str(s))
     }
 }
 
-impl From<String> for UserRole {
+impl From<String> for DefaultRole {
     fn from(s: String) -> Self {
-        s.parse().unwrap_or(UserRole::None)
+        Self::from_role_str(&s)
     }
 }
 
-impl From<&str> for UserRole {
+impl From<&str> for DefaultRole {
     fn from(s: &str) -> Self {
-        s.parse().unwrap_or(UserRole::None)
+        Self::from_role_str(s)
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct User {
+#[serde(bound(deserialize = "R: Role"))]
+pub struct User<R: Role> {
     pub id: i64,
     pub email: String,
     pub password: String,
-    pub role: UserRole,
+    pub role: R,
     pub created_at: NaiveDateTime,
     #[serde(default = "default_true")]
     pub is_verified: bool,

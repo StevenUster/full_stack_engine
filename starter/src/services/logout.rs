@@ -1,10 +1,10 @@
 use crate::{
-    cookie::time::Duration, cookie::Cookie, post, AppData, AuthUser, Data, Env, HttpResponse,
-    Responder, LOCATION,
+    cookie::time::Duration, cookie::Cookie, post, AppData, AuthUser, Data, DefaultRole, Env,
+    HttpResponse, Responder, LOCATION,
 };
 
 #[post("/logout")]
-pub async fn post(data: Data<AppData>, _user: AuthUser) -> impl Responder {
+pub async fn post(data: Data<AppData>, _user: AuthUser<DefaultRole>) -> impl Responder {
     let cookie = Cookie::build("token", "")
         .domain(&data.domain)
         .path("/")

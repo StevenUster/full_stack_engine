@@ -1,4 +1,4 @@
-use crate::structs::User;
+use crate::structs::{Role, User};
 use actix_web::{
     Error, FromRequest, HttpRequest, HttpResponse, dev::Payload, http::header::LOCATION,
 };
@@ -79,13 +79,14 @@ impl From<AuthError> for Error {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub struct Claims {
+#[serde(bound(deserialize = "R: Role"))]
+pub struct Claims<R: Role> {
     pub sub: i64,
-    pub role: crate::structs::UserRole,
+    pub role: R,
     pub exp: usize,
 }
 
-pub fn create_jwt(user: User, secret: &str) -> Result<String, JwtError> {
+pub fn create_jwt<R: Role>(user: &User<R>, secret: &str) -> Result<String, JwtError> {
     let expiration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(JwtError::ExpirationError)?
@@ -94,7 +95,7 @@ pub fn create_jwt(user: User, secret: &str) -> Result<String, JwtError> {
 
     let claims = Claims {
         sub: user.id,
-        role: user.role,
+        role: user.role.clone(),
         exp: expiration as usize,
     };
 
@@ -104,7 +105,7 @@ pub fn create_jwt(user: User, secret: &str) -> Result<String, JwtError> {
     encode(&header, &claims, &encoding_key).map_err(|_| JwtError::JwtEncodingError)
 }
 
-pub fn read_jwt(req: &HttpRequest) -> Result<Claims, JwtError> {
+pub fn read_jwt<R: Role>(req: &HttpRequest) -> Result<Claims<R>, JwtError> {
     let token = req
         .cookie("token")
         .ok_or(JwtError::TokenNotFound)?
@@ -120,7 +121,7 @@ pub fn read_jwt(req: &HttpRequest) -> Result<Claims, JwtError> {
     let validation = Validation::new(jsonwebtoken::Algorithm::HS256);
 
     let token_data =
-        decode::<Claims>(&token, &decoding_key, &validation).map_err(|e| match e.kind() {
+        decode::<Claims<R>>(&token, &decoding_key, &validation).map_err(|e| match e.kind() {
             jsonwebtoken::errors::ErrorKind::ExpiredSignature => JwtError::JwtExpired,
             _ => JwtError::JwtDecodingError,
         })?;
@@ -129,16 +130,16 @@ pub fn read_jwt(req: &HttpRequest) -> Result<Claims, JwtError> {
 }
 
 #[derive(Debug)]
-pub struct AuthUser {
-    pub claims: Claims,
+pub struct AuthUser<R: Role> {
+    pub claims: Claims<R>,
 }
 
-impl FromRequest for AuthUser {
+impl<R: Role> FromRequest for AuthUser<R> {
     type Error = Error;
     type Future = Ready<Result<Self, Self::Error>>;
 
     fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
-        let result = read_jwt(req)
+        let result = read_jwt::<R>(req)
             .map(|claims| AuthUser { claims })
             .map_err(AuthError::from)
             .map_err(Error::from);
@@ -148,21 +149,64 @@ impl FromRequest for AuthUser {
 }
 
 #[derive(Debug)]
-pub struct AdminUser {
-    pub claims: Claims,
+pub struct AdminUser<R: Role> {
+    pub claims: Claims<R>,
 }
 
-impl FromRequest for AdminUser {
+impl<R: Role> FromRequest for AdminUser<R> {
     type Error = Error;
     type Future = Ready<Result<Self, Self::Error>>;
 
     fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
-        let auth_future = AuthUser::from_request(req, payload);
+        let auth_future = AuthUser::<R>::from_request(req, payload);
 
         let result = match auth_future.into_inner() {
             Ok(auth_user) => {
-                if auth_user.claims.role == crate::structs::UserRole::Admin {
+                if auth_user.claims.role.is_admin() {
                     Ok(AdminUser {
+                        claims: auth_user.claims,
+                    })
+                } else {
+                    Err(AuthError::from(JwtError::Unauthorized).into())
+                }
+            }
+            Err(e) => Err(e),
+        };
+
+        ready(result)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PermissionRequired(pub String);
+
+impl PermissionRequired {
+    pub fn new(permission: &str) -> Self {
+        Self(permission.to_string())
+    }
+}
+
+#[derive(Debug)]
+pub struct RequirePermission<R: Role> {
+    pub claims: Claims<R>,
+}
+
+impl<R: Role> FromRequest for RequirePermission<R> {
+    type Error = Error;
+    type Future = Ready<Result<Self, Self::Error>>;
+
+    fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
+        let auth_future = AuthUser::<R>::from_request(req, payload);
+
+        let required = req
+            .app_data::<PermissionRequired>()
+            .cloned()
+            .unwrap_or_else(|| PermissionRequired::new(""));
+
+        let result = match auth_future.into_inner() {
+            Ok(auth_user) => {
+                if auth_user.claims.role.has_permission(&required.0) {
+                    Ok(RequirePermission {
                         claims: auth_user.claims,
                     })
                 } else {

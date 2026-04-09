@@ -1,9 +1,11 @@
 use crate::{
-    AppData, AppError, AppResult, Data, Deserialize, Env, Form, HttpResponse, LOCATION, Responder,
-    User, cookie::Cookie, cookie::time::Duration, create_jwt, get, hash_password, json,
+    AppData, AppError, AppResult, Data, DefaultRole, Deserialize, Env, Form, HttpResponse, LOCATION,
+    Responder, Role, cookie::Cookie, cookie::time::Duration, create_jwt, get, hash_password, json,
     verify_password,
 };
 use std::sync::OnceLock;
+
+type AppUser = crate::User<DefaultRole>;
 
 static DUMMY_HASH: OnceLock<String> = OnceLock::new();
 
@@ -20,8 +22,8 @@ pub async fn get(data: Data<AppData>) -> impl Responder {
 
 pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
     let user_res = sqlx::query_as!(
-        User,
-        "SELECT id, email, password, role, created_at, is_verified, verification_token FROM users WHERE email = $1",
+        AppUser,
+        "SELECT id, email, password, role as \"role: DefaultRole\", created_at, is_verified, verification_token FROM users WHERE email = $1",
         form.email
     )
     .fetch_one(&data.db)
@@ -33,10 +35,8 @@ pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
         Err(e) => return Err(e.into()),
     };
 
-    // Use user password or a dummy hash to keep timing consistent (resist timing attacks)
     let dummy_hash = DUMMY_HASH.get_or_init(|| {
         hash_password("dummy_password_for_timing_safety").unwrap_or_else(|_| {
-            // Failsafe in case hashing fails
             "$argon2id$v=19$m=4096,t=3,p=1$c29tZXNhbHQ$i6PrS9n+AdfNf/U7/lH1XQ".to_string()
         })
     });
@@ -48,7 +48,7 @@ pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
         || !password_ok
         || user
             .as_ref()
-            .map_or(true, |u| u.role == crate::UserRole::None)
+            .is_none_or(|u| u.role.is_none())
     {
         return Ok(data
             .render_tpl("login", &json!({"error": "Invalid credentials"}))
@@ -75,8 +75,8 @@ pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
         }
     };
 
-    let jwt = create_jwt(user, &data.jwt_secret)
-        .map_err(|e| AppError::Internal(format!("JWT creation error: {}", e)))?;
+    let jwt = create_jwt(&user, &data.jwt_secret)
+        .map_err(|e| AppError::Internal(format!("JWT creation error: {e}")))?;
 
     let cookie = Cookie::build("token", jwt)
         .domain(&data.domain)
