@@ -66,12 +66,15 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
     if user_exists.is_some() {
-        return Ok(data
-            .render_tpl(
-                "register",
-                &json!({"error": "Email is already in use"}),
-            )
-            .await);
+        if data.email_verification_enabled {
+            return Ok(HttpResponse::SeeOther()
+                .append_header((LOCATION, "/register-success"))
+                .finish());
+        }
+
+        return Ok(HttpResponse::SeeOther()
+            .append_header((LOCATION, "/login"))
+            .finish());
     }
 
     let is_verified = !data.email_verification_enabled;
