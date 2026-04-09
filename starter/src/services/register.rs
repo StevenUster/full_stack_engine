@@ -43,10 +43,7 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
 
     if form.password != form.repeat_password {
         return Ok(data
-            .render_tpl(
-                "register",
-                &json!({"error": "Passwords do not match"}),
-            )
+            .render_tpl("register", &json!({"error": "Passwords do not match"}))
             .await);
     }
 
@@ -65,6 +62,8 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
+    // This should prevent someone from finding out if an email exists or not.
+    // A highly sophisticated attacker could still figure it out via a timing attack but this should be enough for now.
     if user_exists.is_some() {
         if data.email_verification_enabled {
             return Ok(HttpResponse::SeeOther()
