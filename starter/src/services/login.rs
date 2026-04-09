@@ -51,7 +51,7 @@ pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
             .map_or(true, |u| u.role == crate::UserRole::None)
     {
         return Ok(data
-            .render_tpl("login", &json!({"error": "Falsche Daten"}))
+            .render_tpl("login", &json!({"error": "Invalid credentials"}))
             .await);
     }
 
@@ -60,7 +60,7 @@ pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
             return Ok(data
                 .render_tpl(
                     "login",
-                    &json!({"error": "Bitte bestätigen Sie zuerst Ihre E-Mail-Adresse."}),
+                    &json!({"error": "Please confirm your email address first."}),
                 )
                 .await);
         }

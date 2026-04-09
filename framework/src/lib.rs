@@ -129,6 +129,44 @@ impl AppData {
             }
         }
     }
+
+    pub async fn render_email<T: serde::Serialize>(
+        &self,
+        template_name: &str,
+        context_data: &T,
+    ) -> Result<String, String> {
+        if self.env == Env::Dev {
+            let path = template_name.replace("_", "/");
+            let url = format!("http://localhost:4321/{}", path);
+
+            let astro_html = reqwest::get(&url)
+                .await
+                .map_err(|e| format!("Failed to connect to Astro dev server: {}", e))?
+                .text()
+                .await
+                .map_err(|e| format!("Failed to read Astro dev server response: {}", e))?;
+
+            let mut tera_temp = Tera::default();
+            tera_temp
+                .add_raw_template(template_name, &astro_html)
+                .map_err(|e| format!("Failed to add email template: {}", e))?;
+
+            let context = Context::from_serialize(context_data)
+                .map_err(|e| format!("Context serialization error: {}", e))?;
+
+            tera_temp
+                .render(template_name, &context)
+                .map_err(|e| format!("Email template rendering error: {}", e))
+        } else {
+            let context = Context::from_serialize(context_data)
+                .map_err(|e| format!("Context serialization error: {}", e))?;
+
+            let template_name = template_name.replace("_", "/");
+            self.tera
+                .render(&template_name, &context)
+                .map_err(|e| format!("Email template rendering error ({}): {}", template_name, e))
+        }
+    }
 }
 
 type ConfigureFn = Box<dyn Fn(&mut web::ServiceConfig) + Send + Sync + 'static>;

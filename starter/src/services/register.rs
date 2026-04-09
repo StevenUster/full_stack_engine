@@ -17,6 +17,11 @@ pub async fn get(data: web::Data<AppData>) -> HttpResponse {
     data.render("register").await
 }
 
+#[get("/register-success")]
+pub async fn register_success(data: web::Data<AppData>) -> HttpResponse {
+    data.render("register-success").await
+}
+
 pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppResult {
     // Optional
     // if let Some(register_key) = &data.register_key {
@@ -31,7 +36,7 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
         return Ok(data
             .render_tpl(
                 "register",
-                &json!({"error": "Passwort muss mindestens 8 Zeichen lang sein"}),
+                &json!({"error": "Password must be at least 8 characters long"}),
             )
             .await);
     }
@@ -40,7 +45,7 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
         return Ok(data
             .render_tpl(
                 "register",
-                &json!({"error": "Passwörter stimmen nicht überein"}),
+                &json!({"error": "Passwords do not match"}),
             )
             .await);
     }
@@ -48,7 +53,7 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
     let email = form.email.trim().to_lowercase();
     if !email.contains('@') || email.is_empty() {
         return Ok(data
-            .render_tpl("register", &json!({"error": "Ungültige E-Mail-Adresse"}))
+            .render_tpl("register", &json!({"error": "Invalid email address"}))
             .await);
     }
 
@@ -64,7 +69,7 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
         return Ok(data
             .render_tpl(
                 "register",
-                &json!({"error": "E-Mail wird bereits verwendet"}),
+                &json!({"error": "Email is already in use"}),
             )
             .await);
     }
@@ -92,16 +97,25 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
     if data.email_verification_enabled {
         if let Some(token) = verification_token {
             let verify_url = format!("http://{}/verify-email?token={}", data.domain, token);
-            let body = format!(
-                "<h1>Herzlich Willkommen!</h1><p>Bitte bestätigen Sie Ihre E-Mail-Adresse, indem Sie auf den folgenden Link klicken:</p><p><a href=\"{}\">E-Mail bestätigen</a></p>",
-                verify_url
-            );
+
+            let body = match data
+                .render_email("emails_verify", &json!({ "verify_url": verify_url }))
+                .await
+            {
+                Ok(html) => html,
+                Err(e) => {
+                    error!("Failed to render verification email template: {}", e);
+                    return Err(AppError::Internal(
+                        "Failed to render email template".to_string(),
+                    ));
+                }
+            };
 
             let email_clone = email.clone();
 
             // Sending email in a separate task to not block registration response
             actix_web::rt::spawn(async move {
-                if let Err(e) = send_mail(&email_clone, "E-Mail Bestätigung", &body) {
+                if let Err(e) = send_mail(&email_clone, "Email Verification", &body) {
                     error!(
                         "Failed to send verification email to {}: {}",
                         email_clone, e
@@ -109,12 +123,9 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
                 }
             });
 
-            return Ok(data
-                .render_tpl(
-                    "register",
-                    &json!({"success": "Ein Bestätigungslink wurde an Ihre E-Mail-Adresse gesendet."}),
-                )
-                .await);
+            return Ok(HttpResponse::SeeOther()
+                .append_header((LOCATION, "/register-success"))
+                .finish());
         }
     }
 
@@ -145,7 +156,7 @@ pub async fn verify_email(
         return Ok(data
             .render_tpl(
                 "login",
-                &json!({"error": "Ungültiger oder abgelaufener Bestätigungslink"}),
+                &json!({"error": "Invalid or expired confirmation link"}),
             )
             .await);
     }
@@ -153,7 +164,7 @@ pub async fn verify_email(
     Ok(data
         .render_tpl(
             "login",
-            &json!({"success": "E-Mail erfolgreich bestätigt. Sie können sich nun einloggen."}),
+            &json!({"success": "Email successfully confirmed. You can now log in."}),
         )
         .await)
 }
