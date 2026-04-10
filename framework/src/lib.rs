@@ -494,22 +494,23 @@ where
 
     let is_logged_in = crate::auth::read_jwt::<crate::structs::DefaultRole>(&req).is_ok();
 
-    let template = match status {
+    let (template, final_status) = match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
             if is_logged_in {
-                "noauth"
+                ("error", StatusCode::NOT_FOUND)
             } else {
-                "public_noauth"
+                ("public_error", StatusCode::NOT_FOUND)
             }
         }
         _ => {
             if is_logged_in {
-                "error"
+                ("error", status)
             } else {
-                "public_error"
+                ("public_error", status)
             }
         }
     };
+
 
     let error_msg = req.extensions().get::<String>().cloned();
     if let Some(ref msg) = error_msg {
@@ -518,13 +519,13 @@ where
 
     let display_error = if data.env == Env::Dev {
         error_msg.unwrap_or_else(|| {
-            status
+            final_status
                 .canonical_reason()
                 .unwrap_or("Unknown Error")
                 .to_string()
         })
     } else {
-        status
+        final_status
             .canonical_reason()
             .unwrap_or("An unexpected error occurred")
             .to_string()
@@ -532,13 +533,13 @@ where
 
     Ok(ErrorHandlerResponse::Future(Box::pin(async move {
         let ctx = serde_json::json!({
-            "status": status.as_u16(),
+            "status": final_status.as_u16(),
             "error": display_error,
         });
 
         let res_template = data.render_template(template, &ctx).await;
         let mut res = res_template;
-        *res.status_mut() = status;
+        *res.status_mut() = final_status;
 
         let res = ServiceResponse::new(req, res).map_into_right_body();
 
