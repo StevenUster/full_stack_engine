@@ -1,24 +1,26 @@
 use crate::{
-    AdminUser, AppData, AppResult, DefaultRole, Deserialize, Serialize, Table, TableHeader,
+    AppData, AppResult, AppRole, AuthUser, Deserialize, Role, Serialize, Table, TableHeader,
     actix_web::{HttpResponse, delete, get, post, web},
 };
 
-type AppUser = crate::User<DefaultRole>;
+type AppUser = crate::User<AppRole>;
 
 #[derive(Serialize)]
 struct Row {
     pub id: i64,
     pub email: String,
-    pub role: DefaultRole,
+    pub role: AppRole,
     pub created_at: String,
     pub link: String,
 }
 
 #[get("/users")]
-pub async fn get(data: web::Data<AppData>, _user: AdminUser<DefaultRole>) -> AppResult {
+pub async fn get(data: web::Data<AppData>, user: AuthUser<AppRole>) -> AppResult {
+    user.require_permission("users.read")?;
+
     let users = sqlx::query_as!(
         AppUser,
-        "SELECT id, email, password, role as \"role: DefaultRole\", created_at, is_verified, verification_token FROM users ORDER BY created_at DESC"
+        "SELECT id, email, password, role as \"role: AppRole\", created_at, is_verified, verification_token FROM users ORDER BY created_at DESC"
     )
     .fetch_all(&data.db)
     .await?;
@@ -73,7 +75,7 @@ pub async fn get(data: web::Data<AppData>, _user: AdminUser<DefaultRole>) -> App
                 "headers": table.headers,
                 "rows": table.rows,
                 "actions": table.actions,
-                "role": "admin"
+                "can_read_users": user.claims.role.has_permission("users.read")
             }),
         )
         .await)
@@ -82,13 +84,15 @@ pub async fn get(data: web::Data<AppData>, _user: AdminUser<DefaultRole>) -> App
 #[get("/users/{id}")]
 pub async fn get_user(
     data: web::Data<AppData>,
-    _user: AdminUser<DefaultRole>,
+    user: AuthUser<AppRole>,
     path: web::Path<i64>,
 ) -> AppResult {
+    user.require_permission("users.read")?;
+
     let user_id = path.into_inner();
     let user_data = sqlx::query_as!(
         AppUser,
-        "SELECT id, email, password, role as \"role: DefaultRole\", created_at, is_verified, verification_token FROM users WHERE id = ?",
+        "SELECT id, email, password, role as \"role: AppRole\", created_at, is_verified, verification_token FROM users WHERE id = ?",
         user_id
     )
     .fetch_one(&data.db)
@@ -100,7 +104,7 @@ pub async fn get_user(
             &crate::json!({
                 "id": user_data.id,
                 "email": user_data.email,
-                "role": "admin"
+                "can_read_users": user.claims.role.has_permission("users.read")
             }),
         )
         .await)
@@ -114,10 +118,12 @@ pub struct UserUpdateForm {
 #[post("/users/{id}")]
 pub async fn post_user(
     data: web::Data<AppData>,
-    _user: AdminUser<DefaultRole>,
+    user: AuthUser<AppRole>,
     path: web::Path<i64>,
     form: web::Form<UserUpdateForm>,
 ) -> AppResult {
+    user.require_permission("users.write")?;
+
     let user_id = path.into_inner();
 
     sqlx::query!("UPDATE users SET role = ? WHERE id = ?", form.role, user_id)
@@ -132,9 +138,11 @@ pub async fn post_user(
 #[delete("/users/{id}")]
 pub async fn delete_user(
     data: web::Data<AppData>,
-    _user: AdminUser<DefaultRole>,
+    user: AuthUser<AppRole>,
     path: web::Path<i64>,
 ) -> AppResult {
+    user.require_permission("users.write")?;
+
     let user_id = path.into_inner();
 
     sqlx::query!("DELETE FROM users WHERE id = ?", user_id)

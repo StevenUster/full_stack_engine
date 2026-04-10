@@ -1,5 +1,5 @@
 use crate::{
-    AppData, AppError, AppResult, DefaultRole, Deserialize, HttpResponse, actix_web::get,
+    AppData, AppError, AppResult, AppRole, Deserialize, HttpResponse, actix_web::get,
     actix_web::http::header::LOCATION, error, hash_password, send_mail, serde_json::json, web,
 };
 
@@ -70,7 +70,7 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
         None
     };
 
-    let role = DefaultRole::User;
+    let role = AppRole::User;
     let _user_id = sqlx::query!(
         "INSERT INTO users (email, password, role, is_verified, verification_token) VALUES (?, ?, ?, ?, ?)",
         email,

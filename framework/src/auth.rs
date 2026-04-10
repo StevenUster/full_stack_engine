@@ -1,4 +1,4 @@
-use crate::structs::{Role, User};
+use crate::structs::Role;
 use actix_web::{
     Error, FromRequest, HttpRequest, HttpResponse, dev::Payload, http::header::LOCATION,
 };
@@ -86,7 +86,7 @@ pub struct Claims<R: Role> {
     pub exp: usize,
 }
 
-pub fn create_jwt<R: Role>(user: &User<R>, secret: &str) -> Result<String, JwtError> {
+pub fn create_jwt<R: Role>(user: &crate::structs::User<R>, secret: &str) -> Result<String, JwtError> {
     let expiration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(JwtError::ExpirationError)?
@@ -134,6 +134,24 @@ pub struct AuthUser<R: Role> {
     pub claims: Claims<R>,
 }
 
+impl<R: Role> AuthUser<R> {
+    pub fn require_admin(&self) -> Result<(), crate::error::AppError> {
+        if self.claims.role.is_admin() {
+            Ok(())
+        } else {
+            Err(crate::error::AppError::NoAuth)
+        }
+    }
+
+    pub fn require_permission(&self, permission: &str) -> Result<(), crate::error::AppError> {
+        if self.claims.role.has_permission(permission) {
+            Ok(())
+        } else {
+            Err(crate::error::AppError::NoAuth)
+        }
+    }
+}
+
 impl<R: Role> FromRequest for AuthUser<R> {
     type Error = Error;
     type Future = Ready<Result<Self, Self::Error>>;
@@ -143,78 +161,6 @@ impl<R: Role> FromRequest for AuthUser<R> {
             .map(|claims| AuthUser { claims })
             .map_err(AuthError::from)
             .map_err(Error::from);
-
-        ready(result)
-    }
-}
-
-#[derive(Debug)]
-pub struct AdminUser<R: Role> {
-    pub claims: Claims<R>,
-}
-
-impl<R: Role> FromRequest for AdminUser<R> {
-    type Error = Error;
-    type Future = Ready<Result<Self, Self::Error>>;
-
-    fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
-        let auth_future = AuthUser::<R>::from_request(req, payload);
-
-        let result = match auth_future.into_inner() {
-            Ok(auth_user) => {
-                if auth_user.claims.role.is_admin() {
-                    Ok(AdminUser {
-                        claims: auth_user.claims,
-                    })
-                } else {
-                    Err(AuthError::from(JwtError::Unauthorized).into())
-                }
-            }
-            Err(e) => Err(e),
-        };
-
-        ready(result)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct PermissionRequired(pub String);
-
-impl PermissionRequired {
-    pub fn new(permission: &str) -> Self {
-        Self(permission.to_string())
-    }
-}
-
-#[derive(Debug)]
-pub struct RequirePermission<R: Role> {
-    pub claims: Claims<R>,
-}
-
-impl<R: Role> FromRequest for RequirePermission<R> {
-    type Error = Error;
-    type Future = Ready<Result<Self, Self::Error>>;
-
-    fn from_request(req: &HttpRequest, payload: &mut Payload) -> Self::Future {
-        let auth_future = AuthUser::<R>::from_request(req, payload);
-
-        let required = req
-            .app_data::<PermissionRequired>()
-            .cloned()
-            .unwrap_or_else(|| PermissionRequired::new(""));
-
-        let result = match auth_future.into_inner() {
-            Ok(auth_user) => {
-                if auth_user.claims.role.has_permission(&required.0) {
-                    Ok(RequirePermission {
-                        claims: auth_user.claims,
-                    })
-                } else {
-                    Err(AuthError::from(JwtError::Unauthorized).into())
-                }
-            }
-            Err(e) => Err(e),
-        };
 
         ready(result)
     }

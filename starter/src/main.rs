@@ -4,7 +4,10 @@ use crate::include_dir::{Dir, include_dir};
 pub use full_stack_engine::prelude::*;
 
 mod cronjobs;
+mod roles;
 mod services;
+
+pub use roles::AppRole;
 
 static DIST_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/frontend/dist");
 

@@ -1,11 +1,11 @@
 use crate::{
-    AppData, AppError, AppResult, Data, DefaultRole, Deserialize, Env, Form, HttpResponse, LOCATION,
+    AppData, AppError, AppResult, AppRole, Data, Deserialize, Env, Form, HttpResponse, LOCATION,
     Responder, Role, cookie::Cookie, cookie::time::Duration, create_jwt, get, hash_password, json,
     verify_password,
 };
 use std::sync::OnceLock;
 
-type AppUser = crate::User<DefaultRole>;
+type AppUser = crate::User<AppRole>;
 
 static DUMMY_HASH: OnceLock<String> = OnceLock::new();
 
@@ -23,7 +23,7 @@ pub async fn get(data: Data<AppData>) -> impl Responder {
 pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
     let user_res = sqlx::query_as!(
         AppUser,
-        "SELECT id, email, password, role as \"role: DefaultRole\", created_at, is_verified, verification_token FROM users WHERE email = $1",
+        "SELECT id, email, password, role as \"role: AppRole\", created_at, is_verified, verification_token FROM users WHERE email = $1",
         form.email
     )
     .fetch_one(&data.db)

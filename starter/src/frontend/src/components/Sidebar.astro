@@ -54,7 +54,7 @@
         </li>
       </ul>
     </div>
-    <Fragment set:html={'{% if role == "admin" %}'} />
+    <Fragment set:html={'{% if can_read_users %}'} />
     <div>
       <ul class="flex flex-col flex-1 gap-1 py-3">
         <li class="px-3">
