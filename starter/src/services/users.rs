@@ -1,5 +1,6 @@
+use crate::render::AppRenderExt;
 use crate::{
-    AppData, AppResult, AppRole, AuthUser, Deserialize, Role, Serialize, Table, TableHeader,
+    AppData, AppResult, AppRole, AuthUser, Deserialize, Serialize, Table, TableHeader,
     actix_web::{HttpResponse, delete, get, post, web},
 };
 
@@ -68,14 +69,14 @@ pub async fn get(data: web::Data<AppData>, user: AuthUser<AppRole>) -> AppResult
         actions: vec![],
     };
 
-    Ok(data
+    Ok(user
         .render_tpl(
+            &data,
             "users",
             &crate::json!({
                 "headers": table.headers,
                 "rows": table.rows,
                 "actions": table.actions,
-                "can_read_users": user.claims.role.has_permission("users.read")
             }),
         )
         .await)
@@ -98,13 +99,13 @@ pub async fn get_user(
     .fetch_one(&data.db)
     .await?;
 
-    Ok(data
+    Ok(user
         .render_tpl(
+            &data,
             "user",
             &crate::json!({
                 "id": user_data.id,
                 "email": user_data.email,
-                "can_read_users": user.claims.role.has_permission("users.read")
             }),
         )
         .await)

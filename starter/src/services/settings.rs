@@ -1,12 +1,7 @@
-use crate::{AppData, AppRole, AuthUser, Data, Responder, Role, get, json};
+use crate::render::AppRenderExt;
+use crate::{AppData, AppRole, AuthUser, Data, Responder, get, json};
 
 #[get("/settings")]
 pub async fn get(data: Data<AppData>, user: AuthUser<AppRole>) -> impl Responder {
-    data.render_tpl(
-        "settings",
-        &json!({
-            "can_read_users": user.claims.role.has_permission("users.read"),
-        }),
-    )
-    .await
+    user.render_tpl(&data, "settings", &json!({})).await
 }

@@ -1,12 +1,7 @@
-use crate::{AppData, AppRole, AuthUser, Data, Responder, Role, get, json};
+use crate::render::AppRenderExt;
+use crate::{AppData, AppRole, AuthUser, Data, Responder, get, json};
 
 #[get("/")]
 pub async fn index(data: Data<AppData>, user: AuthUser<AppRole>) -> impl Responder {
-    data.render_tpl(
-        "index",
-        &json!({
-            "can_read_users": user.claims.role.has_permission("users.read"),
-        }),
-    )
-    .await
+    user.render_tpl(&data, "index", &json!({})).await
 }

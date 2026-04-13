@@ -4,6 +4,7 @@ use crate::include_dir::{Dir, include_dir};
 pub use full_stack_engine::prelude::*;
 
 mod cronjobs;
+pub mod render;
 mod roles;
 mod services;
 
