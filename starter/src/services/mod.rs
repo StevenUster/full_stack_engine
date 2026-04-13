@@ -5,10 +5,12 @@ mod index;
 mod login;
 mod logout;
 mod register;
+mod settings;
 mod users;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(index::index);
+    cfg.service(settings::get);
     cfg.service(login::get);
     cfg.service(
         web::resource("/login")
