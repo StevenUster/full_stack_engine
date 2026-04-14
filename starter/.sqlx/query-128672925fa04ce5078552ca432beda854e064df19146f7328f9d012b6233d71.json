@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT * FROM users WHERE email = $1",
+  "query": "SELECT id, email, password, role as \"role: AppRole\", created_at, is_verified, verification_token FROM users WHERE email = $1",
   "describe": {
     "columns": [
       {
@@ -19,7 +19,7 @@
         "type_info": "Text"
       },
       {
-        "name": "role",
+        "name": "role: AppRole",
         "ordinal": 3,
         "type_info": "Text"
       },
@@ -27,6 +27,16 @@
         "name": "created_at",
         "ordinal": 4,
         "type_info": "Datetime"
+      },
+      {
+        "name": "is_verified",
+        "ordinal": 5,
+        "type_info": "Bool"
+      },
+      {
+        "name": "verification_token",
+        "ordinal": 6,
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -37,8 +47,10 @@
       false,
       false,
       false,
-      false
+      false,
+      false,
+      true
     ]
   },
-  "hash": "f3f58600e971f1be6cbe206bba24f77769f54c6230e28f5b3dc719b869d9cb3f"
+  "hash": "128672925fa04ce5078552ca432beda854e064df19146f7328f9d012b6233d71"
 }

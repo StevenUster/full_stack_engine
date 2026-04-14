@@ -1,6 +1,6 @@
 use crate::{
-    cookie::time::Duration, cookie::Cookie, post, AppData, AppRole, AuthUser, Data, Env,
-    HttpResponse, Responder, LOCATION,
+    AppData, AppRole, AuthUser, Data, Env, HttpResponse, LOCATION, Responder, cookie::Cookie,
+    cookie::time::Duration, post,
 };
 
 #[post("/logout")]

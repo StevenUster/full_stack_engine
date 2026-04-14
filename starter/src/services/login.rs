@@ -44,12 +44,7 @@ pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
 
     let password_ok = verify_password(&form.password, hash);
 
-    if !user_exists
-        || !password_ok
-        || user
-            .as_ref()
-            .is_none_or(|u| u.role.is_none())
-    {
+    if !user_exists || !password_ok || user.as_ref().is_none_or(|u| u.role.is_none()) {
         return Ok(data
             .render_tpl("login", &json!({"error": "Invalid credentials"}))
             .await);

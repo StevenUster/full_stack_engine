@@ -8,7 +8,23 @@ import Header from "../components/Header.astro";
     <main class="grid place-items-center">
         <div class="w-full">
             <Header>Settings</Header>
-            <Card> Settings </Card>
+            <Card>
+                <h3 class="mb-4 text-xl font-medium text-black">Account Settings</h3>
+                <form action="/settings/password-reset" method="POST">
+                    <button
+                        type="submit"
+                        class="inline-flex items-center justify-center h-10 gap-2 px-6 whitespace-nowrap btn-primary"
+                    >
+                        Send Password Reset Email
+                    </button>
+                    {"{% if success %}"}
+                        <p class="mt-4 text-green-600">{"{{ success }}"}</p>
+                    {"{% endif %}"}
+                    {"{% if error %}"}
+                        <p class="mt-4 text-red-600">{"{{ error }}"}</p>
+                    {"{% endif %}"}
+                </form>
+            </Card>
         </div>
     </main>
 </Layout>

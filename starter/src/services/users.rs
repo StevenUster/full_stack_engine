@@ -1,6 +1,5 @@
 use crate::{
-    AppData, AppResult, AppRole, AuthUser, Deserialize, Serialize, Table,
-    TableHeader,
+    AppData, AppResult, AppRole, AuthUser, Deserialize, Serialize, Table, TableHeader,
     actix_web::{HttpResponse, delete, get, post, web},
 };
 

@@ -5,12 +5,14 @@ mod index;
 mod login;
 mod logout;
 mod register;
+mod reset_password;
 mod settings;
 mod users;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(index::index);
     cfg.service(settings::get);
+    cfg.service(settings::post_password_reset);
     cfg.service(login::get);
     cfg.service(
         web::resource("/login")
@@ -30,4 +32,10 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(users::get_user);
     cfg.service(users::post_user);
     cfg.service(users::delete_user);
+    cfg.service(reset_password::get);
+    cfg.service(
+        web::resource("/reset-password")
+            .route(web::post().to(reset_password::post))
+            .wrap(auth_rate_limiter()),
+    );
 }

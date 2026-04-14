@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE users SET is_verified = 1, verification_token = NULL WHERE verification_token = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "8f862b4ca3cc92bb31c91416208e39e524935c33a01f94a2dfca4cb7689afbf7"
+}
