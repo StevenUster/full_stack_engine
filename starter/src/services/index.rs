@@ -1,4 +1,3 @@
-use crate::render::AppRenderExt;
 use crate::{AppData, AppRole, AuthUser, Data, Responder, get, json};
 
 #[get("/")]

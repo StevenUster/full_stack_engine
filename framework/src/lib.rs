@@ -22,7 +22,6 @@ pub mod error;
 pub mod mail;
 pub mod prelude;
 pub mod rate_limiter;
-pub mod render;
 pub mod structs;
 
 #[derive(Copy, Clone, PartialEq, serde::Serialize)]
@@ -511,7 +510,6 @@ where
             }
         }
     };
-
 
     let error_msg = req.extensions().get::<String>().cloned();
     if let Some(ref msg) = error_msg {
