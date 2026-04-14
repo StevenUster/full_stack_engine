@@ -1,7 +1,9 @@
 use crate::{
     AppData, AppResult, AppRole, AuthUser, Deserialize, Serialize, Table, TableHeader,
     actix_web::{HttpResponse, delete, get, post, web},
+    roles::all_roles,
 };
+use full_stack_engine::prelude::Role;
 
 type AppUser = crate::User<AppRole>;
 
@@ -105,6 +107,8 @@ pub async fn get_user(
             &crate::json!({
                 "id": user_data.id,
                 "email": user_data.email,
+                "role": user_data.role.as_str(),
+                "roles": all_roles(),
             }),
         )
         .await)

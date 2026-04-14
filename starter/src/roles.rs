@@ -16,6 +16,12 @@ pub enum AppRole {
     None,
 }
 
+impl AppRole {
+    pub fn all() -> &'static [Self] {
+        &[Self::Admin, Self::Manager, Self::User, Self::None]
+    }
+}
+
 impl Role for AppRole {
     fn as_str(&self) -> &str {
         match self {
@@ -57,4 +63,17 @@ impl std::fmt::Display for AppRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())
     }
+}
+
+pub fn all_roles() -> Vec<serde_json::Value> {
+    AppRole::all()
+        .iter()
+        .map(|r| {
+            let s = r.as_str();
+            crate::json!({
+                "value": s,
+                "label": s[..1].to_uppercase() + &s[1..],
+            })
+        })
+        .collect()
 }

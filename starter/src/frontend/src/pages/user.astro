@@ -1,13 +1,8 @@
 ---
 import Card from "../components/Card.astro";
 import Header from "../components/Header.astro";
-import Select from "../components/Select.astro";
+import RawHtml from "../components/RawHtml.astro";
 import Layout from "../layouts/Layout.astro";
-
-const options = [
-  { value: "admin", label: "Admin" },
-  { value: "none", label: "None" },
-];
 ---
 
 <Layout title="User">
@@ -20,13 +15,35 @@ const options = [
           method="POST"
           class="relative my-6 md:w-60"
         >
-          <Select
-            options={options}
-            placeholder="Role"
-            id="role"
-            selected
-            required
-          />
+          <div class="relative w-full">
+            <select
+              id="role"
+              name="role"
+              required
+              class="relative w-full h-10 px-4 text-sm transition-all bg-white border rounded outline-none appearance-none focus-visible:outline-none peer border-black autofill:bg-white"
+            >
+              <RawHtml html={`{% for r in roles %}<option value="{{ r.value }}" {% if r.value == role %}selected{% endif %}>{{ r.label }}</option>{% endfor %}`} />
+            </select>
+            <label
+              for="role"
+              class="pointer-events-none absolute top-3 left-2 z-[1] px-2 text-base transition-all before:absolute before:top-0 before:left-0 before:z-[-1] before:block before:h-full before:w-full before:bg-white before:transition-all peer-valid:-top-2 peer-valid:text-xs peer-focus:-top-2 peer-focus:text-xs peer-focus:text-primary-500"
+            >
+              Role
+            </label>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="pointer-events-none absolute top-2.5 right-2 h-5 w-5 fill-black transition-all peer-focus:fill-primary-500 peer-disabled:cursor-not-allowed"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <title id="title-role">Arrow Icon</title>
+              <desc id="description-role">Arrow icon of the select list.</desc>
+              <path
+                fill-rule="evenodd"
+                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                clip-rule="evenodd"></path>
+            </svg>
+          </div>
 
           <div class="flex justify-end mt-6">
             <button type="submit" class="btn-primary w-full">
