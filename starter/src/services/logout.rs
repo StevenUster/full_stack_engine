@@ -1,10 +1,19 @@
 use crate::{
-    AppData, AppRole, AuthUser, Data, Env, HttpResponse, LOCATION, Responder, cookie::Cookie,
-    cookie::time::Duration, post,
+    AppData, Data, Env, HttpResponse, LOCATION, Responder, cookie::Cookie, cookie::time::Duration,
+    get, post,
 };
 
+#[get("/logout")]
+pub async fn get(data: Data<AppData>) -> impl Responder {
+    logout_logic(data)
+}
+
 #[post("/logout")]
-pub async fn post(data: Data<AppData>, _user: AuthUser<AppRole>) -> impl Responder {
+pub async fn post(data: Data<AppData>) -> impl Responder {
+    logout_logic(data)
+}
+
+fn logout_logic(data: Data<AppData>) -> impl Responder {
     let cookie = Cookie::build("token", "")
         .domain(&data.domain)
         .path("/")

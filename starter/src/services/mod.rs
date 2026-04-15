@@ -29,6 +29,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     );
     cfg.service(register::verify_email);
     cfg.service(register::register_success);
+    cfg.service(logout::get);
     cfg.service(logout::post);
     cfg.service(users::get);
     cfg.service(users::get_user);

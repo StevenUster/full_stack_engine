@@ -1,6 +1,6 @@
 use crate::{
-    AppData, AppResult, AppRole, AuthUser, Data, Deserialize, Form, actix_web::get,
-    actix_web::post, error, json, send_mail,
+    AppData, AppResult, AppRole, AuthUser, Data, Deserialize, Form, HttpResponse, LOCATION,
+    actix_web::get, actix_web::post, error, json, send_mail,
 };
 
 #[get("/settings")]
@@ -169,12 +169,9 @@ pub async fn verify_email_change(
     .execute(&data.db)
     .await?;
 
-    Ok(data
-        .render_tpl(
-            "login",
-            &json!({"success": "Email address updated successfully. Please log in with your new email."}),
-        )
-        .await)
+    Ok(HttpResponse::SeeOther()
+        .append_header((LOCATION, "/logout"))
+        .finish())
 }
 
 #[post("/settings/password-reset")]
