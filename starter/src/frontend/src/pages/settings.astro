@@ -2,29 +2,153 @@
 import Layout from "../layouts/Layout.astro";
 import Card from "../components/Card.astro";
 import Header from "../components/Header.astro";
+import Input from "../components/Input.astro";
+import Modal from "../components/Modal.astro";
 ---
 
 <Layout title="Settings">
     <main class="grid place-items-center">
-        <div class="w-full">
+        <div class="w-full max-w-2xl">
             <Header>Settings</Header>
+
             <Card>
-                <h3 class="mb-4 text-xl font-medium text-black">Account Settings</h3>
-                <form action="/settings/password-reset" method="POST">
-                    <button
-                        type="submit"
-                        class="inline-flex items-center justify-center h-10 gap-2 px-6 whitespace-nowrap btn-primary"
-                    >
-                        Send Password Reset Email
-                    </button>
-                    {"{% if success %}"}
-                        <p class="mt-4 text-green-600">{"{{ success }}"}</p>
-                    {"{% endif %}"}
-                    {"{% if error %}"}
-                        <p class="mt-4 text-red-600">{"{{ error }}"}</p>
-                    {"{% endif %}"}
-                </form>
+                <div class="flex flex-col divide-y divide-gray-100">
+                    <!-- Email Setting -->
+                    <div class="pb-8">
+                        <div class="flex items-center justify-between mb-2">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900">
+                                    Email Address
+                                </h3>
+                                <p class="text-sm text-gray-500">
+                                    The primary email address associated with
+                                    your account.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onclick="document.getElementById('change-email-modal').showModal()"
+                                class="btn-secondary"
+                            >
+                                Change Email
+                            </button>
+                        </div>
+                        <div
+                            class="p-4 rounded-xl bg-gray-50/50 border border-gray-100"
+                        >
+                            <span class="text-sm font-medium text-gray-900"
+                                ><Fragment
+                                    set:html="{{ current_email }}"
+                                /></span
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Password Setting -->
+                    <div class="pt-8">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900">
+                                    Account Security
+                                </h3>
+                            </div>
+                        </div>
+
+                        <form action="/settings/password-reset" method="POST">
+                            <button type="submit" class="btn-primary">
+                                Send reset password email
+                            </button>
+                        </form>
+
+                        <Fragment set:html="{% if success %}" />
+                        <div
+                            class="mt-4 p-4 rounded-xl bg-green-50 border border-green-100"
+                        >
+                            <p class="text-sm font-medium text-green-700">
+                                <Fragment set:html="{{ success }}" />
+                            </p>
+                        </div>
+                        <Fragment set:html="{% endif %}" />
+
+                        <Fragment set:html="{% if error %}" />
+                        <div
+                            class="mt-4 p-4 rounded-xl bg-red-50 border border-red-100"
+                        >
+                            <p class="text-sm font-medium text-red-700">
+                                <Fragment set:html="{{ error }}" />
+                            </p>
+                        </div>
+                        <Fragment set:html="{% endif %}" />
+                    </div>
+                </div>
             </Card>
         </div>
     </main>
+
+    <!-- Change Email Modal -->
+    <Modal id="change-email-modal" title="Update Email Address">
+        <form
+            id="change-email-form"
+            action="/settings/change-email"
+            method="POST"
+            class="space-y-6"
+        >
+            <div class="space-y-2">
+                <label
+                    for="new_email"
+                    class="text-sm font-bold text-gray-700 ml-1"
+                    >New Email Address</label
+                >
+                <Input
+                    id="new_email"
+                    type="email"
+                    placeholder="e.g. name@example.com"
+                    required={true}
+                />
+            </div>
+
+            <div class="flex flex-col gap-3 pt-4">
+                <button type="submit" class="w-full btn-primary">
+                    Update Email
+                </button>
+                <button
+                    type="button"
+                    onclick="document.getElementById('change-email-modal').close()"
+                    class="w-full btn-secondary"
+                >
+                    Cancel
+                </button>
+            </div>
+
+            <!-- Modal Messages -->
+            <div id="modal-messages">
+                <Fragment set:html="{% if email_success %}" />
+                <div class="p-4 rounded-xl bg-green-50 border border-green-100">
+                    <p class="text-sm font-medium text-green-700">
+                        <Fragment set:html="{{ email_success }}" />
+                    </p>
+                </div>
+                <Fragment set:html="{% endif %}" />
+
+                <Fragment set:html="{% if email_error %}" />
+                <div class="p-4 rounded-xl bg-red-50 border border-red-100">
+                    <p class="text-sm font-medium text-red-700">
+                        <Fragment set:html="{{ email_error }}" />
+                    </p>
+                </div>
+                <Fragment set:html="{% endif %}" />
+            </div>
+        </form>
+    </Modal>
+
+    <script is:inline>
+        // Auto-open modal if there's a result from the email change attempt
+        document.addEventListener("DOMContentLoaded", () => {
+            const modal = document.getElementById("change-email-modal");
+            const messages = document.getElementById("modal-messages");
+            if (messages && messages.textContent.trim().length > 0) {
+                modal.showModal();
+            }
+        });
+    </script>
 </Layout>
