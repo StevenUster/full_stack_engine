@@ -1,7 +1,7 @@
 /// Macro that generates an `AppRole` enum with all trait impls from a single definition.
 #[macro_export]
 macro_rules! define_roles {
-    ( $( ($variant:ident, $str:literal, admin: $is_admin:literal, none: $is_none:literal, perms: [ $($perm:literal),* ]) ),+ $(,)? ) => {
+    ( $( ($variant:ident, $str:literal, [ $($perm:literal),* $(,)? ]) ),+ $(,)? ) => {
 
         #[derive(
             $crate::prelude::Serialize,
@@ -45,7 +45,7 @@ macro_rules! define_roles {
                 match s.to_lowercase().as_str() {
                     $( $str => Self::$variant, )+
                     _ => {
-                        $( if $is_none { return Self::$variant; } )+
+                        $( if [$($perm),*].contains(&"none") { return Self::$variant; } )+
                         unreachable!()
                     }
                 }
@@ -53,20 +53,20 @@ macro_rules! define_roles {
 
             fn is_admin(&self) -> bool {
                 match self {
-                    $( Self::$variant => $is_admin ),+
+                    $( Self::$variant => [$($perm),*].contains(&"all") ),+
                 }
             }
 
             fn is_none(&self) -> bool {
                 match self {
-                    $( Self::$variant => $is_none ),+
+                    $( Self::$variant => [$($perm),*].contains(&"none") ),+
                 }
             }
 
             fn has_permission(&self, permission: &str) -> bool {
                 if <Self as $crate::prelude::Role>::is_admin(self) { return true; }
                 match self {
-                    $( Self::$variant => matches!(permission, $( $perm )|* | ""), )+
+                    $( Self::$variant => matches!(permission, $( $perm )|* | "") ),+
                 }
             }
         }
