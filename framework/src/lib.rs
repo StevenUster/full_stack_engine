@@ -22,6 +22,7 @@ pub mod error;
 pub mod mail;
 pub mod prelude;
 pub mod rate_limiter;
+pub mod roles;
 pub mod structs;
 
 #[derive(Copy, Clone, PartialEq, serde::Serialize)]
