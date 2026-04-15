@@ -13,6 +13,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(index::index);
     cfg.service(settings::get);
     cfg.service(settings::post_change_email);
+    cfg.service(settings::verify_email_change);
     cfg.service(settings::post_password_reset);
     cfg.service(login::get);
     cfg.service(

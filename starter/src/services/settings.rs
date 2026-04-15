@@ -31,19 +31,19 @@ pub async fn post_change_email(
 ) -> AppResult {
     let new_email = form.new_email.trim().to_lowercase();
 
+    let current = sqlx::query!("SELECT email FROM users WHERE id = ?", user.claims.sub)
+        .fetch_one(&data.db)
+        .await?;
+
     if !new_email.contains('@') || new_email.is_empty() {
         return Ok(user
             .render_tpl(
                 &data,
                 "settings",
-                &json!({"email_error": "Please enter a valid email address.", "current_email": new_email}),
+                &json!({"email_error": "Please enter a valid email address.", "current_email": current.email}),
             )
             .await);
     }
-
-    let current = sqlx::query!("SELECT email FROM users WHERE id = ?", user.claims.sub)
-        .fetch_one(&data.db)
-        .await?;
 
     if current.email == new_email {
         return Ok(user
@@ -55,7 +55,7 @@ pub async fn post_change_email(
             .await);
     }
 
-    // A attacker could use this to find out if an email exists but I don't see a better option.
+    // An attacker could use this to find out if an email exists but I don't see a better option.
     let existing = sqlx::query!("SELECT id FROM users WHERE email = ?", new_email)
         .fetch_optional(&data.db)
         .await?;
@@ -70,19 +70,109 @@ pub async fn post_change_email(
             .await);
     }
 
+    let token = uuid::Uuid::new_v4().to_string();
+
     sqlx::query!(
-        "UPDATE users SET email = ? WHERE id = ?",
+        "UPDATE users SET pending_email = ?, email_change_token = ? WHERE id = ?",
         new_email,
+        token,
         user.claims.sub
     )
     .execute(&data.db)
     .await?;
 
+    let verify_url = format!("http://{}/verify-email-change?token={}", data.domain, token);
+
+    let body = match data
+        .render_email(
+            "emails_verify-email-change",
+            &json!({ "verify_url": verify_url }),
+        )
+        .await
+    {
+        Ok(html) => html,
+        Err(e) => {
+            error!("Failed to render email change verification template: {e}");
+            return Ok(user
+                .render_tpl(
+                    &data,
+                    "settings",
+                    &json!({"email_error": "Failed to send verification email.", "current_email": current.email}),
+                )
+                .await);
+        }
+    };
+
+    let email_clone = new_email.clone();
+    actix_web::rt::spawn(async move {
+        if let Err(e) = send_mail(&email_clone, "Confirm Your New Email", &body) {
+            error!("Failed to send email change verification to {email_clone}: {e}");
+        }
+    });
+
     Ok(user
         .render_tpl(
             &data,
             "settings",
-            &json!({"email_success": "Email address updated successfully.", "current_email": new_email}),
+            &json!({"email_success": "A verification email has been sent to your new address. Please check your inbox to confirm the change.", "current_email": current.email}),
+        )
+        .await)
+}
+
+#[get("/verify-email-change")]
+pub async fn verify_email_change(
+    data: Data<AppData>,
+    query: actix_web::web::Query<std::collections::HashMap<String, String>>,
+) -> AppResult {
+    let token = match query.get("token") {
+        Some(t) => t,
+        None => {
+            return Ok(data
+                .render_tpl("login", &json!({"error": "Missing token"}))
+                .await);
+        }
+    };
+
+    let user_row = sqlx::query!(
+        "SELECT id, pending_email FROM users WHERE email_change_token = ?",
+        token
+    )
+    .fetch_optional(&data.db)
+    .await?;
+
+    let user_row = match user_row {
+        Some(row) => row,
+        None => {
+            return Ok(data
+                .render_tpl(
+                    "login",
+                    &json!({"error": "Invalid or expired confirmation link."}),
+                )
+                .await);
+        }
+    };
+
+    let new_email = match user_row.pending_email {
+        Some(email) => email,
+        None => {
+            return Ok(data
+                .render_tpl("login", &json!({"error": "No pending email change found."}))
+                .await);
+        }
+    };
+
+    sqlx::query!(
+        "UPDATE users SET email = ?, pending_email = NULL, email_change_token = NULL WHERE id = ?",
+        new_email,
+        user_row.id
+    )
+    .execute(&data.db)
+    .await?;
+
+    Ok(data
+        .render_tpl(
+            "login",
+            &json!({"success": "Email address updated successfully. Please log in with your new email."}),
         )
         .await)
 }
