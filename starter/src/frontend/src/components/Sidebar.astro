@@ -54,7 +54,6 @@
         </li>
       </ul>
     </div>
-    <Fragment set:html={"{% if can_read_users %}"} />
     <div>
       <ul class="flex flex-col flex-1 gap-1 py-3">
         <li class="px-3">
@@ -88,6 +87,8 @@
             </div>
           </a>
         </li>
+
+        <Fragment set:html={"{% if can_read_users %}"} />
         <li class="px-3">
           <a
             href="/users"
@@ -114,9 +115,9 @@
             </div>
           </a>
         </li>
+        <Fragment set:html={"{% endif %}"} />
       </ul>
     </div>
-    <Fragment set:html={"{% endif %}"} />
   </nav>
 
   <footer class="p-3 border-t border-secondary-200">

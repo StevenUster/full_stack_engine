@@ -76,6 +76,6 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<ResetPasswordForm>) 
     }
 
     Ok(HttpResponse::SeeOther()
-        .append_header((LOCATION, "/login"))
+        .append_header((LOCATION, "/logout"))
         .finish())
 }
