@@ -16,7 +16,8 @@ struct Row {
 }
 
 #[get("/users")]
-pub async fn get(data: web::Data<AppData>, user: AuthUser<AppRole>) -> AppResult {
+pub async fn get(data: web::Data<AppData>, req: actix_web::HttpRequest, user: AuthUser<AppRole>) -> AppResult {
+    use super::RenderTplExt;
     user.require_permission("users.read")?;
 
     let users = sqlx::query_as!(
@@ -69,9 +70,8 @@ pub async fn get(data: web::Data<AppData>, user: AuthUser<AppRole>) -> AppResult
         actions: vec![],
     };
 
-    Ok(user
+    Ok(req
         .render_tpl(
-            &data,
             "users",
             &crate::json!({
                 "headers": table.headers,
@@ -85,9 +85,11 @@ pub async fn get(data: web::Data<AppData>, user: AuthUser<AppRole>) -> AppResult
 #[get("/users/{id}")]
 pub async fn get_user(
     data: web::Data<AppData>,
+    req: actix_web::HttpRequest,
     user: AuthUser<AppRole>,
     path: web::Path<i64>,
 ) -> AppResult {
+    use super::RenderTplExt;
     user.require_permission("users.read")?;
 
     let user_id = path.into_inner();
@@ -99,9 +101,8 @@ pub async fn get_user(
     .fetch_one(&data.db)
     .await?;
 
-    Ok(user
+    Ok(req
         .render_tpl(
-            &data,
             "user",
             &crate::json!({
                 "id": user_data.id,

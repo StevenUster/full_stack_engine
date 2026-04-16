@@ -1,6 +1,6 @@
 pub use crate::{
-    AppData, Env, FrameworkApp,
-    auth::{AuthUser, create_jwt, hash_password, verify_password},
+    AppData, Env, FrameworkApp, RenderTplExt,
+    auth::{AuthUser, create_jwt, hash_password, read_jwt, verify_password},
     error::{AppError, AppResult, ResultExt},
     mail::send_mail,
     structs::{DefaultRole, Role, Table, TableAction, TableHeader, User},

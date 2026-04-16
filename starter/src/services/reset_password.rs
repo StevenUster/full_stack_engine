@@ -10,14 +10,15 @@ pub struct ResetPasswordQuery {
 }
 
 #[get("/reset-password")]
-pub async fn get(data: web::Data<AppData>, query: web::Query<ResetPasswordQuery>) -> AppResult {
+pub async fn get(_data: web::Data<AppData>, req: actix_web::HttpRequest, query: web::Query<ResetPasswordQuery>) -> AppResult {
+    use super::RenderTplExt;
     let Some(token) = &query.token else {
         return Ok(HttpResponse::SeeOther()
             .append_header((LOCATION, "/"))
             .finish());
     };
 
-    Ok(data
+    Ok(req
         .render_tpl("reset-password", &json!({ "token": token }))
         .await)
 }
@@ -29,9 +30,10 @@ pub struct ResetPasswordForm {
     repeat_password: String,
 }
 
-pub async fn post(data: web::Data<AppData>, form: web::Form<ResetPasswordForm>) -> AppResult {
+pub async fn post(data: web::Data<AppData>, req: actix_web::HttpRequest, form: web::Form<ResetPasswordForm>) -> AppResult {
+    use super::RenderTplExt;
     if form.token.is_empty() {
-        return Ok(data
+        return Ok(req
             .render_tpl(
                 "reset-password",
                 &json!({"error": "Invalid token", "token": form.token}),
@@ -40,13 +42,13 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<ResetPasswordForm>) 
     }
 
     if form.password.len() < 8 {
-        return Ok(data
+        return Ok(req
             .render_tpl("reset-password", &json!({"error": "Password must be at least 8 characters long", "token": form.token}))
             .await);
     }
 
     if form.password != form.repeat_password {
-        return Ok(data
+        return Ok(req
             .render_tpl(
                 "reset-password",
                 &json!({"error": "Passwords do not match", "token": form.token}),
@@ -67,7 +69,7 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<ResetPasswordForm>) 
     .map_err(|e: sqlx::Error| AppError::Internal(e.to_string()))?;
 
     if result.rows_affected() == 0 {
-        return Ok(data
+        return Ok(req
             .render_tpl(
                 "reset-password",
                 &json!({"error": "Invalid or expired reset token", "token": form.token}),

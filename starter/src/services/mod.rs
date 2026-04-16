@@ -1,6 +1,8 @@
 use crate::web;
 use full_stack_engine::rate_limiter::auth_rate_limiter;
 
+pub use full_stack_engine::prelude::RenderTplExt;
+
 mod index;
 mod login;
 mod logout;

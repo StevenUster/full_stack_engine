@@ -25,6 +25,8 @@ pub mod rate_limiter;
 pub mod roles;
 pub mod structs;
 
+pub type ContextInjectorFn = Box<dyn Fn(&actix_web::HttpRequest, &mut serde_json::Value) + Send + Sync + 'static>;
+
 #[derive(Copy, Clone, PartialEq, serde::Serialize)]
 pub enum Env {
     Dev,
@@ -39,6 +41,27 @@ pub struct AppData {
     pub jwt_secret: String,
     pub smtp_from: String,
     pub email_verification_enabled: bool,
+    pub context_injector: Option<std::sync::Arc<ContextInjectorFn>>,
+}
+
+pub trait RenderTplExt {
+    fn render_tpl<'a, T: serde::Serialize>(&'a self, template: &'a str, context: &T) -> std::pin::Pin<Box<dyn std::future::Future<Output = HttpResponse> + 'a>>;
+}
+
+impl RenderTplExt for actix_web::HttpRequest {
+    fn render_tpl<'a, T: serde::Serialize>(&'a self, template: &'a str, context: &T) -> std::pin::Pin<Box<dyn std::future::Future<Output = HttpResponse> + 'a>> {
+        let app_data = self.app_data::<actix_web::web::Data<crate::AppData>>().unwrap().clone();
+        let mut value = serde_json::to_value(context).unwrap_or_else(|_| serde_json::json!({}));
+        
+        if let Some(injector) = &app_data.context_injector {
+            injector(self, &mut value);
+        }
+        
+        let template_owned = template.to_string();
+        Box::pin(async move {
+            app_data.render_template(&template_owned, &value).await
+        })
+    }
 }
 
 impl AppData {
@@ -184,6 +207,7 @@ pub struct FrameworkApp {
     dist_dir: &'static Dir<'static>,
     configure_fn: Option<ConfigureFn>,
     cronjobs_fn: Option<CronjobsFn>,
+    context_injector: Option<std::sync::Arc<ContextInjectorFn>>,
 }
 
 impl FrameworkApp {
@@ -192,7 +216,16 @@ impl FrameworkApp {
             dist_dir,
             configure_fn: None,
             cronjobs_fn: None,
+            context_injector: None,
         }
+    }
+
+    pub fn global_context_injector<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&actix_web::HttpRequest, &mut serde_json::Value) + Send + Sync + 'static,
+    {
+        self.context_injector = Some(std::sync::Arc::new(Box::new(f)));
+        self
     }
 
     pub fn configure<F>(mut self, f: F) -> Self
@@ -294,6 +327,7 @@ impl FrameworkApp {
 
         let dist_dir = self.dist_dir;
         let configure_fn = self.configure_fn.map(std::sync::Arc::new);
+        let context_injector = self.context_injector.clone();
 
         HttpServer::new(move || {
             let mut default_headers = DefaultHeaders::new()
@@ -339,6 +373,7 @@ impl FrameworkApp {
                     email_verification_enabled: env::var("EMAIL_VERIFICATION_ENABLED")
                         .unwrap_or_else(|_| "false".to_string())
                         == "true",
+                    context_injector: context_injector.clone(),
                 }))
                 .wrap(NormalizePath::trim())
                 .wrap(

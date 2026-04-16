@@ -11,18 +11,21 @@ pub struct FormData {
 }
 
 #[get("/register")]
-pub async fn get(data: web::Data<AppData>) -> HttpResponse {
-    data.render("register").await
+pub async fn get(req: actix_web::HttpRequest) -> actix_web::HttpResponse {
+    use super::RenderTplExt;
+    req.render_tpl("register", &json!({})).await
 }
 
 #[get("/register-success")]
-pub async fn register_success(data: web::Data<AppData>) -> HttpResponse {
-    data.render("register-success").await
+pub async fn register_success(req: actix_web::HttpRequest) -> actix_web::HttpResponse {
+    use super::RenderTplExt;
+    req.render_tpl("register-success", &json!({})).await
 }
 
-pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppResult {
+pub async fn post(data: web::Data<AppData>, req: actix_web::HttpRequest, form: web::Form<FormData>) -> AppResult {
+    use super::RenderTplExt;
     if form.password.len() < 8 {
-        return Ok(data
+        return Ok(req
             .render_tpl(
                 "register",
                 &json!({"error": "Password must be at least 8 characters long"}),
@@ -31,14 +34,14 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
     }
 
     if form.password != form.repeat_password {
-        return Ok(data
+        return Ok(req
             .render_tpl("register", &json!({"error": "Passwords do not match"}))
             .await);
     }
 
     let email = form.email.trim().to_lowercase();
     if !email.contains('@') || email.is_empty() {
-        return Ok(data
+        return Ok(req
             .render_tpl("register", &json!({"error": "Invalid email address"}))
             .await);
     }
@@ -123,8 +126,10 @@ pub async fn post(data: web::Data<AppData>, form: web::Form<FormData>) -> AppRes
 #[get("/verify-email")]
 pub async fn verify_email(
     data: web::Data<AppData>,
+    req: actix_web::HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult {
+    use super::RenderTplExt;
     let token = match query.get("token") {
         Some(t) => t,
         None => return Ok(HttpResponse::BadRequest().body("Missing token")),
@@ -139,7 +144,7 @@ pub async fn verify_email(
     .map_err(|e| AppError::Internal(e.to_string()))?;
 
     if result.rows_affected() == 0 {
-        return Ok(data
+        return Ok(req
             .render_tpl(
                 "login",
                 &json!({"error": "Invalid or expired confirmation link"}),
@@ -147,7 +152,7 @@ pub async fn verify_email(
             .await);
     }
 
-    Ok(data
+    Ok(req
         .render_tpl(
             "login",
             &json!({"success": "Email successfully confirmed. You can now log in."}),

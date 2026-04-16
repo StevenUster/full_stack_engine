@@ -16,11 +16,13 @@ pub struct FormData {
 }
 
 #[get("/login")]
-pub async fn get(data: Data<AppData>) -> impl Responder {
-    data.render("login").await
+pub async fn get(req: actix_web::HttpRequest) -> impl Responder {
+    use super::RenderTplExt;
+    req.render_tpl("login", &json!({})).await
 }
 
-pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
+pub async fn post(data: Data<AppData>, req: actix_web::HttpRequest, form: Form<FormData>) -> AppResult {
+    use super::RenderTplExt;
     let user_res = sqlx::query_as!(
         AppUser,
         "SELECT id, email, password, role as \"role: AppRole\", created_at, is_verified, verification_token FROM users WHERE email = $1",
@@ -45,14 +47,14 @@ pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
     let password_ok = verify_password(&form.password, hash);
 
     if !user_exists || !password_ok || user.as_ref().is_none_or(|u| u.role.is_none()) {
-        return Ok(data
+        return Ok(req
             .render_tpl("login", &json!({"error": "Invalid credentials"}))
             .await);
     }
 
     if let Some(ref u) = user {
         if !u.is_verified {
-            return Ok(data
+            return Ok(req
                 .render_tpl(
                     "login",
                     &json!({"error": "Please confirm your email address first."}),
@@ -64,7 +66,7 @@ pub async fn post(data: Data<AppData>, form: Form<FormData>) -> AppResult {
     let user = match user {
         Some(u) => u,
         None => {
-            return Ok(data
+            return Ok(req
                 .render_tpl("login", &json!({"error": "Falsche Daten"}))
                 .await);
         }

@@ -1,17 +1,15 @@
+
 use crate::structs::Role;
 use actix_web::{
     Error, FromRequest, HttpRequest, HttpResponse, dev::Payload, http::header::LOCATION,
-    web::Data,
 };
 use argon2::Config;
 use futures::future::{Ready, ready};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::{RngCore, rng};
-use serde::Serialize;
-use serde_json::json;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
-use crate::AppData;
 
 pub fn hash_password(password: &str) -> Result<String, argon2::Error> {
     let mut salt = vec![0u8; 16];
@@ -90,7 +88,10 @@ pub struct Claims<R: Role> {
     pub exp: usize,
 }
 
-pub fn create_jwt<R: Role>(user: &crate::structs::User<R>, secret: &str) -> Result<String, JwtError> {
+pub fn create_jwt<R: Role>(
+    user: &crate::structs::User<R>,
+    secret: &str,
+) -> Result<String, JwtError> {
     let expiration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(JwtError::ExpirationError)?
@@ -153,29 +154,6 @@ impl<R: Role> AuthUser<R> {
         } else {
             Err(crate::error::AppError::NoAuth)
         }
-    }
-
-    pub async fn render_tpl<T: Serialize + Send + Sync>(
-        &self,
-        data: &Data<AppData>,
-        template: &str,
-        context: &T,
-    ) -> HttpResponse
-    where
-        R: Serialize + Send + Sync,
-    {
-        let mut value = serde_json::to_value(context).unwrap_or_else(|_| json!({}));
-        if let Some(obj) = value.as_object_mut() {
-            obj.insert(
-                "can_read_users".to_string(),
-                serde_json::json!(self.claims.role.has_permission("users.read")),
-            );
-            obj.insert(
-                "user".to_string(),
-                serde_json::to_value(&self.claims).unwrap_or(serde_json::json!({})),
-            );
-        }
-        data.render_tpl(template, &value).await
     }
 }
 

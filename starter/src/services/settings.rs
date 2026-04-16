@@ -4,14 +4,14 @@ use crate::{
 };
 
 #[get("/settings")]
-pub async fn get(data: Data<AppData>, user: AuthUser<AppRole>) -> AppResult {
+pub async fn get(data: Data<AppData>, req: actix_web::HttpRequest, user: AuthUser<AppRole>) -> AppResult {
+    use super::RenderTplExt;
     let user_data = sqlx::query!("SELECT email FROM users WHERE id = ?", user.claims.sub)
         .fetch_one(&data.db)
         .await?;
 
-    Ok(user
+    Ok(req
         .render_tpl(
-            &data,
             "settings",
             &json!({ "current_email": user_data.email }),
         )
@@ -26,9 +26,11 @@ pub struct ChangeEmailForm {
 #[post("/settings/change-email")]
 pub async fn post_change_email(
     data: Data<AppData>,
+    req: actix_web::HttpRequest,
     user: AuthUser<AppRole>,
     form: Form<ChangeEmailForm>,
 ) -> AppResult {
+    use super::RenderTplExt;
     let new_email = form.new_email.trim().to_lowercase();
 
     let current = sqlx::query!("SELECT email FROM users WHERE id = ?", user.claims.sub)
@@ -36,9 +38,8 @@ pub async fn post_change_email(
         .await?;
 
     if !new_email.contains('@') || new_email.is_empty() {
-        return Ok(user
+        return Ok(req
             .render_tpl(
-                &data,
                 "settings",
                 &json!({"email_error": "Please enter a valid email address.", "current_email": current.email}),
             )
@@ -46,9 +47,8 @@ pub async fn post_change_email(
     }
 
     if current.email == new_email {
-        return Ok(user
+        return Ok(req
             .render_tpl(
-                &data,
                 "settings",
                 &json!({"email_error": "This is already your current email.", "current_email": new_email}),
             )
@@ -61,9 +61,8 @@ pub async fn post_change_email(
         .await?;
 
     if existing.is_some() {
-        return Ok(user
+        return Ok(req
             .render_tpl(
-                &data,
                 "settings",
                 &json!({"email_error": "This email address is already in use.", "current_email": current.email}),
             )
@@ -93,9 +92,8 @@ pub async fn post_change_email(
         Ok(html) => html,
         Err(e) => {
             error!("Failed to render email change verification template: {e}");
-            return Ok(user
+            return Ok(req
                 .render_tpl(
-                    &data,
                     "settings",
                     &json!({"email_error": "Failed to send verification email.", "current_email": current.email}),
                 )
@@ -110,9 +108,8 @@ pub async fn post_change_email(
         }
     });
 
-    Ok(user
+    Ok(req
         .render_tpl(
-            &data,
             "settings",
             &json!({"email_success": "A verification email has been sent to your new address. Please check your inbox to confirm the change.", "current_email": current.email}),
         )
@@ -122,12 +119,14 @@ pub async fn post_change_email(
 #[get("/verify-email-change")]
 pub async fn verify_email_change(
     data: Data<AppData>,
+    req: actix_web::HttpRequest,
     query: actix_web::web::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult {
+    use super::RenderTplExt;
     let token = match query.get("token") {
         Some(t) => t,
         None => {
-            return Ok(data
+            return Ok(req
                 .render_tpl("login", &json!({"error": "Missing token"}))
                 .await);
         }
@@ -143,7 +142,7 @@ pub async fn verify_email_change(
     let user_row = match user_row {
         Some(row) => row,
         None => {
-            return Ok(data
+            return Ok(req
                 .render_tpl(
                     "login",
                     &json!({"error": "Invalid or expired confirmation link."}),
@@ -155,7 +154,7 @@ pub async fn verify_email_change(
     let new_email = match user_row.pending_email {
         Some(email) => email,
         None => {
-            return Ok(data
+            return Ok(req
                 .render_tpl("login", &json!({"error": "No pending email change found."}))
                 .await);
         }
@@ -175,7 +174,8 @@ pub async fn verify_email_change(
 }
 
 #[post("/settings/password-reset")]
-pub async fn post_password_reset(data: Data<AppData>, user: AuthUser<AppRole>) -> AppResult {
+pub async fn post_password_reset(data: Data<AppData>, req: actix_web::HttpRequest, user: AuthUser<AppRole>) -> AppResult {
+    use super::RenderTplExt;
     let token = uuid::Uuid::new_v4().to_string();
 
     let user_data = sqlx::query!("SELECT email FROM users WHERE id = ?", user.claims.sub)
@@ -199,9 +199,8 @@ pub async fn post_password_reset(data: Data<AppData>, user: AuthUser<AppRole>) -
         Ok(html) => html,
         Err(e) => {
             error!("Failed to render password reset email template: {e}");
-            return Ok(user
+            return Ok(req
                 .render_tpl(
-                    &data,
                     "settings",
                     &json!({"error": "Failed to generate password reset email", "current_email": user_data.email}),
                 )
@@ -216,9 +215,8 @@ pub async fn post_password_reset(data: Data<AppData>, user: AuthUser<AppRole>) -
         }
     });
 
-    Ok(user
+    Ok(req
         .render_tpl(
-            &data,
             "settings",
             &json!({"success": "Password reset email sent.", "current_email": user_data.email}),
         )
