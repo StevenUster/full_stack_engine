@@ -56,6 +56,7 @@
     </div>
     <div>
       <ul class="flex flex-col flex-1 gap-1 py-3">
+        <Fragment set:html={"{% if user %}"} />
         <li class="px-3">
           <a
             href="/settings"
@@ -87,6 +88,7 @@
             </div>
           </a>
         </li>
+        <Fragment set:html={"{% endif %}"} />
 
         <Fragment set:html={"{% if can_read_users %}"} />
         <li class="px-3">
@@ -121,6 +123,7 @@
   </nav>
 
   <footer class="p-3 border-t border-secondary-200">
+    <Fragment set:html={"{% if user %}"} />
     <form action="/logout" method="POST">
       <button
         class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-500"
@@ -134,7 +137,7 @@
             stroke-width="1.5"
             stroke="currentColor"
             class="w-6 h-6"
-            aria-label="Dashboard icon"
+            aria-label="Logout icon"
           >
             <path
               stroke-linecap="round"
@@ -150,6 +153,35 @@
         </div>
       </button>
     </form>
+    <Fragment set:html={"{% else %}"} />
+    <a
+      href="/login"
+      class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-500"
+    >
+      <div class="flex items-center self-center">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="1.5"
+          stroke="currentColor"
+          class="w-6 h-6"
+          aria-label="Login icon"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"
+          ></path>
+        </svg>
+      </div>
+      <div
+        class="flex flex-col items-start justify-center flex-1 w-full gap-0 overflow-hidden font-medium truncate"
+      >
+        Login
+      </div>
+    </a>
+    <Fragment set:html={"{% endif %}"} />
   </footer>
 </aside>
 
