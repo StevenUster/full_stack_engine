@@ -27,7 +27,7 @@ import Modal from "../components/Modal.astro";
                             </div>
                             <button
                                 type="button"
-                                onclick="document.getElementById('change-email-modal').showModal()"
+                                id="change-email-btn"
                                 class="btn-secondary"
                             >
                                 Change Email
@@ -113,7 +113,7 @@ import Modal from "../components/Modal.astro";
                 </button>
                 <button
                     type="button"
-                    onclick="document.getElementById('change-email-modal').close()"
+                    id="cancel-email-change-btn"
                     class="w-full btn-secondary"
                 >
                     Cancel
@@ -141,12 +141,23 @@ import Modal from "../components/Modal.astro";
         </form>
     </Modal>
 
-    <script is:inline>
+    <script>
+        // Handle modal opening/closing
+        const modal = document.getElementById("change-email-modal") as HTMLDialogElement;
+        const openBtn = document.getElementById("change-email-btn");
+        const closeBtn = document.getElementById("cancel-email-change-btn");
+
+        if (openBtn && modal) {
+            openBtn.addEventListener("click", () => modal.showModal());
+        }
+        if (closeBtn && modal) {
+            closeBtn.addEventListener("click", () => modal.close());
+        }
+
         // Auto-open modal if there's a result from the email change attempt
         document.addEventListener("DOMContentLoaded", () => {
-            const modal = document.getElementById("change-email-modal");
             const messages = document.getElementById("modal-messages");
-            if (messages && messages.textContent.trim().length > 0) {
+            if (messages && messages.textContent?.trim().length > 0 && modal) {
                 modal.showModal();
             }
         });

@@ -1,5 +1,5 @@
 use crate::{
-    AppData, AppResult, AppRole, AuthUser, Data, Deserialize, Form, HttpResponse, LOCATION,
+    AppData, AppResult, AppRole, AuthUser, Data, Deserialize, Env, Form, HttpResponse, LOCATION,
     actix_web::get, actix_web::post, error, json, send_mail,
 };
 
@@ -69,6 +69,23 @@ pub async fn post_change_email(
             .await);
     }
 
+    if !data.email_verification_enabled {
+        sqlx::query!(
+            "UPDATE users SET email = ?, pending_email = NULL, email_change_token = NULL WHERE id = ?",
+            new_email,
+            user.claims.sub
+        )
+        .execute(&data.db)
+        .await?;
+
+        return Ok(req
+            .render_tpl(
+                "settings",
+                &json!({"email_success": "Email address updated successfully.", "current_email": new_email}),
+            )
+            .await);
+    }
+
     let token = uuid::Uuid::new_v4().to_string();
 
     sqlx::query!(
@@ -80,7 +97,8 @@ pub async fn post_change_email(
     .execute(&data.db)
     .await?;
 
-    let verify_url = format!("http://{}/verify-email-change?token={}", data.domain, token);
+    let protocol = if data.env == Env::Prod { "https" } else { "http" };
+    let verify_url = format!("{}://{}/verify-email-change?token={}", protocol, data.domain, token);
 
     let body = match data
         .render_email(
@@ -190,7 +208,8 @@ pub async fn post_password_reset(data: Data<AppData>, req: actix_web::HttpReques
     .execute(&data.db)
     .await?;
 
-    let reset_url = format!("http://{}/reset-password?token={}", data.domain, token);
+    let protocol = if data.env == Env::Prod { "https" } else { "http" };
+    let reset_url = format!("{}://{}/reset-password?token={}", protocol, data.domain, token);
 
     let body = match data
         .render_email("emails_password-reset", &json!({ "reset_url": reset_url }))

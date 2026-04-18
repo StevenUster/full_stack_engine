@@ -39,8 +39,8 @@
           <div class="px-6 py-3 flex items-center">
             <button
               type="button"
-              onclick={`document.getElementById('delete-modal-{{ row[header.key] }}').showModal()`}
-              class="text-red-500 hover:text-red-700 font-medium p-2 rounded hover:bg-secondary-200 transition-colors"
+              class="text-red-500 hover:text-red-700 font-medium p-2 rounded hover:bg-secondary-200 transition-colors open-modal-btn"
+              data-modal-id={`delete-modal-{{ row[header.key] }}`}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -75,8 +75,9 @@
                   </form>
                   <button
                     type="button"
-                    onclick={`fetch('/orders/{{ row[header.key] }}', { method: 'DELETE' }).then(r => { if(r.ok) window.location.reload(); else alert('Error deleting order'); })`}
-                    class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 transition-colors"
+                    class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 transition-colors delete-confirm-btn"
+                    data-url={`/orders/{{ row[header.key] }}`}
+                    data-error-msg="Error deleting order"
                   >
                     Delete
                   </button>
@@ -90,8 +91,8 @@
           <div class="px-6 py-3 flex items-center">
             <button
               type="button"
-              onclick={`document.getElementById('delete-user-modal-{{ row[header.key] }}').showModal()`}
-              class="text-red-500 hover:text-red-700 font-medium p-2 rounded hover:bg-secondary-200 transition-colors"
+              class="text-red-500 hover:text-red-700 font-medium p-2 rounded hover:bg-secondary-200 transition-colors open-modal-btn"
+              data-modal-id={`delete-user-modal-{{ row[header.key] }}`}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -126,8 +127,9 @@
                   </form>
                   <button
                     type="button"
-                    onclick={`fetch('/users/{{ row[header.key] }}', { method: 'DELETE' }).then(r => { if(r.ok) window.location.reload(); else alert('Error deleting user'); })`}
-                    class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 transition-colors"
+                    class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 transition-colors delete-confirm-btn"
+                    data-url={`/users/{{ row[header.key] }}`}
+                    data-error-msg="Error deleting user"
                   >
                     Delete
                   </button>
@@ -165,3 +167,32 @@
     </tbody>
   </table>
 </div>
+
+<script>
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    
+    // Handle opening modals
+    const openBtn = target.closest('.open-modal-btn');
+    if (openBtn) {
+      const modalId = openBtn.getAttribute('data-modal-id');
+      if (modalId) {
+        const modal = document.getElementById(modalId) as HTMLDialogElement;
+        if (modal) modal.showModal();
+      }
+    }
+
+    // Handle delete confirmations
+    const deleteBtn = target.closest('.delete-confirm-btn');
+    if (deleteBtn) {
+      const url = deleteBtn.getAttribute('data-url');
+      const errorMsg = deleteBtn.getAttribute('data-error-msg') || 'Error occurred';
+      if (url) {
+        fetch(url, { method: 'DELETE' }).then(r => {
+          if (r.ok) window.location.reload();
+          else alert(errorMsg);
+        });
+      }
+    }
+  });
+</script>
