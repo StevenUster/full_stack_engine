@@ -14,8 +14,8 @@ A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, a
 
 This repository contains two separate Cargo projects:
 
-- **[`/framework`](./framework)**: The core framework code.
-- **[`/starter`](../starter)**: A complete template application. Use this to start your own project!
+- **[`/framework`](/framework)**: The core framework code.
+- **[`/starter`](/starter)**: A complete template application. Use this to start your own project!
 
 ## Features
 
@@ -27,7 +27,7 @@ This repository contains two separate Cargo projects:
 
 ## Getting Started
 
-The fastest way to get started is to explore the **[Starter App](../starter)**. It comes with a preconfigured frontend (Astro), auth services, and database migrations.
+The fastest way to get started is to explore the **[Starter App](/starter)**. It comes with a preconfigured frontend (Astro), auth services, and database migrations.
 
 ### 1. Copy the Starter
 Copy the `starter` folder to your own repository or work directly inside it.
