@@ -124,7 +124,7 @@ pub async fn post_change_email(
 
     let email_clone = new_email.clone();
     actix_web::rt::spawn(async move {
-        if let Err(e) = send_mail(&email_clone, "Confirm Your New Email", &body) {
+        if let Err(e) = send_mail(&email_clone, "Confirm Your New Email", &body).await {
             error!("Failed to send email change verification to {email_clone}: {e}");
         }
     });
@@ -238,7 +238,7 @@ pub async fn post_password_reset(
 
     let email = user_data.email.clone();
     actix_web::rt::spawn(async move {
-        if let Err(e) = send_mail(&email, "Password Reset", &body) {
+        if let Err(e) = send_mail(&email, "Password Reset", &body).await {
             error!("Failed to send password reset email to {email}: {e}");
         }
     });

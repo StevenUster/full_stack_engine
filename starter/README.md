@@ -12,15 +12,15 @@ Build the image
 
 ```bash
 VERSION=$(grep "^version =" Cargo.toml | cut -d '"' -f 2)
-podman build -t ghcr.io/stevenuster/starter:latest -t ghcr.io/stevenuster/starter:$VERSION .
+podman build -t ghcr.io/stevenuster/full_stack_engine:latest -t ghcr.io/stevenuster/full_stack_engine:$VERSION .
 ```
 
 Push the image to ghcr.io:
 
 ```bash
 VERSION=$(grep "^version =" Cargo.toml | cut -d '"' -f 2)
-podman push ghcr.io/stevenuster/starter:latest
-podman push ghcr.io/stevenuster/starter:$VERSION
+podman push ghcr.io/stevenuster/full_stack_engine:latest
+podman push ghcr.io/stevenuster/full_stack_engine:$VERSION
 ```
 
 ## Development

@@ -114,7 +114,7 @@ pub async fn post(
             let email_clone = email.clone();
 
             actix_web::rt::spawn(async move {
-                if let Err(e) = send_mail(&email_clone, "Email Verification", &body) {
+                if let Err(e) = send_mail(&email_clone, "Email Verification", &body).await {
                     error!("Failed to send verification email to {email_clone}: {e}");
                 }
             });

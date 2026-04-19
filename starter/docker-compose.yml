@@ -1,10 +1,11 @@
 services:
   app:
-    image: ghcr.io/stevenuster/starter:latest
+    image: ghcr.io/stevenuster/full_stack_engine:latest
     pull_policy: always
     restart: unless-stopped
     environment:
       - ENV=prod
+      - PROTOCOL=${PROTOCOL}
       - DOMAIN=${DOMAIN}
       - DATABASE_URL=${DATABASE_URL}
       - JWT_SECRET=${JWT_SECRET}
@@ -13,7 +14,7 @@ services:
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
       - RUST_LOG=${RUST_LOG}
-      - EMAIL_VERIFICATION_ENABLED${EMAIL_VERIFICATION_ENABLED}
+      - EMAIL_VERIFICATION_ENABLED=${EMAIL_VERIFICATION_ENABLED}
     volumes:
       - starter:/app/data
 
