@@ -1,5 +1,5 @@
 use crate::{
-    AppData, AppError, AppResult, AppRole, Deserialize, Env, HttpResponse, actix_web::get,
+    AppData, AppError, AppResult, AppRole, Deserialize, HttpResponse, actix_web::get,
     actix_web::http::header::LOCATION, error, hash_password, send_mail, serde_json::json, web,
 };
 
@@ -22,7 +22,11 @@ pub async fn register_success(req: actix_web::HttpRequest) -> actix_web::HttpRes
     req.render_tpl("register-success", &json!({})).await
 }
 
-pub async fn post(data: web::Data<AppData>, req: actix_web::HttpRequest, form: web::Form<FormData>) -> AppResult {
+pub async fn post(
+    data: web::Data<AppData>,
+    req: actix_web::HttpRequest,
+    form: web::Form<FormData>,
+) -> AppResult {
     use super::RenderTplExt;
     if form.password.len() < 8 {
         return Ok(req
@@ -89,8 +93,10 @@ pub async fn post(data: web::Data<AppData>, req: actix_web::HttpRequest, form: w
 
     if data.email_verification_enabled {
         if let Some(token) = verification_token {
-            let protocol = if data.env == Env::Prod { "https" } else { "http" };
-            let verify_url = format!("{}://{}/verify-email?token={}", protocol, data.domain, token);
+            let verify_url = format!(
+                "{}://{}/verify-email?token={}",
+                data.protocol, data.domain, token
+            );
 
             let body = match data
                 .render_email("emails_verify", &json!({ "verify_url": verify_url }))

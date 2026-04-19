@@ -142,8 +142,9 @@ import Modal from "../components/Modal.astro";
     </Modal>
 
     <script>
-        // Handle modal opening/closing
-        const modal = document.getElementById("change-email-modal") as HTMLDialogElement;
+        const modal = document.getElementById(
+            "change-email-modal",
+        ) as HTMLDialogElement;
         const openBtn = document.getElementById("change-email-btn");
         const closeBtn = document.getElementById("cancel-email-change-btn");
 
@@ -154,7 +155,6 @@ import Modal from "../components/Modal.astro";
             closeBtn.addEventListener("click", () => modal.close());
         }
 
-        // Auto-open modal if there's a result from the email change attempt
         document.addEventListener("DOMContentLoaded", () => {
             const messages = document.getElementById("modal-messages");
             if (messages && messages.textContent?.trim().length > 0 && modal) {

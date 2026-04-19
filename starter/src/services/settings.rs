@@ -1,20 +1,21 @@
 use crate::{
-    AppData, AppResult, AppRole, AuthUser, Data, Deserialize, Env, Form, HttpResponse, LOCATION,
+    AppData, AppResult, AppRole, AuthUser, Data, Deserialize, Form, HttpResponse, LOCATION,
     actix_web::get, actix_web::post, error, json, send_mail,
 };
 
 #[get("/settings")]
-pub async fn get(data: Data<AppData>, req: actix_web::HttpRequest, user: AuthUser<AppRole>) -> AppResult {
+pub async fn get(
+    data: Data<AppData>,
+    req: actix_web::HttpRequest,
+    user: AuthUser<AppRole>,
+) -> AppResult {
     use super::RenderTplExt;
     let user_data = sqlx::query!("SELECT email FROM users WHERE id = ?", user.claims.sub)
         .fetch_one(&data.db)
         .await?;
 
     Ok(req
-        .render_tpl(
-            "settings",
-            &json!({ "current_email": user_data.email }),
-        )
+        .render_tpl("settings", &json!({ "current_email": user_data.email }))
         .await)
 }
 
@@ -97,8 +98,10 @@ pub async fn post_change_email(
     .execute(&data.db)
     .await?;
 
-    let protocol = if data.env == Env::Prod { "https" } else { "http" };
-    let verify_url = format!("{}://{}/verify-email-change?token={}", protocol, data.domain, token);
+    let verify_url = format!(
+        "{}://{}/verify-email-change?token={}",
+        data.protocol, data.domain, token
+    );
 
     let body = match data
         .render_email(
@@ -192,7 +195,11 @@ pub async fn verify_email_change(
 }
 
 #[post("/settings/password-reset")]
-pub async fn post_password_reset(data: Data<AppData>, req: actix_web::HttpRequest, user: AuthUser<AppRole>) -> AppResult {
+pub async fn post_password_reset(
+    data: Data<AppData>,
+    req: actix_web::HttpRequest,
+    user: AuthUser<AppRole>,
+) -> AppResult {
     use super::RenderTplExt;
     let token = uuid::Uuid::new_v4().to_string();
 
@@ -208,8 +215,10 @@ pub async fn post_password_reset(data: Data<AppData>, req: actix_web::HttpReques
     .execute(&data.db)
     .await?;
 
-    let protocol = if data.env == Env::Prod { "https" } else { "http" };
-    let reset_url = format!("{}://{}/reset-password?token={}", protocol, data.domain, token);
+    let reset_url = format!(
+        "{}://{}/reset-password?token={}",
+        data.protocol, data.domain, token
+    );
 
     let body = match data
         .render_email("emails_password-reset", &json!({ "reset_url": reset_url }))

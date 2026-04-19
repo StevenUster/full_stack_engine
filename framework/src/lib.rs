@@ -25,7 +25,8 @@ pub mod rate_limiter;
 pub mod roles;
 pub mod structs;
 
-pub type ContextInjectorFn = Box<dyn Fn(&actix_web::HttpRequest, &mut serde_json::Value) + Send + Sync + 'static>;
+pub type ContextInjectorFn =
+    Box<dyn Fn(&actix_web::HttpRequest, &mut serde_json::Value) + Send + Sync + 'static>;
 
 #[derive(Copy, Clone, PartialEq, serde::Serialize)]
 pub enum Env {
@@ -38,6 +39,7 @@ pub struct AppData {
     pub db: SqlitePool,
     pub env: Env,
     pub domain: String,
+    pub protocol: String,
     pub jwt_secret: String,
     pub smtp_from: String,
     pub email_verification_enabled: bool,
@@ -45,22 +47,31 @@ pub struct AppData {
 }
 
 pub trait RenderTplExt {
-    fn render_tpl<'a, T: serde::Serialize>(&'a self, template: &'a str, context: &T) -> std::pin::Pin<Box<dyn std::future::Future<Output = HttpResponse> + 'a>>;
+    fn render_tpl<'a, T: serde::Serialize>(
+        &'a self,
+        template: &'a str,
+        context: &T,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = HttpResponse> + 'a>>;
 }
 
 impl RenderTplExt for actix_web::HttpRequest {
-    fn render_tpl<'a, T: serde::Serialize>(&'a self, template: &'a str, context: &T) -> std::pin::Pin<Box<dyn std::future::Future<Output = HttpResponse> + 'a>> {
-        let app_data = self.app_data::<actix_web::web::Data<crate::AppData>>().unwrap().clone();
+    fn render_tpl<'a, T: serde::Serialize>(
+        &'a self,
+        template: &'a str,
+        context: &T,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = HttpResponse> + 'a>> {
+        let app_data = self
+            .app_data::<actix_web::web::Data<crate::AppData>>()
+            .unwrap()
+            .clone();
         let mut value = serde_json::to_value(context).unwrap_or_else(|_| serde_json::json!({}));
-        
+
         if let Some(injector) = &app_data.context_injector {
             injector(self, &mut value);
         }
-        
+
         let template_owned = template.to_string();
-        Box::pin(async move {
-            app_data.render_template(&template_owned, &value).await
-        })
+        Box::pin(async move { app_data.render_template(&template_owned, &value).await })
     }
 }
 
@@ -252,6 +263,7 @@ impl FrameworkApp {
         info!("Starting application...");
 
         let domain = env::var("DOMAIN").expect("DOMAIN not set in .env file");
+        let protocol = env::var("PROTOCOL").expect("PROTOCOL not set in .env file");
         let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET not set in .env file");
         let database_url = env::var("DATABASE_URL").expect("DATABASE_URL not set in .env file");
         let db_file = database_url.trim_start_matches("sqlite:");
@@ -352,8 +364,8 @@ impl FrameworkApp {
                 default_headers = default_headers.add((
                     "Content-Security-Policy",
                     "default-src 'self'; \
-                     script-src 'self'; \
-                     style-src 'self'; \
+                     script-src 'self' 'unsafe-inline'; \
+                     style-src 'self' 'unsafe-inline'; \
                      font-src 'self'; \
                      img-src 'self' data:; \
                      frame-ancestors 'none'; \
@@ -368,6 +380,7 @@ impl FrameworkApp {
                     db: db_pool.clone(),
                     env: env.clone(),
                     domain: domain.clone(),
+                    protocol: protocol.clone(),
                     jwt_secret: jwt_secret.clone(),
                     smtp_from: env::var("SMTP_USER").unwrap_or_default(),
                     email_verification_enabled: env::var("EMAIL_VERIFICATION_ENABLED")
@@ -506,8 +519,8 @@ async fn serve_from_dist(
         .insert_header((
             "Content-Security-Policy",
             "default-src 'self'; \
-             script-src 'self'; \
-             style-src 'self'; \
+             script-src 'self' 'unsafe-inline'; \
+             style-src 'self' 'unsafe-inline'; \
              font-src 'self'; \
              img-src 'self' data:; \
              frame-ancestors 'none'; \
