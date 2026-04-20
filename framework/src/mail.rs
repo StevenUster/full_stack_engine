@@ -31,22 +31,30 @@ pub async fn send_mail(
 
     let creds = Credentials::new(smtp_user, smtp_pass);
 
-    let mailer = if smtp_host.contains(":465") {
-        // Port 465 uses Implicit TLS (SMTPS)
-        let host = smtp_host.split(':').next().unwrap_or(&smtp_host);
+    let parts: Vec<&str> = smtp_host.split(':').collect();
+    let host = parts[0];
+    let port = parts.get(1).and_then(|p| p.parse::<u16>().ok());
+
+    let mut builder = AsyncSmtpTransport::<Tokio1Executor>::relay(host)
+        .map_err(|e| format!("SMTP relay configuration error: {e}"))?;
+
+    if let Some(p) = port {
+        builder = builder.port(p);
+    }
+
+    let mailer = if port == Some(465) {
         let tls_parameters = TlsParameters::new(host.to_string())?;
-        AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
-            .map_err(|e| format!("SMTP TLS configuration error: {e}"))?
-            .tls(Tls::Wrapper(tls_parameters))
-            .credentials(creds)
-            .build()
+        builder.tls(Tls::Wrapper(tls_parameters))
     } else {
-        // Port 587 and 25 typically use STARTTLS (Explicit TLS)
-        AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
-            .map_err(|e| format!("SMTP relay configuration error: {e}"))?
-            .credentials(creds)
-            .build()
-    };
+        if port == Some(587) {
+            let tls_parameters = TlsParameters::new(host.to_string())?;
+            builder.tls(Tls::Required(tls_parameters))
+        } else {
+            builder
+        }
+    }
+    .credentials(creds)
+    .build();
 
     if let Err(e) = mailer.send(email).await {
         error!("SMTP send error: {e}");
