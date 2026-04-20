@@ -1,13 +1,30 @@
+# Build artifacts
 target/
 dist/
-node_modules/
+**/node_modules/
+**/dist/
+
+# Git
 .git/
-.env
-example.env
+.gitignore
+.github/
+
+# Environment files
+.env*
+
+# IDEs
+.vscode/
+.idea/
 .DS_Store
-*.swp
+
+# Logs and temp
 *.log
 tmp/
-src/frontend/dist
-src/frontend/node_modules
+*.swp
+
+# Application data (local)
 data/
+
+# Docker
+docker-compose*.yml
+Dockerfile*
