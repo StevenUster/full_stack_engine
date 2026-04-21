@@ -21,11 +21,56 @@ const { title, sidebar = true } = Astro.props;
     <title>{title}</title>
   </head>
   <body class="bg-secondary-50">
-    <div class="relative flex">
+    <div class="relative flex min-h-screen">
       {sidebar && <Sidebar />}
-      <div class={`w-full ${sidebar ? "py-6 px-12" : ""}`}>
+      <div
+        class={`w-full flex flex-col transition-all duration-300 ease-in-out ${sidebar ? "py-4 px-4 lg:py-6 lg:px-12" : ""}`}
+      >
+        {
+          sidebar && (
+            <div class="mb-4 flex items-center gap-4">
+              <button
+                id="open-sidebar"
+                class="lg:hidden p-2 -ml-2 text-black hover:text-primary-600 focus:outline-none transition-colors rounded-lg hover:bg-secondary-200"
+                aria-label="Open menu"
+              >
+
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
+              </button>
+              <a href="/" class="lg:hidden">
+                <img src="/logo.svg" alt="Logo" class="h-8" />
+              </a>
+            </div>
+          )
+        }
         <slot />
       </div>
     </div>
+
+    <script>
+      function setupLayout() {
+        const openBtn = document.getElementById("open-sidebar");
+        openBtn?.addEventListener("click", () => {
+          document.dispatchEvent(new CustomEvent("open-sidebar"));
+        });
+      }
+
+      setupLayout();
+      document.addEventListener("astro:page-load", setupLayout);
+    </script>
   </body>
 </html>

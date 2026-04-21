@@ -10,3 +10,13 @@
       @apply px-4 py-2 text-sm font-medium text-primary-600 border border-primary-600 rounded hover:bg-primary-50 transition-colors;
   }
 }
+
+@layer utilities {
+  .sidebar-closed aside {
+    @apply -translate-x-full lg:-ml-72;
+  }
+  
+  .sidebar-closed #open-sidebar {
+    @apply lg:flex !important;
+  }
+}
