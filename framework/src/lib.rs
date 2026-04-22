@@ -580,10 +580,14 @@ where
     };
 
     Ok(ErrorHandlerResponse::Future(Box::pin(async move {
-        let ctx = serde_json::json!({
+        let mut ctx = serde_json::json!({
             "status": final_status.as_u16(),
             "error": display_error,
         });
+
+        if let Some(injector) = &data.context_injector {
+            injector(&req, &mut ctx);
+        }
 
         let res_template = data.render_template(template, &ctx).await;
         let mut res = res_template;
