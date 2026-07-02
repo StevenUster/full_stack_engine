@@ -28,6 +28,6 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /app/target/release/starter ./starter
-COPY --from=backend-builder /app/migrations ./migrations
+# Migrations and locales are embedded in the binary — nothing else to copy.
 EXPOSE 8080
 CMD ["./starter"]

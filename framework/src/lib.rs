@@ -1,5 +1,6 @@
 #![deny(warnings, unused_imports, dead_code, clippy::all, clippy::pedantic)]
 
+use actix_governor::Governor;
 use actix_web::{
     App, HttpMessage, HttpResponse, HttpServer,
     body::MessageBody,
@@ -227,6 +228,7 @@ pub struct FrameworkApp {
     configure_fn: Option<ConfigureFn>,
     cronjobs_fn: Option<CronjobsFn>,
     context_injector: Option<std::sync::Arc<ContextInjectorFn>>,
+    migrator: Option<sqlx::migrate::Migrator>,
 }
 
 impl FrameworkApp {
@@ -236,7 +238,25 @@ impl FrameworkApp {
             configure_fn: None,
             cronjobs_fn: None,
             context_injector: None,
+            migrator: None,
         }
+    }
+
+    /// Supplies migrations embedded in the binary at compile time, so a built
+    /// app carries its schema with it and needs no `migrations/` directory next
+    /// to the executable. Pass `sqlx::migrate!()` (which reads
+    /// `$CARGO_MANIFEST_DIR/migrations`) from your app:
+    ///
+    /// ```ignore
+    /// FrameworkApp::new(&DIST_DIR).migrator(sqlx::migrate!()).run().await
+    /// ```
+    ///
+    /// When omitted, migrations are loaded at runtime from the `MIGRATIONS_DIR`
+    /// environment variable (default `./migrations`).
+    #[must_use]
+    pub fn migrator(mut self, migrator: sqlx::migrate::Migrator) -> Self {
+        self.migrator = Some(migrator);
+        self
     }
 
     pub fn global_context_injector<F>(mut self, f: F) -> Self
@@ -264,7 +284,7 @@ impl FrameworkApp {
         self
     }
 
-    pub async fn run(self) -> std::io::Result<()> {
+    pub async fn run(mut self) -> std::io::Result<()> {
         env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
         load_env_file();
 
@@ -288,11 +308,19 @@ impl FrameworkApp {
             .await
             .expect("Failed to create database pool");
 
-        let migrations_path =
-            env::var("MIGRATIONS_DIR").unwrap_or_else(|_| "./migrations".to_string());
-        sqlx::migrate::Migrator::new(std::path::Path::new(&migrations_path))
-            .await
-            .expect("Failed to load migrations")
+        // Prefer migrations embedded in the binary (via `.migrator(...)`); fall
+        // back to reading them from disk at runtime when none were supplied.
+        let migrator = match self.migrator.take() {
+            Some(migrator) => migrator,
+            None => {
+                let migrations_path =
+                    env::var("MIGRATIONS_DIR").unwrap_or_else(|_| "./migrations".to_string());
+                sqlx::migrate::Migrator::new(std::path::Path::new(&migrations_path))
+                    .await
+                    .expect("Failed to load migrations")
+            }
+        };
+        migrator
             .run(&db_pool)
             .await
             .expect("Failed to run database migrations");
@@ -353,6 +381,11 @@ impl FrameworkApp {
         let dist_dir = self.dist_dir;
         let configure_fn = self.configure_fn.map(std::sync::Arc::new);
         let context_injector = self.context_injector.clone();
+
+        // Built once and shared across all workers (the config holds an Arc to
+        // the token buckets), so the site-wide per-IP limit is enforced for the
+        // whole process rather than per worker thread.
+        let global_rate_config = rate_limiter::global_rate_limiter();
 
         HttpServer::new(move || {
             let mut default_headers = DefaultHeaders::new()
@@ -416,7 +449,10 @@ impl FrameworkApp {
                         .handler(StatusCode::UNAUTHORIZED, render_error_page)
                         .handler(StatusCode::FORBIDDEN, render_error_page),
                 )
-                .wrap(default_headers);
+                .wrap(default_headers)
+                // Outermost layer: reject per-IP floods before any routing or
+                // request processing happens. Shared buckets across workers.
+                .wrap(Governor::new(&global_rate_config));
 
             if let Some(ref configure_fn) = configure_fn {
                 let cf = configure_fn.clone();

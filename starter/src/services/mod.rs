@@ -16,7 +16,7 @@ mod users;
 /// Loads `locales/<lang>.json`, for one-off lookups (e.g. an email subject)
 /// outside of the global template context set up in `main.rs`.
 pub(super) fn load_locale(lang: &str) -> crate::serde_json::Value {
-    full_stack_engine::i18n::load_locale("locales", lang)
+    full_stack_engine::i18n::load_locale(&crate::LOCALES_DIR, lang)
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {

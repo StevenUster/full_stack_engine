@@ -12,6 +12,10 @@ mod services;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 static DIST_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/frontend/dist");
 
+// Locale JSON is embedded into the binary too, so there is no `locales/`
+// directory to ship next to the executable.
+static LOCALES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/locales");
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Define all roles here
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -29,7 +33,7 @@ async fn main() -> std::io::Result<()> {
             // Load locales/*.json and expose t/lang/i18n to every template.
             // Add more languages by dropping in another locales/<code>.json
             // file; nothing else needs to change.
-            inject_locale_context(value, "locales", "en");
+            inject_locale_context(value, &LOCALES_DIR, "en");
 
             // Automatically inject user claims if a valid JWT token is present
             if let Ok(claims) = read_jwt::<AppRole>(req) {
@@ -52,6 +56,8 @@ async fn main() -> std::io::Result<()> {
         })
         .configure(services::configure)
         .cronjobs(cronjobs::add_cronjobs)
+        // Migrations are embedded into the binary at compile time.
+        .migrator(sqlx::migrate!())
         .run()
         .await
 }

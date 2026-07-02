@@ -1,5 +1,7 @@
 use actix_governor::governor::middleware::NoOpMiddleware;
-use actix_governor::{Governor, GovernorConfigBuilder, KeyExtractor, SimpleKeyExtractionError};
+use actix_governor::{
+    Governor, GovernorConfig, GovernorConfigBuilder, KeyExtractor, SimpleKeyExtractionError,
+};
 use actix_web::dev::ServiceRequest;
 use std::net::IpAddr;
 
@@ -53,6 +55,46 @@ impl KeyExtractor for ProxyIpKeyExtractor {
 
         Ok(ip)
     }
+}
+
+/// Site-wide, per-client-IP rate limiter applied to **every** request as a
+/// first line of defence against L7 floods / abusive scrapers from a single
+/// source. Returns the shared [`GovernorConfig`] (not the middleware) so the
+/// same token buckets are shared across all worker threads — the effective
+/// limit is per IP for the whole process, not per worker.
+///
+/// Generous by default so normal browsing (a page load bursts many asset
+/// requests) is never affected; tune per deployment with the environment
+/// variables `GLOBAL_RATE_LIMIT_PER_SECOND` (default 100) and
+/// `GLOBAL_RATE_LIMIT_BURST` (default 500).
+///
+/// Note: this is a coarse app-level guard. Volumetric / distributed DDoS still
+/// needs to be absorbed upstream (CDN / network layer); per-IP limiting only
+/// caps what any one address can do.
+///
+/// # Panics
+///
+/// Panics if the derived rate or burst is zero (only possible via an explicit
+/// `0` override, which is rejected in favour of the default).
+#[must_use]
+pub fn global_rate_limiter() -> GovernorConfig<ProxyIpKeyExtractor, NoOpMiddleware> {
+    let per_second = std::env::var("GLOBAL_RATE_LIMIT_PER_SECOND")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(100);
+    let burst = std::env::var("GLOBAL_RATE_LIMIT_BURST")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(500);
+
+    GovernorConfigBuilder::default()
+        .requests_per_second(per_second)
+        .burst_size(burst)
+        .key_extractor(ProxyIpKeyExtractor)
+        .finish()
+        .expect("Failed to create global rate limiter config")
 }
 
 /// Rate limiter for authentication endpoints (login, register)
