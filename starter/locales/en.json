@@ -1,0 +1,49 @@
+{
+  "common": {
+    "close_modal": "Close"
+  },
+  "sidebar": {
+    "index": "Home",
+    "users": "Users",
+    "settings": "Settings",
+    "login": "Login",
+    "logout": "Logout"
+  },
+  "table": {
+    "delete_title": "Delete?",
+    "delete_confirm": "Are you sure? This action cannot be undone.",
+    "delete_error": "Error occurred",
+    "cancel": "Cancel",
+    "delete_btn": "Delete"
+  },
+  "roles": {
+    "admin": "Admin",
+    "manager": "Manager",
+    "user": "User",
+    "none": "None"
+  },
+  "filters": {
+    "search": "Search",
+    "label": "Filters",
+    "clear": "Reset",
+    "apply": "Apply"
+  },
+  "forgot_password": {
+    "title": "Forgot Password",
+    "email_placeholder": "Your email",
+    "submit": "Send reset link",
+    "back_to_login": "Back to login",
+    "success": "If an account exists for that email, a password reset link has been sent."
+  },
+  "password_reset_email": {
+    "subject": "Password Reset"
+  },
+  "settings": {
+    "delete_account": {
+      "title": "Delete Account",
+      "description": "Permanently delete your account and all associated data. This cannot be undone.",
+      "button": "Delete Account",
+      "confirm": "Are you sure? This will permanently delete your account."
+    }
+  }
+}

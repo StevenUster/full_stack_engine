@@ -19,11 +19,13 @@ use tokio_cron_scheduler::JobScheduler;
 pub mod auth;
 pub mod cron;
 pub mod error;
+pub mod i18n;
 pub mod mail;
 pub mod prelude;
 pub mod rate_limiter;
 pub mod roles;
 pub mod structs;
+pub mod uploads;
 
 pub type ContextInjectorFn =
     Box<dyn Fn(&actix_web::HttpRequest, &mut serde_json::Value) + Send + Sync + 'static>;

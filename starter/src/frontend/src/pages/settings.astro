@@ -80,6 +80,33 @@ import Modal from "../components/Modal.astro";
                         </div>
                         <Fragment set:html="{% endif %}" />
                     </div>
+
+                    <!-- Delete Account -->
+                    <div class="pt-8">
+                        <div class="flex items-center justify-between mb-2">
+                            <div>
+                                <h3 class="text-lg font-bold text-gray-900">
+                                    <Fragment set:html={"{{ t.settings.delete_account.title }}"} />
+                                </h3>
+                                <p class="text-sm text-gray-500">
+                                    <Fragment set:html={"{{ t.settings.delete_account.description }}"} />
+                                </p>
+                            </div>
+                        </div>
+                        <form
+                            id="delete-account-form"
+                            action="/settings/delete-account"
+                            method="POST"
+                            data-confirm-message={"{{ t.settings.delete_account.confirm }}"}
+                        >
+                            <button
+                                type="submit"
+                                class="btn-secondary text-red-600 border-red-200 hover:bg-red-50"
+                            >
+                                <Fragment set:html={"{{ t.settings.delete_account.button }}"} />
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </Card>
         </div>
@@ -142,6 +169,17 @@ import Modal from "../components/Modal.astro";
     </Modal>
 
     <script>
+        const deleteForm = document.getElementById(
+            "delete-account-form",
+        ) as HTMLFormElement;
+        if (deleteForm) {
+            deleteForm.addEventListener("submit", (e) => {
+                if (!confirm(deleteForm.dataset.confirmMessage)) {
+                    e.preventDefault();
+                }
+            });
+        }
+
         const modal = document.getElementById(
             "change-email-modal",
         ) as HTMLDialogElement;

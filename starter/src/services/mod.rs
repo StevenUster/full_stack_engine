@@ -1,8 +1,10 @@
 use crate::web;
-use full_stack_engine::rate_limiter::auth_rate_limiter;
+use full_stack_engine::rate_limiter::{auth_rate_limiter, custom_rate_limiter};
 
 pub use full_stack_engine::prelude::RenderTplExt;
 
+mod api;
+mod forgot_password;
 mod index;
 mod login;
 mod logout;
@@ -11,12 +13,19 @@ mod reset_password;
 mod settings;
 mod users;
 
+/// Loads `locales/<lang>.json`, for one-off lookups (e.g. an email subject)
+/// outside of the global template context set up in `main.rs`.
+pub(super) fn load_locale(lang: &str) -> crate::serde_json::Value {
+    full_stack_engine::i18n::load_locale("locales", lang)
+}
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(index::index);
     cfg.service(settings::get);
     cfg.service(settings::post_change_email);
     cfg.service(settings::verify_email_change);
     cfg.service(settings::post_password_reset);
+    cfg.service(settings::post_delete_account);
     cfg.service(login::get);
     cfg.service(
         web::resource("/login")
@@ -43,4 +52,14 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             .route(web::post().to(reset_password::post))
             .wrap(auth_rate_limiter()),
     );
+    cfg.service(forgot_password::get);
+    cfg.service(
+        // One request per hour per IP: this sends an email, so it needs a
+        // stricter limit than the general auth endpoints.
+        web::resource("/forgot-password")
+            .route(web::post().to(forgot_password::post))
+            .wrap(custom_rate_limiter(3600, 1)),
+    );
+    cfg.service(api::get_docs);
+    cfg.service(api::get_openapi_spec);
 }

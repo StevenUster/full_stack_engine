@@ -1,0 +1,58 @@
+---
+interface Props {
+  placeholder?: string;
+  name?: string;
+  /** Server-side value expression (Tera). Pass "" for JS-driven searches. */
+  value?: string;
+  /** Optional id on the input, for JS hooks. */
+  inputId?: string;
+  /** Show the bottom divider (when sitting atop card content). */
+  bordered?: boolean;
+}
+
+const {
+  placeholder = "Search...",
+  name = "search",
+  value = `{{ search | default(value='') }}`,
+  inputId,
+  bordered = true,
+} = Astro.props;
+---
+
+<form
+  method="GET"
+  class:list={[
+    "flex flex-wrap items-center gap-2 px-4 py-3 bg-white",
+    bordered && "border-b border-secondary-200",
+  ]}
+>
+  <div class="relative flex-1 min-w-48">
+    <input
+      type="text"
+      name={name}
+      id={inputId}
+      value={value}
+      placeholder={placeholder}
+      class="w-full h-9 px-3.5 pr-9 text-sm border border-secondary-200 rounded-lg outline-hidden focus:border-primary-500 focus:ring-1 focus:ring-primary-500 bg-white text-secondary-900"
+    />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class="absolute right-3 top-1/2 -translate-y-1/2 text-secondary-400 pointer-events-none"
+    >
+      <circle cx="11" cy="11" r="8"></circle>
+      <path d="m21 21-4.35-4.35"></path>
+    </svg>
+  </div>
+
+  <button type="submit" class="btn-primary h-9 py-0">
+    <Fragment set:html={"{{ t.filters.search | default(value='Search') }}"} />
+  </button>
+</form>

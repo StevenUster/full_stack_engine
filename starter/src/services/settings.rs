@@ -220,8 +220,9 @@ pub async fn post_password_reset(
         data.protocol, data.domain, token
     );
 
+    let t = super::load_locale("en");
     let body = match data
-        .render_email("emails_password-reset", &json!({ "reset_url": reset_url }))
+        .render_email("emails_password-reset", &json!({ "t": t, "reset_url": reset_url }))
         .await
     {
         Ok(html) => html,
@@ -237,8 +238,12 @@ pub async fn post_password_reset(
     };
 
     let email = user_data.email.clone();
+    let subject = t["password_reset_email"]["subject"]
+        .as_str()
+        .unwrap_or("Password Reset")
+        .to_string();
     actix_web::rt::spawn(async move {
-        if let Err(e) = send_mail(&email, "Password Reset", &body).await {
+        if let Err(e) = send_mail(&email, &subject, &body).await {
             error!("Failed to send password reset email to {email}: {e}");
         }
     });
@@ -249,4 +254,18 @@ pub async fn post_password_reset(
             &json!({"success": "Password reset email sent.", "current_email": user_data.email}),
         )
         .await)
+}
+
+/// Permanently deletes the caller's own account. Apps with per-user assets
+/// (uploaded files, etc.) should clean those up here before the `DELETE`,
+/// same as `running-for-jesus-web`'s runner-photo cleanup.
+#[post("/settings/delete-account")]
+pub async fn post_delete_account(data: Data<AppData>, user: AuthUser<AppRole>) -> AppResult {
+    sqlx::query!("DELETE FROM users WHERE id = ?", user.claims.sub)
+        .execute(&data.db)
+        .await?;
+
+    Ok(HttpResponse::SeeOther()
+        .append_header((LOCATION, "/logout"))
+        .finish())
 }

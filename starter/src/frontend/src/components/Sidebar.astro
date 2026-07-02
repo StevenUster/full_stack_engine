@@ -1,215 +1,251 @@
 ---
-
 ---
 
 <div
   id="sidebar-backdrop"
-  class="fixed inset-0 z-30 bg-secondary-900/50 backdrop-blur-sm lg:hidden hidden opacity-0 transition-opacity duration-300"
+  class="fixed inset-0 z-30 bg-secondary-900/40 backdrop-blur-xs lg:hidden hidden opacity-0 transition-opacity duration-300"
 >
 </div>
 
 <aside
   id="nav-menu-1"
   aria-label="Side navigation"
-  class="fixed lg:sticky top-0 bottom-0 h-screen left-0 z-40 flex flex-col bg-white border-r w-72 border-r-secondary-200 transform -translate-x-full lg:translate-x-0 transition-all duration-300 ease-in-out"
+  class="fixed lg:sticky top-0 bottom-0 h-dvh left-0 z-40 flex flex-col bg-white border-r border-secondary-200 w-64 transform -translate-x-full lg:translate-x-0 transition-all duration-300 ease-in-out overflow-hidden"
   transition:name="header"
   transition:persist
   transition:animate="none"
 >
-  <button
-    id="close-sidebar"
-    class="absolute top-4 right-4 p-2 text-black hover:text-primary-600 focus:outline-none hover:bg-secondary-100 rounded-lg"
-    aria-label="Close sidebar"
+  <!-- Header -->
+  <div
+    id="sidebar-header"
+    class="relative flex items-center justify-center h-16 shrink-0 px-2"
   >
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
+    <!-- Logo: hidden in mini mode -->
+    <a
+      aria-label="Logo"
+      class="sidebar-full-logo flex items-center gap-2 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 rounded-md"
+      href="/"
     >
-      <line x1="18" y1="6" x2="6" y2="18"></line>
-      <line x1="6" y1="6" x2="18" y2="18"></line>
-    </svg>
-  </button>
+      <img src="/logo.svg" alt="Logo" class="h-10 w-auto block" />
+    </a>
 
-  <a
-    aria-label="Logo"
-    class="flex items-center justify-center gap-2 p-6 text-xl font-medium whitespace-nowrap focus:outline-none"
-    href="/"
-  >
-    <img src="/logo.svg" alt="Logo" class="h-10" />
-  </a>
+    <!-- Desktop: minimize toggle -->
+    <button
+      id="toggle-sidebar-mini"
+      class="hidden lg:flex absolute right-2 p-2 text-secondary-500 hover:text-secondary-800 hover:bg-secondary-100 rounded-lg transition-colors focus:outline-hidden"
+      aria-label="Toggle sidebar"
+    >
+      <!-- Collapse icon (visible in full mode) -->
+      <svg
+        class="sidebar-icon-collapse"
+        xmlns="http://www.w3.org/2000/svg"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect>
+        <path d="M9 3v18"></path>
+        <path d="m16 15-3-3 3-3"></path>
+      </svg>
+      <!-- Expand icon (visible in mini mode) -->
+      <svg
+        class="sidebar-icon-expand hidden"
+        xmlns="http://www.w3.org/2000/svg"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect>
+        <path d="M9 3v18"></path>
+        <path d="m14 9 3 3-3 3"></path>
+      </svg>
+    </button>
+
+    <!-- Mobile: close button -->
+    <button
+      id="close-sidebar"
+      class="lg:hidden absolute right-2 p-2 text-secondary-500 hover:text-secondary-900 hover:bg-secondary-100 rounded-lg transition-colors focus:outline-hidden"
+      aria-label="Close sidebar"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Nav -->
   <nav
     aria-label="side navigation"
-    class="flex-1 overflow-auto divide-y divide-secondary-100"
+    class="flex-1 overflow-y-auto px-3 py-3 space-y-0.5"
   >
-    <div>
-      <ul class="flex flex-col flex-1 gap-1 py-3">
-        <li class="px-3">
-          <a
-            href="/"
-            data-nav-link
-            class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-600 hover:bg-primary-50 focus:bg-primary-50 aria-[current=page]:text-primary-500 aria-[current=page]:bg-primary-50"
-          >
-            <div class="flex items-center self-center w-6">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                ><path
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="1.5"
-                  d="M8.557 2.75H4.682A1.93 1.93 0 0 0 2.75 4.682v3.875a1.94 1.94 0 0 0 1.932 1.942h3.875a1.94 1.94 0 0 0 1.942-1.942V4.682A1.94 1.94 0 0 0 8.557 2.75m10.761 0h-3.875a1.94 1.94 0 0 0-1.942 1.932v3.875a1.943 1.943 0 0 0 1.942 1.942h3.875a1.94 1.94 0 0 0 1.932-1.942V4.682a1.93 1.93 0 0 0-1.932-1.932m0 10.75h-3.875a1.94 1.94 0 0 0-1.942 1.933v3.875a1.94 1.94 0 0 0 1.942 1.942h3.875a1.94 1.94 0 0 0 1.932-1.942v-3.875a1.93 1.93 0 0 0-1.932-1.932M8.557 13.5H4.682a1.943 1.943 0 0 0-1.932 1.943v3.875a1.93 1.93 0 0 0 1.932 1.932h3.875a1.94 1.94 0 0 0 1.942-1.932v-3.875a1.94 1.94 0 0 0-1.942-1.942"
-                ></path></svg
-              >
-            </div>
-            <div
-              class="flex flex-col items-start justify-center flex-1 w-full gap-0 overflow-hidden truncate"
-            >
-              Index
-            </div>
-          </a>
-        </li>
-      </ul>
-    </div>
-    <div>
-      <ul class="flex flex-col flex-1 gap-1 py-3">
-        <Fragment set:html={"{% if user %}"} />
-        <li class="px-3">
-          <a
-            href="/settings"
-            data-nav-link
-            class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-600 hover:bg-primary-50 focus:bg-primary-50 aria-[current=page]:text-primary-500 aria-[current=page]:bg-primary-50"
-          >
-            <div class="flex items-center self-center w-6">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                ><g
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="1.5"
-                  ><path
-                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                  ></path><circle cx="12" cy="12" r="3"></circle></g
-                ></svg
-              >
-            </div>
-            <div
-              class="flex flex-col items-start justify-center flex-1 w-full gap-0 overflow-hidden truncate"
-            >
-              Settings
-            </div>
-          </a>
-        </li>
-        <Fragment set:html={"{% endif %}"} />
+    <a
+      href="/"
+      data-nav-link
+      class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors text-secondary-700 hover:bg-secondary-100 hover:text-secondary-900 aria-[current=page]:bg-primary-50 aria-[current=page]:text-primary-800 aria-[current=page]:font-semibold"
+    >
+      <svg
+        class="shrink-0"
+        xmlns="http://www.w3.org/2000/svg"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+      >
+        <path
+          fill="none"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+          d="M8.557 2.75H4.682A1.93 1.93 0 0 0 2.75 4.682v3.875a1.94 1.94 0 0 0 1.932 1.942h3.875a1.94 1.94 0 0 0 1.942-1.942V4.682A1.94 1.94 0 0 0 8.557 2.75m10.761 0h-3.875a1.94 1.94 0 0 0-1.942 1.932v3.875a1.943 1.943 0 0 0 1.942 1.942h3.875a1.94 1.94 0 0 0 1.932-1.942V4.682a1.93 1.93 0 0 0-1.932-1.932m0 10.75h-3.875a1.94 1.94 0 0 0-1.942 1.933v3.875a1.94 1.94 0 0 0 1.942 1.942h3.875a1.94 1.94 0 0 0 1.932-1.942v-3.875a1.93 1.93 0 0 0-1.932-1.932M8.557 13.5H4.682a1.943 1.943 0 0 0-1.932 1.943v3.875a1.93 1.93 0 0 0 1.932 1.932h3.875a1.94 1.94 0 0 0 1.942-1.932v-3.875a1.94 1.94 0 0 0-1.942-1.942"
+        ></path>
+      </svg>
+      <span class="sidebar-label truncate">
+        <Fragment set:html={"{{ t.sidebar.index | default(value='Home') }}"} />
+      </span>
+    </a>
 
-        <Fragment set:html={"{% if can_read_users %}"} />
-        <li class="px-3">
-          <a
-            href="/users"
-            data-nav-link
-            class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-600 hover:bg-primary-50 focus:bg-primary-50 aria-[current=page]:text-primary-500 aria-[current=page]:bg-primary-50"
-          >
-            <div class="flex items-center self-center w-6">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="24"
-                height="24"
-                viewBox="0 0 24 24"
-                ><g fill="none" stroke="currentColor" stroke-width="1.5"
-                  ><circle cx="12" cy="6" r="4"></circle><path
-                    d="M20 17.5c0 2.485 0 4.5-8 4.5s-8-2.015-8-4.5S7.582 13 12 13s8 2.015 8 4.5Z"
-                  ></path></g
-                ></svg
-              >
-            </div>
-            <div
-              class="flex flex-col items-start justify-center flex-1 w-full gap-0 overflow-hidden truncate"
-            >
-              Users
-            </div>
-          </a>
-        </li>
-        <Fragment set:html={"{% endif %}"} />
-      </ul>
-    </div>
+    <Fragment set:html={"{% if can_read_users | default(value=false) %}"} />
+    <a
+      href="/users"
+      data-nav-link
+      class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors text-secondary-700 hover:bg-secondary-100 hover:text-secondary-900 aria-[current=page]:bg-primary-50 aria-[current=page]:text-primary-800 aria-[current=page]:font-semibold"
+    >
+      <svg
+        class="shrink-0"
+        xmlns="http://www.w3.org/2000/svg"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+      >
+        <g fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="6" r="4"></circle>
+          <path
+            d="M20 17.5c0 2.485 0 4.5-8 4.5s-8-2.015-8-4.5S7.582 13 12 13s8 2.015 8 4.5Z"
+          ></path>
+        </g>
+      </svg>
+      <span class="sidebar-label truncate">
+        <Fragment set:html={"{{ t.sidebar.users | default(value='Users') }}"} />
+      </span>
+    </a>
+    <Fragment set:html={"{% endif %}"} />
   </nav>
 
-  <footer class="p-3 border-t border-secondary-200">
-    <Fragment set:html={"{% if user %}"} />
-    <form action="/logout" method="POST">
+  <!-- Bottom section -->
+  <div class="border-t border-secondary-200 px-3 py-3 space-y-0.5 shrink-0">
+    <Fragment set:html={"{% if user | default(value=false) %}"} />
+
+    <a
+      href="/settings"
+      data-nav-link
+      class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors text-secondary-700 hover:bg-secondary-100 hover:text-secondary-900 aria-[current=page]:bg-primary-50 aria-[current=page]:text-primary-800 aria-[current=page]:font-semibold"
+    >
+      <svg
+        class="shrink-0"
+        xmlns="http://www.w3.org/2000/svg"
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+      >
+        <g
+          fill="none"
+          stroke="currentColor"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="1.5"
+        >
+          <path
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+          ></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </g>
+      </svg>
+      <span class="sidebar-label truncate">
+        <Fragment
+          set:html={"{{ t.sidebar.settings | default(value='Settings') }}"}
+        />
+      </span>
+    </a>
+
+    <form action="/logout" method="POST" data-astro-reload>
       <button
-        class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-500"
+        class="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors text-secondary-700 hover:bg-secondary-100 hover:text-secondary-900"
         type="submit"
       >
-        <div class="flex items-center self-center">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke-width="1.5"
-            stroke="currentColor"
-            class="w-6 h-6"
-            aria-label="Logout icon"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M11.25 9l-3 3m0 0l3 3m-3-3h7.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            ></path>
-          </svg>
-        </div>
-        <div
-          class="flex flex-col items-start justify-center flex-1 w-full gap-0 overflow-hidden font-medium truncate"
-        >
-          Logout
-        </div>
-      </button>
-    </form>
-    <Fragment set:html={"{% else %}"} />
-    <a
-      href="/login"
-      class="flex items-center gap-3 p-3 transition-colors rounded hover:text-primary-500"
-    >
-      <div class="flex items-center self-center">
         <svg
+          class="shrink-0"
           xmlns="http://www.w3.org/2000/svg"
+          width="18"
+          height="18"
           fill="none"
           viewBox="0 0 24 24"
           stroke-width="1.5"
           stroke="currentColor"
-          class="w-6 h-6"
-          aria-label="Login icon"
+          aria-label="Logout icon"
         >
           <path
             stroke-linecap="round"
             stroke-linejoin="round"
-            d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"
+            d="M11.25 9l-3 3m0 0l3 3m-3-3h7.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
           ></path>
         </svg>
-      </div>
-      <div
-        class="flex flex-col items-start justify-center flex-1 w-full gap-0 overflow-hidden font-medium truncate"
+        <span class="sidebar-label font-medium truncate">
+          <Fragment
+            set:html={"{{ t.sidebar.logout | default(value='Logout') }}"}
+          />
+        </span>
+      </button>
+    </form>
+
+    <Fragment set:html={"{% else %}"} />
+    <a
+      href="/login"
+      class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors text-secondary-700 hover:bg-secondary-100 hover:text-secondary-900"
+    >
+      <svg
+        class="shrink-0"
+        xmlns="http://www.w3.org/2000/svg"
+        width="18"
+        height="18"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke-width="1.5"
+        stroke="currentColor"
+        aria-label="Login icon"
       >
-        Login
-      </div>
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"
+        ></path>
+      </svg>
+      <span class="sidebar-label font-medium truncate">
+        <Fragment set:html={"{{ t.sidebar.login | default(value='Login') }}"} />
+      </span>
     </a>
     <Fragment set:html={"{% endif %}"} />
-  </footer>
+  </div>
 </aside>
 
 <script>
@@ -217,16 +253,13 @@
     const currentPath = window.location.pathname;
     const links =
       document.querySelectorAll<HTMLAnchorElement>("[data-nav-link]");
-
     links.forEach((link) => {
       const href = link.getAttribute("href");
       if (!href) return;
-
       if (href === "/" && currentPath === "/") {
         link.setAttribute("aria-current", "page");
         return;
       }
-
       if (href !== "/" && currentPath.startsWith(href)) {
         link.setAttribute("aria-current", "page");
       } else {
@@ -235,46 +268,57 @@
     });
   }
 
-  function setupSidebar() {
+  function openSidebar() {
     const sidebar = document.getElementById("nav-menu-1");
     const backdrop = document.getElementById("sidebar-backdrop");
-    const closeBtn = document.getElementById("close-sidebar");
-
-    function openSidebar() {
-      if (window.innerWidth < 1024) {
-        sidebar?.classList.remove("-translate-x-full");
-        backdrop?.classList.remove("hidden");
-        setTimeout(() => {
-          backdrop?.classList.remove("opacity-0");
-        }, 10);
-        document.body.style.overflow = "hidden";
-      } else {
-        document.body.classList.remove("sidebar-closed");
-      }
-    }
-
-    function closeSidebar() {
-      if (window.innerWidth < 1024) {
-        sidebar?.classList.add("-translate-x-full");
-        backdrop?.classList.add("opacity-0");
-        setTimeout(() => {
-          backdrop?.classList.add("hidden");
-        }, 300);
-        document.body.style.overflow = "";
-      } else {
-        document.body.classList.add("sidebar-closed");
-      }
-    }
-
-    closeBtn?.addEventListener("click", closeSidebar);
-    backdrop?.addEventListener("click", closeSidebar);
-
-    document.addEventListener("open-sidebar", openSidebar);
-    document.addEventListener("close-sidebar", closeSidebar);
+    sidebar?.classList.remove("-translate-x-full");
+    backdrop?.classList.remove("hidden");
+    setTimeout(() => backdrop?.classList.remove("opacity-0"), 10);
+    document.body.style.overflow = "hidden";
   }
 
-  setActiveLink();
-  setupSidebar();
+  function closeSidebar() {
+    const sidebar = document.getElementById("nav-menu-1");
+    const backdrop = document.getElementById("sidebar-backdrop");
+    sidebar?.classList.add("-translate-x-full");
+    backdrop?.classList.add("opacity-0");
+    setTimeout(() => backdrop?.classList.add("hidden"), 300);
+    document.body.style.overflow = "";
+  }
+
+  document.addEventListener("open-sidebar", openSidebar);
+  document.addEventListener("close-sidebar", closeSidebar);
+  document.addEventListener("astro:before-preparation", closeSidebar);
+
+  function bindOnce(el: HTMLElement | null, type: string, handler: () => void) {
+    if (!el || el.dataset.bound === type) return;
+    el.dataset.bound = type;
+    el.addEventListener("click", handler);
+  }
+
+  function setupSidebar() {
+    const backdrop = document.getElementById("sidebar-backdrop");
+    const closeBtn = document.getElementById("close-sidebar");
+    const miniToggle = document.getElementById("toggle-sidebar-mini");
+    const root = document.documentElement;
+
+    function syncMiniIcons(isMini: boolean) {
+      const collapseIcon = miniToggle?.querySelector(".sidebar-icon-collapse");
+      const expandIcon = miniToggle?.querySelector(".sidebar-icon-expand");
+      collapseIcon?.classList.toggle("hidden", isMini);
+      expandIcon?.classList.toggle("hidden", !isMini);
+    }
+
+    syncMiniIcons(root.classList.contains("sidebar-mini"));
+
+    bindOnce(miniToggle, "mini", () => {
+      const isMini = root.classList.toggle("sidebar-mini");
+      localStorage.setItem("sidebar-mini", isMini ? "1" : "0");
+      syncMiniIcons(isMini);
+    });
+    bindOnce(closeBtn, "close", closeSidebar);
+    bindOnce(backdrop, "close", closeSidebar);
+  }
 
   document.addEventListener("astro:page-load", () => {
     setActiveLink();

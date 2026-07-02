@@ -13,6 +13,7 @@ struct Row {
     pub role: AppRole,
     pub created_at: String,
     pub link: String,
+    pub delete_url: String,
 }
 
 #[get("/users")]
@@ -35,6 +36,7 @@ pub async fn get(data: web::Data<AppData>, req: actix_web::HttpRequest, user: Au
             role: u.role,
             created_at: u.created_at.to_string(),
             link: format!("/users/{}", u.id),
+            delete_url: format!("/users/{}", u.id),
         })
         .collect();
 
@@ -63,7 +65,7 @@ pub async fn get(data: web::Data<AppData>, req: actix_web::HttpRequest, user: Au
             TableHeader {
                 label: "Actions".to_string(),
                 key: "id".to_string(),
-                format: Some("delete_user".to_string()),
+                format: Some("delete".to_string()),
             },
         ],
         rows,

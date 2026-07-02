@@ -26,6 +26,11 @@ define_roles! {
 async fn main() -> std::io::Result<()> {
     FrameworkApp::new(&DIST_DIR)
         .global_context_injector(|req, value| {
+            // Load locales/*.json and expose t/lang/i18n to every template.
+            // Add more languages by dropping in another locales/<code>.json
+            // file; nothing else needs to change.
+            inject_locale_context(value, "locales", "en");
+
             // Automatically inject user claims if a valid JWT token is present
             if let Ok(claims) = read_jwt::<AppRole>(req) {
                 if let Some(obj) = value.as_object_mut() {

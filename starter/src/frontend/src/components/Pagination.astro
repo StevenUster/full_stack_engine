@@ -1,0 +1,73 @@
+---
+---
+
+<nav
+  id="pagination-nav"
+  class="flex items-center justify-between px-4 py-3 border-t border-secondary-200 text-sm"
+  data-page={`{{ page | default(value=1) }}`}
+  data-total-pages={`{{ total_pages | default(value=1) }}`}
+  data-total-count={`{{ total_count | default(value=0) }}`}
+  data-per-page={`{{ per_page | default(value=20) }}`}
+>
+</nav>
+
+<script>
+  function setupPagination() {
+    const nav = document.getElementById("pagination-nav");
+    if (!nav) return;
+
+    const page = parseInt(nav.dataset.page || "1");
+    const totalPages = parseInt(nav.dataset.totalPages || "1");
+    const totalCount = parseInt(nav.dataset.totalCount || "0");
+    const perPage = parseInt(nav.dataset.perPage || "20");
+
+    if (totalPages <= 1) {
+      nav.style.display = "none";
+      return;
+    }
+    nav.style.display = "";
+
+    function buildUrl(p: number) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("page", p.toString());
+      return url.pathname + "?" + url.searchParams.toString();
+    }
+
+    const start = (page - 1) * perPage + 1;
+    const end = Math.min(page * perPage, totalCount);
+
+    const base =
+      "inline-flex items-center justify-center min-w-8 h-8 px-2 rounded-lg text-sm transition-colors";
+    const active = `${base} bg-primary-600 text-white font-medium`;
+    const normal = `${base} border border-secondary-200 text-secondary-700 hover:bg-secondary-100 hover:border-secondary-300`;
+    const disabled = `${base} text-secondary-300 cursor-not-allowed pointer-events-none`;
+
+    const pageNums: (number | "…")[] = [];
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= page - 2 && i <= page + 2)) {
+        pageNums.push(i);
+      } else if (pageNums[pageNums.length - 1] !== "…") {
+        pageNums.push("…");
+      }
+    }
+
+    const pageButtons = pageNums
+      .map((p) =>
+        p === "…"
+          ? `<span class="px-1 text-secondary-400 self-center">…</span>`
+          : `<a href="${buildUrl(p as number)}" class="${p === page ? active : normal}">${p}</a>`
+      )
+      .join("");
+
+    nav.innerHTML = `
+      <span class="text-secondary-500">${start}–${end} / ${totalCount}</span>
+      <div class="flex items-center gap-1">
+        ${page > 1 ? `<a href="${buildUrl(page - 1)}" class="${normal}" aria-label="Previous">‹</a>` : `<span class="${disabled}" aria-disabled="true">‹</span>`}
+        ${pageButtons}
+        ${page < totalPages ? `<a href="${buildUrl(page + 1)}" class="${normal}" aria-label="Next">›</a>` : `<span class="${disabled}" aria-disabled="true">›</span>`}
+      </div>
+    `;
+  }
+
+  document.addEventListener("astro:page-load", setupPagination);
+</script>
