@@ -76,7 +76,6 @@ pub async fn post(data: Data<AppData>, req: actix_web::HttpRequest, form: Form<F
         .map_err(|e| AppError::Internal(format!("JWT creation error: {e}")))?;
 
     let cookie = Cookie::build("token", jwt)
-        .domain(&data.domain)
         .path("/")
         .same_site(actix_web::cookie::SameSite::Strict)
         .secure(data.env != Env::Dev)

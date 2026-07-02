@@ -9,6 +9,10 @@ CREATE TABLE
         reset_token TEXT,
         pending_email TEXT,
         email_change_token TEXT,
+        -- Any JWT issued (iat) before this unix timestamp is rejected by the
+        -- framework's AuthUser extractor, enabling server-side session
+        -- revocation (role change, password reset, account deletion). 0 = none.
+        sessions_valid_after INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
 

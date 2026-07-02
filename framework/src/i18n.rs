@@ -4,34 +4,56 @@
 //! template gets `t` (active locale), `lang` (active code) and `i18n` (every
 //! loaded locale, for client-side use) for free.
 
+use std::collections::HashMap;
 use std::fs;
+use std::sync::{Mutex, OnceLock};
+
+/// Process-lifetime cache of parsed locale directories, keyed by `dir`. Locale
+/// files ship inside the binary / image and never change at runtime, so parsing
+/// them once and cloning from memory avoids re-reading and re-parsing every
+/// file on every request (`inject_locale_context` runs per render).
+#[allow(clippy::type_complexity)]
+fn locale_cache() -> &'static Mutex<HashMap<String, serde_json::Map<String, serde_json::Value>>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, serde_json::Map<String, serde_json::Value>>>> =
+        OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 /// Reads and parses every `<lang>.json` file directly inside `dir`, keyed by
 /// language code (the file stem). Unreadable or malformed files are skipped.
+///
+/// The result is cached per `dir` for the lifetime of the process; the first
+/// call reads from disk, later calls clone the parsed map from memory.
 #[must_use]
 pub fn load_all_locales(dir: &str) -> serde_json::Map<String, serde_json::Value> {
+    if let Some(cached) = locale_cache().lock().unwrap().get(dir) {
+        return cached.clone();
+    }
+
     let mut locales = serde_json::Map::new();
 
-    let Ok(entries) = fs::read_dir(dir) else {
-        return locales;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("json") {
-            continue;
-        }
-        let Some(lang) = path.file_stem().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        let Ok(content) = fs::read_to_string(&path) else {
-            continue;
-        };
-        if let Ok(json) = serde_json::from_str(&content) {
-            locales.insert(lang.to_string(), json);
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(lang) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            let Ok(content) = fs::read_to_string(&path) else {
+                continue;
+            };
+            if let Ok(json) = serde_json::from_str(&content) {
+                locales.insert(lang.to_string(), json);
+            }
         }
     }
 
+    locale_cache()
+        .lock()
+        .unwrap()
+        .insert(dir.to_string(), locales.clone());
     locales
 }
 

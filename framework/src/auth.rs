@@ -4,7 +4,6 @@ use actix_web::{
     Error, FromRequest, HttpRequest, HttpResponse, dev::Payload, http::header::LOCATION,
 };
 use argon2::Config;
-use futures::future::{Ready, ready};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::{RngCore, rng};
 
@@ -86,22 +85,28 @@ pub struct Claims<R: Role> {
     pub sub: i64,
     pub role: R,
     pub exp: usize,
+    /// Issued-at (unix seconds). Compared against the user's
+    /// `sessions_valid_after` column so sessions can be revoked server-side.
+    /// Defaults to 0 for tokens minted before this field existed.
+    #[serde(default)]
+    pub iat: usize,
 }
 
 pub fn create_jwt<R: Role>(
     user: &crate::structs::User<R>,
     secret: &str,
 ) -> Result<String, JwtError> {
-    let expiration = SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(JwtError::ExpirationError)?
-        .as_secs()
-        + 3600 * 1;
+        .as_secs();
+    let expiration = now + 3600 * 1;
 
     let claims = Claims {
         sub: user.id,
         role: user.role.clone(),
         exp: expiration as usize,
+        iat: now as usize,
     };
 
     let header = Header::default();
@@ -159,14 +164,35 @@ impl<R: Role> AuthUser<R> {
 
 impl<R: Role> FromRequest for AuthUser<R> {
     type Error = Error;
-    type Future = Ready<Result<Self, Self::Error>>;
+    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self, Self::Error>>>>;
 
     fn from_request(req: &HttpRequest, _: &mut Payload) -> Self::Future {
-        let result = read_jwt::<R>(req)
-            .map(|claims| AuthUser { claims })
-            .map_err(AuthError::from)
-            .map_err(Error::from);
+        let req = req.clone();
+        Box::pin(async move {
+            let claims = read_jwt::<R>(&req)
+                .map_err(AuthError::from)
+                .map_err(Error::from)?;
 
-        ready(result)
+            // Server-side session revocation: a token is only accepted if the
+            // user still exists and the token was issued at or after the user's
+            // `sessions_valid_after` cutoff. Bumping that column (on role change,
+            // password reset, ...) or deleting the user therefore invalidates
+            // outstanding tokens immediately, instead of waiting for `exp`.
+            let data = req
+                .app_data::<actix_web::web::Data<crate::AppData>>()
+                .ok_or_else(|| Error::from(AuthError::from(JwtError::SecretNotSet)))?;
+
+            let valid_after: Option<i64> =
+                sqlx::query_scalar("SELECT sessions_valid_after FROM users WHERE id = ?")
+                    .bind(claims.sub)
+                    .fetch_optional(&data.db)
+                    .await
+                    .map_err(actix_web::error::ErrorInternalServerError)?;
+
+            match valid_after {
+                Some(cutoff) if claims.iat as i64 >= cutoff => Ok(AuthUser { claims }),
+                _ => Err(Error::from(AuthError::from(JwtError::Unauthorized))),
+            }
+        })
     }
 }

@@ -15,7 +15,6 @@ pub async fn post(data: Data<AppData>) -> impl Responder {
 
 fn logout_logic(data: Data<AppData>) -> impl Responder {
     let cookie = Cookie::build("token", "")
-        .domain(&data.domain)
         .path("/")
         .same_site(actix_web::cookie::SameSite::Strict)
         .secure(data.env != Env::Dev)

@@ -136,6 +136,13 @@ pub async fn post_user(
         .execute(&data.db)
         .await?;
 
+    // Changing a role invalidates that user's outstanding tokens: the framework's
+    // AuthUser extractor rejects any JWT issued before `sessions_valid_after`.
+    sqlx::query("UPDATE users SET sessions_valid_after = strftime('%s','now') WHERE id = ?")
+        .bind(user_id)
+        .execute(&data.db)
+        .await?;
+
     Ok(HttpResponse::Found()
         .append_header(("Location", format!("/users/{user_id}")))
         .finish())

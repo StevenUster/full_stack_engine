@@ -368,12 +368,18 @@ impl FrameworkApp {
                      style-src 'self' 'unsafe-inline'; \
                      font-src 'self'; \
                      img-src 'self' data:; \
+                     object-src 'none'; \
                      connect-src 'self' ws://localhost:4321 http://localhost:4321 ws://127.0.0.1:4321 http://127.0.0.1:4321 ws://0.0.0.0:4321 http://0.0.0.0:4321; \
                      frame-ancestors 'none'; \
                      base-uri 'self'; \
                      form-action 'self';",
                 ));
             } else {
+                // `script-src`/`style-src` keep `'unsafe-inline'` because Astro
+                // emits inline hydration scripts and inline styles; removing it
+                // would require a nonce threaded through the render pipeline.
+                // Everything else is locked down: no plugins (`object-src`), no
+                // framing, and self-only base/form targets.
                 default_headers = default_headers.add((
                     "Content-Security-Policy",
                     "default-src 'self'; \
@@ -381,6 +387,7 @@ impl FrameworkApp {
                      style-src 'self' 'unsafe-inline'; \
                      font-src 'self'; \
                      img-src 'self' data:; \
+                     object-src 'none'; \
                      frame-ancestors 'none'; \
                      base-uri 'self'; \
                      form-action 'self';",
@@ -536,6 +543,7 @@ async fn serve_from_dist(
              style-src 'self' 'unsafe-inline'; \
              font-src 'self'; \
              img-src 'self' data:; \
+             object-src 'none'; \
              frame-ancestors 'none'; \
              base-uri 'self'; \
              form-action 'self';",
