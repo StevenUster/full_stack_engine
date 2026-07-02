@@ -125,6 +125,11 @@ impl AppData {
             };
 
             let mut tera_temp = Tera::default();
+            // Template names never carry a `.html` suffix (see `add_templates`), so Tera's
+            // default suffix-based autoescape detection never matches. An empty suffix is a
+            // suffix of every string, so this forces escaping for every template regardless
+            // of its name. Templates that intentionally emit raw HTML use the `safe` filter.
+            tera_temp.autoescape_on(vec![""]);
             if let Err(err) = tera_temp.add_raw_template(template_name, &astro_html) {
                 error!("Failed to add Astro HTML as Tera template: {}", err);
                 return HttpResponse::InternalServerError().body("Failed to add template");
@@ -182,6 +187,7 @@ impl AppData {
                 .map_err(|e| format!("Failed to read Astro dev server response: {}", e))?;
 
             let mut tera_temp = Tera::default();
+            tera_temp.autoescape_on(vec![""]);
             tera_temp
                 .add_raw_template(template_name, &astro_html)
                 .map_err(|e| format!("Failed to add email template: {}", e))?;
@@ -300,6 +306,11 @@ impl FrameworkApp {
             .expect("Failed to set WAL mode");
 
         let mut tera = Tera::default();
+        // Template names never carry a `.html` suffix (see `add_templates`), so Tera's
+        // default suffix-based autoescape detection never matches. An empty suffix is a
+        // suffix of every string, so this forces escaping for every template regardless
+        // of its name. Templates that intentionally emit raw HTML use the `safe` filter.
+        tera.autoescape_on(vec![""]);
         add_templates(&mut tera, self.dist_dir);
 
         let env = match env::var("ENV") {
