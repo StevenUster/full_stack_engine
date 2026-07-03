@@ -89,8 +89,10 @@ pub async fn post_change_email(
 
     let token = uuid::Uuid::new_v4().to_string();
 
+    // The confirmation link is valid for 24 hours.
     sqlx::query!(
-        "UPDATE users SET pending_email = ?, email_change_token = ? WHERE id = ?",
+        "UPDATE users SET pending_email = ?, email_change_token = ?, \
+         email_change_expires_at = strftime('%s','now') + 86400 WHERE id = ?",
         new_email,
         token,
         user.claims.sub
@@ -144,45 +146,41 @@ pub async fn verify_email_change(
     query: actix_web::web::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult {
     use super::RenderTplExt;
-    let token = match query.get("token") {
-        Some(t) => t,
-        None => {
-            return Ok(req
-                .render_tpl("login", &json!({"error": "Missing token"}))
-                .await);
-        }
+    let Some(token) = query.get("token") else {
+        return Ok(req
+            .render_tpl("login", &json!({"error": "Missing token"}))
+            .await);
     };
 
     let user_row = sqlx::query!(
-        "SELECT id, pending_email FROM users WHERE email_change_token = ?",
+        "SELECT id, pending_email FROM users WHERE email_change_token = ? \
+         AND email_change_expires_at > strftime('%s','now')",
         token
     )
     .fetch_optional(&data.db)
     .await?;
 
-    let user_row = match user_row {
-        Some(row) => row,
-        None => {
-            return Ok(req
-                .render_tpl(
-                    "login",
-                    &json!({"error": "Invalid or expired confirmation link."}),
-                )
-                .await);
-        }
+    let Some(user_row) = user_row else {
+        return Ok(req
+            .render_tpl(
+                "login",
+                &json!({"error": "Invalid or expired confirmation link."}),
+            )
+            .await);
     };
 
-    let new_email = match user_row.pending_email {
-        Some(email) => email,
-        None => {
-            return Ok(req
-                .render_tpl("login", &json!({"error": "No pending email change found."}))
-                .await);
-        }
+    let Some(new_email) = user_row.pending_email else {
+        return Ok(req
+            .render_tpl("login", &json!({"error": "No pending email change found."}))
+            .await);
     };
 
+    // Changing the account email is an identity change: bump
+    // `sessions_valid_after` so all previously issued JWTs are rejected, not
+    // just the cookie of the browser that clicked the link.
     sqlx::query!(
-        "UPDATE users SET email = ?, pending_email = NULL, email_change_token = NULL WHERE id = ?",
+        "UPDATE users SET email = ?, pending_email = NULL, email_change_token = NULL, \
+         email_change_expires_at = NULL, sessions_valid_after = strftime('%s','now') WHERE id = ?",
         new_email,
         user_row.id
     )
@@ -208,7 +206,7 @@ pub async fn post_password_reset(
         .await?;
 
     sqlx::query!(
-        "UPDATE users SET reset_token = ? WHERE id = ?",
+        "UPDATE users SET reset_token = ?, reset_token_expires_at = strftime('%s','now') + 3600 WHERE id = ?",
         token,
         user.claims.sub
     )
@@ -222,7 +220,10 @@ pub async fn post_password_reset(
 
     let t = super::load_locale("en");
     let body = match data
-        .render_email("emails_password-reset", &json!({ "t": t, "reset_url": reset_url }))
+        .render_email(
+            "emails_password-reset",
+            &json!({ "t": t, "reset_url": reset_url }),
+        )
         .await
     {
         Ok(html) => html,

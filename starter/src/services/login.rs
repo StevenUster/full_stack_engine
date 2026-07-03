@@ -21,7 +21,11 @@ pub async fn get(req: actix_web::HttpRequest) -> impl Responder {
     req.render_tpl("login", &json!({})).await
 }
 
-pub async fn post(data: Data<AppData>, req: actix_web::HttpRequest, form: Form<FormData>) -> AppResult {
+pub async fn post(
+    data: Data<AppData>,
+    req: actix_web::HttpRequest,
+    form: Form<FormData>,
+) -> AppResult {
     use super::RenderTplExt;
     let user_res = sqlx::query_as!(
         AppUser,
@@ -31,9 +35,9 @@ pub async fn post(data: Data<AppData>, req: actix_web::HttpRequest, form: Form<F
     .fetch_one(&data.db)
     .await;
 
-    let (user, user_exists) = match user_res {
-        Ok(u) => (Some(u), true),
-        Err(sqlx::Error::RowNotFound) => (None, false),
+    let user = match user_res {
+        Ok(u) => Some(u),
+        Err(sqlx::Error::RowNotFound) => None,
         Err(e) => return Err(e.into()),
     };
 
@@ -44,33 +48,24 @@ pub async fn post(data: Data<AppData>, req: actix_web::HttpRequest, form: Form<F
     });
     let hash = user.as_ref().map_or(dummy_hash.as_str(), |u| &u.password);
 
+    // Always verify against some hash so a missing account takes as long as a
+    // wrong password (no timing-based account enumeration).
     let password_ok = verify_password(&form.password, hash);
 
-    if !user_exists || !password_ok || user.as_ref().is_none_or(|u| u.role.is_none()) {
+    let Some(user) = user.filter(|u| password_ok && !u.role.is_none()) else {
         return Ok(req
             .render_tpl("login", &json!({"error": "Invalid credentials"}))
             .await);
-    }
-
-    if let Some(ref u) = user {
-        if !u.is_verified {
-            return Ok(req
-                .render_tpl(
-                    "login",
-                    &json!({"error": "Please confirm your email address first."}),
-                )
-                .await);
-        }
-    }
-
-    let user = match user {
-        Some(u) => u,
-        None => {
-            return Ok(req
-                .render_tpl("login", &json!({"error": "Falsche Daten"}))
-                .await);
-        }
     };
+
+    if !user.is_verified {
+        return Ok(req
+            .render_tpl(
+                "login",
+                &json!({"error": "Please confirm your email address first."}),
+            )
+            .await);
+    }
 
     let jwt = create_jwt(&user, &data.jwt_secret)
         .map_err(|e| AppError::Internal(format!("JWT creation error: {e}")))?;

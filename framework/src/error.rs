@@ -23,6 +23,9 @@ pub enum AppError {
     #[error("Permission denied")]
     NoAuth,
 
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
     #[error("Internal error: {0}")]
     Internal(String),
 
@@ -45,15 +48,18 @@ impl From<&str> for AppError {
 }
 
 impl AppError {
+    #[must_use]
     pub fn user_message(&self) -> String {
         match self {
             Self::Db(_) => "A database error occurred.".into(),
             Self::Reqwest(_) => "Communication with an external service failed.".into(),
             Self::Serde(_) => "Processing data failed.".into(),
             Self::NoAuth => "Access denied.".into(),
-            Self::NotFound(msg) | Self::Auth(msg) | Self::Internal(msg) | Self::User(msg) => {
-                msg.clone()
-            }
+            Self::NotFound(msg)
+            | Self::Auth(msg)
+            | Self::BadRequest(msg)
+            | Self::Internal(msg)
+            | Self::User(msg) => msg.clone(),
         }
     }
 }
@@ -63,6 +69,7 @@ impl ResponseError for AppError {
         match self {
             Self::Auth(_) | Self::NoAuth => StatusCode::UNAUTHORIZED,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
+            Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }

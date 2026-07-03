@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, pending_email FROM users WHERE email_change_token = ?",
+  "query": "SELECT id, pending_email FROM users WHERE email_change_token = ? AND email_change_expires_at > strftime('%s','now')",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       true
     ]
   },
-  "hash": "92e16500b8f3e6ab4c7c890a342d4efa1e8cb771472db1066f1cef53d47b6da6"
+  "hash": "86fe36291614fef041e5e050760ffcfeba183c0c3549bf00723649ca01b62896"
 }

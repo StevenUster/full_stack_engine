@@ -53,23 +53,6 @@ pub async fn post(
     let hashed_password =
         hash_password(&form.password).map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let user_exists = sqlx::query!("SELECT id FROM users WHERE email = ?", email)
-        .fetch_optional(&data.db)
-        .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-
-    if user_exists.is_some() {
-        if data.email_verification_enabled {
-            return Ok(HttpResponse::SeeOther()
-                .append_header((LOCATION, "/register-success"))
-                .finish());
-        }
-
-        return Ok(HttpResponse::SeeOther()
-            .append_header((LOCATION, "/login"))
-            .finish());
-    }
-
     let is_verified = !data.email_verification_enabled;
     let verification_token = if data.email_verification_enabled {
         Some(uuid::Uuid::new_v4().to_string())
@@ -78,7 +61,7 @@ pub async fn post(
     };
 
     let role = AppRole::User;
-    let _user_id = sqlx::query!(
+    let insert_result = sqlx::query!(
         "INSERT INTO users (email, password, role, is_verified, verification_token) VALUES (?, ?, ?, ?, ?)",
         email,
         hashed_password,
@@ -87,42 +70,59 @@ pub async fn post(
         verification_token
     )
     .execute(&data.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?
-    .last_insert_rowid();
+    .await;
 
-    if data.email_verification_enabled {
-        if let Some(token) = verification_token {
-            let verify_url = format!(
-                "{}://{}/verify-email?token={}",
-                data.protocol, data.domain, token
-            );
-
-            let body = match data
-                .render_email("emails_verify", &json!({ "verify_url": verify_url }))
-                .await
-            {
-                Ok(html) => html,
-                Err(e) => {
-                    error!("Failed to render verification email template: {e}");
-                    return Err(AppError::Internal(
-                        "Failed to render email template".to_string(),
-                    ));
-                }
+    match insert_result {
+        Ok(_) => {}
+        // The email is already registered. Relying on the UNIQUE constraint
+        // (instead of a check-then-insert, which races with a concurrent
+        // registration) and responding exactly like a successful registration
+        // keeps this endpoint from being used to enumerate accounts.
+        Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => {
+            let location = if data.email_verification_enabled {
+                "/register-success"
+            } else {
+                "/login"
             };
-
-            let email_clone = email.clone();
-
-            actix_web::rt::spawn(async move {
-                if let Err(e) = send_mail(&email_clone, "Email Verification", &body).await {
-                    error!("Failed to send verification email to {email_clone}: {e}");
-                }
-            });
-
             return Ok(HttpResponse::SeeOther()
-                .append_header((LOCATION, "/register-success"))
+                .append_header((LOCATION, location))
                 .finish());
         }
+        Err(e) => return Err(AppError::Internal(e.to_string())),
+    }
+
+    if data.email_verification_enabled
+        && let Some(token) = verification_token
+    {
+        let verify_url = format!(
+            "{}://{}/verify-email?token={}",
+            data.protocol, data.domain, token
+        );
+
+        let body = match data
+            .render_email("emails_verify", &json!({ "verify_url": verify_url }))
+            .await
+        {
+            Ok(html) => html,
+            Err(e) => {
+                error!("Failed to render verification email template: {e}");
+                return Err(AppError::Internal(
+                    "Failed to render email template".to_string(),
+                ));
+            }
+        };
+
+        let email_clone = email.clone();
+
+        actix_web::rt::spawn(async move {
+            if let Err(e) = send_mail(&email_clone, "Email Verification", &body).await {
+                error!("Failed to send verification email to {email_clone}: {e}");
+            }
+        });
+
+        return Ok(HttpResponse::SeeOther()
+            .append_header((LOCATION, "/register-success"))
+            .finish());
     }
 
     Ok(HttpResponse::SeeOther()
@@ -137,9 +137,8 @@ pub async fn verify_email(
     query: web::Query<std::collections::HashMap<String, String>>,
 ) -> AppResult {
     use super::RenderTplExt;
-    let token = match query.get("token") {
-        Some(t) => t,
-        None => return Ok(HttpResponse::BadRequest().body("Missing token")),
+    let Some(token) = query.get("token") else {
+        return Ok(HttpResponse::BadRequest().body("Missing token"));
     };
 
     let result = sqlx::query!(

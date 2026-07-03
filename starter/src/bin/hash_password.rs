@@ -6,7 +6,7 @@ fn main() {
         eprintln!("Usage: {} <password>", args[0]);
         std::process::exit(1);
     }
-    
+
     let password = &args[1];
     match hash_password(password) {
         Ok(hash) => println!("{}", hash),

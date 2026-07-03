@@ -1,11 +1,18 @@
 use chrono::Local;
 use log::{error, info};
 use std::env;
-use std::fs::{create_dir_all, OpenOptions};
+use std::fs::{OpenOptions, create_dir_all};
 use std::io::Write;
 use std::path::PathBuf;
 use tokio_cron_scheduler::{Job, JobScheduler, JobSchedulerError};
 
+/// Registers a synchronous job on the scheduler. Each run is logged to a
+/// timestamped file next to the executable (`logs/<job>_<datetime>.log`).
+///
+/// # Errors
+///
+/// Returns [`JobSchedulerError`] if the cron `schedule` is invalid or the job
+/// can't be added.
 pub async fn add_job<F>(
     sched: &JobScheduler,
     job_name: &str,
@@ -21,7 +28,7 @@ where
         .add(Job::new(schedule, move |_uuid, _l| {
             let job_name = job_name.clone();
             if let Err(e) = execute_job(&job_name, &job_action) {
-                error!("Job {} failed: {}", job_name, e);
+                error!("Job {job_name} failed: {e}");
             }
         })?)
         .await?;
@@ -29,6 +36,13 @@ where
     Ok(())
 }
 
+/// Registers an async job on the scheduler. Each run is logged to a
+/// timestamped file next to the executable (`logs/<job>_<datetime>.log`).
+///
+/// # Errors
+///
+/// Returns [`JobSchedulerError`] if the cron `schedule` is invalid or the job
+/// can't be added.
 pub async fn add_async_job<F, Fut>(
     sched: &JobScheduler,
     job_name: &str,
@@ -47,7 +61,7 @@ where
             let job_action = job_action.clone();
             Box::pin(async move {
                 if let Err(e) = execute_job_async(&job_name, job_action).await {
-                    error!("Job {} failed: {}", job_name, e);
+                    error!("Job {job_name} failed: {e}");
                 }
             })
         })?)
@@ -60,7 +74,7 @@ fn execute_job<F>(job_name: &str, job_action: F) -> Result<(), Box<dyn std::erro
 where
     F: Fn() -> Result<(), Box<dyn std::error::Error>>,
 {
-    info!("{} started", job_name);
+    info!("{job_name} started");
 
     let datetime = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
     let log_file_name = create_log_file(job_name, &datetime)?;
@@ -68,6 +82,7 @@ where
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(&log_file_name)?;
     writeln!(
         file,
@@ -77,7 +92,7 @@ where
     )?;
 
     match job_action() {
-        Ok(_) => {
+        Ok(()) => {
             writeln!(
                 file,
                 "{} completed successfully at: {}",
@@ -91,8 +106,8 @@ where
             );
         }
         Err(e) => {
-            writeln!(file, "{} failed: {}", job_name, e)?;
-            error!("{} failed: {}", job_name, e);
+            writeln!(file, "{job_name} failed: {e}")?;
+            error!("{job_name} failed: {e}");
         }
     }
 
@@ -107,7 +122,7 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> + Send,
 {
-    info!("{} started", job_name);
+    info!("{job_name} started");
 
     let datetime = Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
     let log_file_name = create_log_file(job_name, &datetime)?;
@@ -115,6 +130,7 @@ where
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
+        .truncate(true)
         .open(&log_file_name)?;
     writeln!(
         file,
@@ -124,7 +140,7 @@ where
     )?;
 
     match job_action().await {
-        Ok(_) => {
+        Ok(()) => {
             writeln!(
                 file,
                 "{} completed successfully at: {}",
@@ -138,8 +154,8 @@ where
             );
         }
         Err(e) => {
-            writeln!(file, "{} failed: {}", job_name, e)?;
-            error!("{} failed: {}", job_name, e);
+            writeln!(file, "{job_name} failed: {e}")?;
+            error!("{job_name} failed: {e}");
         }
     }
 
@@ -156,7 +172,7 @@ fn create_log_file(job_name: &str, datetime: &str) -> std::io::Result<PathBuf> {
 
     create_dir_all(&logs_dir)?;
 
-    let log_file_name = format!("{}_{}.log", job_name, datetime);
+    let log_file_name = format!("{job_name}_{datetime}.log");
     let log_file_path = logs_dir.join(log_file_name);
 
     Ok(log_file_path)

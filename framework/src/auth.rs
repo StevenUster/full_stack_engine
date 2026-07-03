@@ -1,4 +1,3 @@
-
 use crate::structs::Role;
 use actix_web::{
     Error, FromRequest, HttpRequest, HttpResponse, dev::Payload, http::header::LOCATION,
@@ -10,6 +9,11 @@ use rand::{RngCore, rng};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
+/// Hashes `password` with Argon2 and a fresh random 16-byte salt.
+///
+/// # Errors
+///
+/// Returns [`argon2::Error`] if hashing fails (e.g. invalid parameters).
 pub fn hash_password(password: &str) -> Result<String, argon2::Error> {
     let mut salt = vec![0u8; 16];
     rng().fill_bytes(&mut salt);
@@ -20,11 +24,9 @@ pub fn hash_password(password: &str) -> Result<String, argon2::Error> {
     Ok(hash)
 }
 
+#[must_use]
 pub fn verify_password(password: &str, hash: &str) -> bool {
-    match argon2::verify_encoded(hash, password.as_bytes()) {
-        Ok(matches) => matches,
-        Err(_) => false,
-    }
+    argon2::verify_encoded(hash, password.as_bytes()).unwrap_or_default()
 }
 
 #[derive(Debug, Error)]
@@ -84,14 +86,21 @@ impl From<AuthError> for Error {
 pub struct Claims<R: Role> {
     pub sub: i64,
     pub role: R,
-    pub exp: usize,
+    /// Expiry (unix seconds).
+    pub exp: u64,
     /// Issued-at (unix seconds). Compared against the user's
     /// `sessions_valid_after` column so sessions can be revoked server-side.
     /// Defaults to 0 for tokens minted before this field existed.
     #[serde(default)]
-    pub iat: usize,
+    pub iat: u64,
 }
 
+/// Creates a signed JWT for `user`, valid for one hour.
+///
+/// # Errors
+///
+/// Returns [`JwtError`] if the system clock is before the unix epoch or the
+/// token can't be encoded.
 pub fn create_jwt<R: Role>(
     user: &crate::structs::User<R>,
     secret: &str,
@@ -100,13 +109,13 @@ pub fn create_jwt<R: Role>(
         .duration_since(UNIX_EPOCH)
         .map_err(JwtError::ExpirationError)?
         .as_secs();
-    let expiration = now + 3600 * 1;
+    let expiration = now + 3600;
 
     let claims = Claims {
         sub: user.id,
         role: user.role.clone(),
-        exp: expiration as usize,
-        iat: now as usize,
+        exp: expiration,
+        iat: now,
     };
 
     let header = Header::default();
@@ -115,6 +124,12 @@ pub fn create_jwt<R: Role>(
     encode(&header, &claims, &encoding_key).map_err(|_| JwtError::JwtEncodingError)
 }
 
+/// Reads and validates the JWT from the request's `token` cookie.
+///
+/// # Errors
+///
+/// Returns [`JwtError`] if the cookie is missing or the token is invalid or
+/// expired.
 pub fn read_jwt<R: Role>(req: &HttpRequest) -> Result<Claims<R>, JwtError> {
     let token = req
         .cookie("token")
@@ -145,6 +160,9 @@ pub struct AuthUser<R: Role> {
 }
 
 impl<R: Role> AuthUser<R> {
+    /// # Errors
+    ///
+    /// Returns [`crate::error::AppError::NoAuth`] if the user is not an admin.
     pub fn require_admin(&self) -> Result<(), crate::error::AppError> {
         if self.claims.role.is_admin() {
             Ok(())
@@ -153,6 +171,10 @@ impl<R: Role> AuthUser<R> {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`crate::error::AppError::NoAuth`] if the user's role lacks
+    /// `permission`.
     pub fn require_permission(&self, permission: &str) -> Result<(), crate::error::AppError> {
         if self.claims.role.has_permission(permission) {
             Ok(())
@@ -189,8 +211,12 @@ impl<R: Role> FromRequest for AuthUser<R> {
                     .await
                     .map_err(actix_web::error::ErrorInternalServerError)?;
 
+            // A negative cutoff (shouldn't happen, but the column is signed)
+            // is treated as "no cutoff".
             match valid_after {
-                Some(cutoff) if claims.iat as i64 >= cutoff => Ok(AuthUser { claims }),
+                Some(cutoff) if claims.iat >= u64::try_from(cutoff).unwrap_or(0) => {
+                    Ok(AuthUser { claims })
+                }
                 _ => Err(Error::from(AuthError::from(JwtError::Unauthorized))),
             }
         })

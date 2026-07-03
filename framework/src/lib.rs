@@ -100,9 +100,9 @@ impl AppData {
             let path = if template_name == "index" {
                 String::new()
             } else {
-                template_name.replace("_", "/")
+                template_name.replace('_', "/")
             };
-            let url = format!("http://localhost:4321/{}", path);
+            let url = format!("http://localhost:4321/{path}");
 
             let astro_html = match reqwest::get(&url).await {
                 Ok(response) => {
@@ -110,7 +110,7 @@ impl AppData {
                         match response.text().await {
                             Ok(html) => html,
                             Err(err) => {
-                                error!("Failed to read response from Astro dev server: {}", err);
+                                error!("Failed to read response from Astro dev server: {err}");
                                 return HttpResponse::InternalServerError()
                                     .body("Failed to read response");
                             }
@@ -121,7 +121,7 @@ impl AppData {
                     }
                 }
                 Err(err) => {
-                    error!("Failed to connect to Astro dev server at {}: {}", url, err);
+                    error!("Failed to connect to Astro dev server at {url}: {err}");
                     return HttpResponse::InternalServerError()
                         .body("Failed to connect to Astro dev server");
                 }
@@ -134,14 +134,14 @@ impl AppData {
             // of its name. Templates that intentionally emit raw HTML use the `safe` filter.
             tera_temp.autoescape_on(vec![""]);
             if let Err(err) = tera_temp.add_raw_template(template_name, &astro_html) {
-                error!("Failed to add Astro HTML as Tera template: {}", err);
+                error!("Failed to add Astro HTML as Tera template: {err}");
                 return HttpResponse::InternalServerError().body("Failed to add template");
             }
 
             let context = match Context::from_serialize(context_data) {
                 Ok(ctx) => ctx,
                 Err(err) => {
-                    error!("Context serialization error: {}", err);
+                    error!("Context serialization error: {err}");
                     return HttpResponse::InternalServerError().body("Context serialization error");
                 }
             };
@@ -149,7 +149,7 @@ impl AppData {
             match tera_temp.render(template_name, &context) {
                 Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
                 Err(err) => {
-                    error!("Template rendering error: {}", err);
+                    error!("Template rendering error: {err}");
                     HttpResponse::InternalServerError().body("Template rendering error")
                 }
             }
@@ -157,58 +157,65 @@ impl AppData {
             let context = match Context::from_serialize(context_data) {
                 Ok(ctx) => ctx,
                 Err(err) => {
-                    error!("Context serialization error: {}", err);
+                    error!("Context serialization error: {err}");
                     return HttpResponse::InternalServerError().finish();
                 }
             };
 
-            let template_name = template_name.replace("_", "/");
+            let template_name = template_name.replace('_', "/");
             match self.tera.render(&template_name, &context) {
                 Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
                 Err(err) => {
-                    error!("Template rendering error ({}): {}", template_name, err);
+                    error!("Template rendering error ({template_name}): {err}");
                     HttpResponse::InternalServerError().finish()
                 }
             }
         }
     }
 
+    /// Renders an email template to an HTML string (via the Astro dev server
+    /// in dev, from the embedded templates in prod).
+    ///
+    /// # Errors
+    ///
+    /// Returns a description of what failed (dev-server connection, context
+    /// serialization, or template rendering).
     pub async fn render_email<T: serde::Serialize>(
         &self,
         template_name: &str,
         context_data: &T,
     ) -> Result<String, String> {
         if self.env == Env::Dev {
-            let path = template_name.replace("_", "/");
-            let url = format!("http://localhost:4321/{}", path);
+            let path = template_name.replace('_', "/");
+            let url = format!("http://localhost:4321/{path}");
 
             let astro_html = reqwest::get(&url)
                 .await
-                .map_err(|e| format!("Failed to connect to Astro dev server: {}", e))?
+                .map_err(|e| format!("Failed to connect to Astro dev server: {e}"))?
                 .text()
                 .await
-                .map_err(|e| format!("Failed to read Astro dev server response: {}", e))?;
+                .map_err(|e| format!("Failed to read Astro dev server response: {e}"))?;
 
             let mut tera_temp = Tera::default();
             tera_temp.autoescape_on(vec![""]);
             tera_temp
                 .add_raw_template(template_name, &astro_html)
-                .map_err(|e| format!("Failed to add email template: {}", e))?;
+                .map_err(|e| format!("Failed to add email template: {e}"))?;
 
             let context = Context::from_serialize(context_data)
-                .map_err(|e| format!("Context serialization error: {}", e))?;
+                .map_err(|e| format!("Context serialization error: {e}"))?;
 
             tera_temp
                 .render(template_name, &context)
-                .map_err(|e| format!("Email template rendering error: {}", e))
+                .map_err(|e| format!("Email template rendering error: {e}"))
         } else {
             let context = Context::from_serialize(context_data)
-                .map_err(|e| format!("Context serialization error: {}", e))?;
+                .map_err(|e| format!("Context serialization error: {e}"))?;
 
-            let template_name = template_name.replace("_", "/");
+            let template_name = template_name.replace('_', "/");
             self.tera
                 .render(&template_name, &context)
-                .map_err(|e| format!("Email template rendering error ({}): {}", template_name, e))
+                .map_err(|e| format!("Email template rendering error ({template_name}): {e}"))
         }
     }
 }
@@ -233,6 +240,7 @@ pub struct FrameworkApp {
 }
 
 impl FrameworkApp {
+    #[must_use]
     pub fn new(dist_dir: &'static Dir<'static>) -> Self {
         Self {
             dist_dir,
@@ -281,6 +289,7 @@ impl FrameworkApp {
         self
     }
 
+    #[must_use]
     pub fn global_context_injector<F>(mut self, f: F) -> Self
     where
         F: Fn(&actix_web::HttpRequest, &mut serde_json::Value) + Send + Sync + 'static,
@@ -289,6 +298,7 @@ impl FrameworkApp {
         self
     }
 
+    #[must_use]
     pub fn configure<F>(mut self, f: F) -> Self
     where
         F: Fn(&mut web::ServiceConfig) + Send + Sync + 'static,
@@ -297,6 +307,7 @@ impl FrameworkApp {
         self
     }
 
+    #[must_use]
     pub fn cronjobs<F, Fut>(mut self, f: F) -> Self
     where
         F: FnOnce(JobScheduler, SqlitePool) -> Fut + 'static,
@@ -306,6 +317,20 @@ impl FrameworkApp {
         self
     }
 
+    /// Boots the application: connects the database, runs migrations, starts
+    /// the cron scheduler and serves HTTP until the process is stopped.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::io::Error`] if the database file can't be created or the
+    /// server can't bind its port.
+    ///
+    /// # Panics
+    ///
+    /// Panics at startup if required configuration (`DOMAIN`, `PROTOCOL`,
+    /// `JWT_SECRET`, `DATABASE_URL`) is missing, or if the database, its
+    /// migrations, or the cron scheduler fail to initialize — failing loudly
+    /// at boot instead of running half-configured.
     pub async fn run(mut self) -> std::io::Result<()> {
         env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
         load_env_file();
@@ -316,46 +341,8 @@ impl FrameworkApp {
         let protocol = env::var("PROTOCOL").expect("PROTOCOL not set in .env file");
         let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET not set in .env file");
         let database_url = env::var("DATABASE_URL").expect("DATABASE_URL not set in .env file");
-        let db_file = database_url.trim_start_matches("sqlite:");
 
-        if let Some(dir) = std::path::Path::new(db_file).parent() {
-            fs::create_dir_all(dir)?;
-        }
-
-        if !std::path::Path::new(db_file).exists() {
-            fs::File::create(db_file)?;
-        }
-
-        let db_pool = SqlitePool::connect(&database_url)
-            .await
-            .expect("Failed to create database pool");
-
-        // Prefer migrations embedded in the binary (via `.migrator(...)`); fall
-        // back to reading them from disk at runtime when none were supplied.
-        let migrator = match self.migrator.take() {
-            Some(migrator) => migrator,
-            None => {
-                let migrations_path =
-                    env::var("MIGRATIONS_DIR").unwrap_or_else(|_| "./migrations".to_string());
-                sqlx::migrate::Migrator::new(std::path::Path::new(&migrations_path))
-                    .await
-                    .expect("Failed to load migrations")
-            }
-        };
-        migrator
-            .run(&db_pool)
-            .await
-            .expect("Failed to run database migrations");
-
-        sqlx::query("PRAGMA foreign_keys = 1;")
-            .execute(&db_pool)
-            .await
-            .expect("Failed to run PRAGMA foreign_keys = 1;");
-
-        sqlx::query("PRAGMA journal_mode=WAL;")
-            .execute(&db_pool)
-            .await
-            .expect("Failed to set WAL mode");
+        let db_pool = init_db(&database_url, self.migrator.take()).await?;
 
         let mut tera = Tera::default();
         // Template names never carry a `.html` suffix (see `add_templates`), so Tera's
@@ -365,40 +352,16 @@ impl FrameworkApp {
         tera.autoescape_on(vec![""]);
         add_templates(&mut tera, self.dist_dir);
 
-        let env = match env::var("ENV") {
-            Ok(val) => match val.as_str() {
-                "prod" => Env::Prod,
-                _ => Env::Dev,
-            },
-            Err(_) => Env::Prod,
+        // Only an explicit `ENV=dev` opts into dev mode. Anything else —
+        // unset, "prod", or a typo like "production" — gets the hardened
+        // production behaviour (secure cookies, no dev-server proxy, no
+        // detailed error messages), so a misconfiguration fails safe.
+        let env = match env::var("ENV").as_deref() {
+            Ok("dev") => Env::Dev,
+            _ => Env::Prod,
         };
 
-        let mut sched = JobScheduler::new()
-            .await
-            .expect("Failed to create job scheduler");
-
-        if let Some(cronjobs_fn) = self.cronjobs_fn {
-            let cron_db_pool = SqlitePool::connect(&database_url)
-                .await
-                .expect("Failed to create cron database pool");
-
-            (cronjobs_fn)(sched.clone(), cron_db_pool)
-                .await
-                .expect("Failed to add cron jobs");
-        }
-
-        let has_jobs = sched
-            .time_till_next_job()
-            .await
-            .expect("Failed to check for jobs")
-            .is_some();
-
-        if has_jobs {
-            sched.start().await.expect("Failed to start cron scheduler");
-            info!("Cron scheduler started.");
-        } else {
-            info!("No cronjobs. Cron scheduler not started.");
-        }
+        start_cron_scheduler(self.cronjobs_fn.take(), &database_url).await;
 
         let dist_dir = self.dist_dir;
         let configure_fn = self.configure_fn.map(std::sync::Arc::new);
@@ -408,53 +371,15 @@ impl FrameworkApp {
         // the token buckets), so the site-wide per-IP limit is enforced for the
         // whole process rather than per worker thread. Configured exempt
         // prefixes (e.g. a public `/api`) skip the limiter entirely.
-        let global_rate_config = rate_limiter::global_rate_limiter(&self.rate_limit_exempt_prefixes);
+        let global_rate_config =
+            rate_limiter::global_rate_limiter(&self.rate_limit_exempt_prefixes);
 
         HttpServer::new(move || {
-            let mut default_headers = DefaultHeaders::new()
-                .add(("X-Content-Type-Options", "nosniff"))
-                .add(("X-Frame-Options", "DENY"))
-                .add(("Referrer-Policy", "strict-origin-when-cross-origin"));
-
-            if env == Env::Dev {
-                default_headers = default_headers.add((
-                    "Content-Security-Policy",
-                    "default-src 'self'; \
-                     script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
-                     style-src 'self' 'unsafe-inline'; \
-                     font-src 'self'; \
-                     img-src 'self' data:; \
-                     object-src 'none'; \
-                     connect-src 'self' ws://localhost:4321 http://localhost:4321 ws://127.0.0.1:4321 http://127.0.0.1:4321 ws://0.0.0.0:4321 http://0.0.0.0:4321; \
-                     frame-ancestors 'none'; \
-                     base-uri 'self'; \
-                     form-action 'self';",
-                ));
-            } else {
-                // `script-src`/`style-src` keep `'unsafe-inline'` because Astro
-                // emits inline hydration scripts and inline styles; removing it
-                // would require a nonce threaded through the render pipeline.
-                // Everything else is locked down: no plugins (`object-src`), no
-                // framing, and self-only base/form targets.
-                default_headers = default_headers.add((
-                    "Content-Security-Policy",
-                    "default-src 'self'; \
-                     script-src 'self' 'unsafe-inline'; \
-                     style-src 'self' 'unsafe-inline'; \
-                     font-src 'self'; \
-                     img-src 'self' data:; \
-                     object-src 'none'; \
-                     frame-ancestors 'none'; \
-                     base-uri 'self'; \
-                     form-action 'self';",
-                ));
-            }
-
             let mut app = App::new()
                 .app_data(web::Data::new(AppData {
                     tera: tera.clone(),
                     db: db_pool.clone(),
-                    env: env.clone(),
+                    env,
                     domain: domain.clone(),
                     protocol: protocol.clone(),
                     jwt_secret: jwt_secret.clone(),
@@ -469,10 +394,11 @@ impl FrameworkApp {
                     ErrorHandlers::new()
                         .handler(StatusCode::INTERNAL_SERVER_ERROR, render_error_page)
                         .handler(StatusCode::NOT_FOUND, render_error_page)
+                        .handler(StatusCode::BAD_REQUEST, render_error_page)
                         .handler(StatusCode::UNAUTHORIZED, render_error_page)
                         .handler(StatusCode::FORBIDDEN, render_error_page),
                 )
-                .wrap(default_headers)
+                .wrap(security_headers(env))
                 // Outermost layer: reject per-IP floods before any routing or
                 // request processing happens. Shared buckets across workers.
                 .wrap(Governor::new(&global_rate_config));
@@ -482,33 +408,39 @@ impl FrameworkApp {
                 app = app.configure(move |cfg| (cf)(cfg));
             }
 
-            app.service(web::scope("/_astro").route(
-                "/{path:.*}",
-                web::get().to(move |req: actix_web::HttpRequest| async move {
-                    if env == Env::Dev {
-                        if let Ok(res) = forward_to_dev_server(&req).await {
+            // Public uploaded files (see `uploads::save_upload`, which returns
+            // `/uploads/...` paths). Registered after the app's own routes so
+            // an app route wins on conflict. `actix-files` rejects path
+            // traversal, and only this directory is exposed — private files
+            // (`data/`) stay unreachable.
+            app.service(actix_files::Files::new("/uploads", "./uploads"))
+                .service(web::scope("/_astro").route(
+                    "/{path:.*}",
+                    web::get().to(move |req: actix_web::HttpRequest| async move {
+                        if env == Env::Dev
+                            && let Ok(res) = forward_to_dev_server(&req).await
+                        {
                             return Ok(res);
                         }
-                    }
-                    let path = req.path().trim_start_matches('/');
-                    serve_from_dist(dist_dir, path, req.method().as_str()).await
-                }),
-            ))
-            .default_service(web::to(move |req: actix_web::HttpRequest| async move {
-                if env == Env::Dev {
-                    if let Ok(res) = forward_to_dev_server(&req).await {
+                        let path = req.path().trim_start_matches('/');
+                        serve_from_dist(dist_dir, path, req.method().as_str())
+                    }),
+                ))
+                .default_service(web::to(move |req: actix_web::HttpRequest| async move {
+                    if env == Env::Dev
+                        && let Ok(res) = forward_to_dev_server(&req).await
+                    {
                         return Ok(res);
                     }
-                }
 
-                let path = req.path().trim_start_matches('/');
-                match serve_from_dist(dist_dir, path, req.method().as_str()).await {
-                    Ok(res) => Ok(res),
-                    Err(_) => {
-                        Ok::<HttpResponse, actix_web::Error>(HttpResponse::NotFound().finish())
+                    let path = req.path().trim_start_matches('/');
+                    match serve_from_dist(dist_dir, path, req.method().as_str()) {
+                        Ok(res) => Ok(res),
+                        Err(_) => {
+                            Ok::<HttpResponse, actix_web::Error>(HttpResponse::NotFound().finish())
+                        }
                     }
-                }
-            }))
+                }))
         })
         .bind(format!(
             "0.0.0.0:{}",
@@ -519,24 +451,164 @@ impl FrameworkApp {
     }
 }
 
+/// Creates the `SQLite` database file if needed, connects the pool, runs
+/// migrations (embedded ones when supplied, otherwise loaded from
+/// `MIGRATIONS_DIR`, default `./migrations`) and sets the connection pragmas.
+///
+/// Panics on any database failure: booting without a working, migrated
+/// database would only fail later on the first request.
+async fn init_db(
+    database_url: &str,
+    embedded_migrator: Option<sqlx::migrate::Migrator>,
+) -> std::io::Result<SqlitePool> {
+    let db_file = database_url.trim_start_matches("sqlite:");
+
+    if let Some(dir) = std::path::Path::new(db_file).parent() {
+        fs::create_dir_all(dir)?;
+    }
+
+    if !std::path::Path::new(db_file).exists() {
+        fs::File::create(db_file)?;
+    }
+
+    let db_pool = SqlitePool::connect(database_url)
+        .await
+        .expect("Failed to create database pool");
+
+    // Prefer migrations embedded in the binary (via `.migrator(...)`); fall
+    // back to reading them from disk at runtime when none were supplied.
+    let migrator = if let Some(migrator) = embedded_migrator {
+        migrator
+    } else {
+        let migrations_path =
+            env::var("MIGRATIONS_DIR").unwrap_or_else(|_| "./migrations".to_string());
+        sqlx::migrate::Migrator::new(std::path::Path::new(&migrations_path))
+            .await
+            .expect("Failed to load migrations")
+    };
+    migrator
+        .run(&db_pool)
+        .await
+        .expect("Failed to run database migrations");
+
+    sqlx::query("PRAGMA foreign_keys = 1;")
+        .execute(&db_pool)
+        .await
+        .expect("Failed to run PRAGMA foreign_keys = 1;");
+
+    sqlx::query("PRAGMA journal_mode=WAL;")
+        .execute(&db_pool)
+        .await
+        .expect("Failed to set WAL mode");
+
+    Ok(db_pool)
+}
+
+/// Registers the app's cron jobs (on their own DB pool) and starts the
+/// scheduler if any job was added. Panics on failure — see [`FrameworkApp::run`].
+async fn start_cron_scheduler(cronjobs_fn: Option<CronjobsFn>, database_url: &str) {
+    let mut sched = JobScheduler::new()
+        .await
+        .expect("Failed to create job scheduler");
+
+    if let Some(cronjobs_fn) = cronjobs_fn {
+        let cron_db_pool = SqlitePool::connect(database_url)
+            .await
+            .expect("Failed to create cron database pool");
+
+        (cronjobs_fn)(sched.clone(), cron_db_pool)
+            .await
+            .expect("Failed to add cron jobs");
+    }
+
+    let has_jobs = sched
+        .time_till_next_job()
+        .await
+        .expect("Failed to check for jobs")
+        .is_some();
+
+    if has_jobs {
+        sched.start().await.expect("Failed to start cron scheduler");
+        info!("Cron scheduler started.");
+    } else {
+        info!("No cronjobs. Cron scheduler not started.");
+    }
+}
+
+/// Hardened response headers applied to every response.
+fn security_headers(env: Env) -> DefaultHeaders {
+    let headers = DefaultHeaders::new()
+        .add(("X-Content-Type-Options", "nosniff"))
+        .add(("X-Frame-Options", "DENY"))
+        .add(("Referrer-Policy", "strict-origin-when-cross-origin"));
+
+    if env == Env::Dev {
+        headers.add((
+            "Content-Security-Policy",
+            "default-src 'self'; \
+             script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
+             style-src 'self' 'unsafe-inline'; \
+             font-src 'self'; \
+             img-src 'self' data:; \
+             object-src 'none'; \
+             connect-src 'self' ws://localhost:4321 http://localhost:4321 ws://127.0.0.1:4321 http://127.0.0.1:4321 ws://0.0.0.0:4321 http://0.0.0.0:4321; \
+             frame-ancestors 'none'; \
+             base-uri 'self'; \
+             form-action 'self';",
+        ))
+    } else {
+        // `script-src`/`style-src` keep `'unsafe-inline'` because Astro
+        // emits inline hydration scripts and inline styles; removing it
+        // would require a nonce threaded through the render pipeline.
+        // Everything else is locked down: no plugins (`object-src`), no
+        // framing, and self-only base/form targets.
+        headers.add((
+            "Content-Security-Policy",
+            "default-src 'self'; \
+             script-src 'self' 'unsafe-inline'; \
+             style-src 'self' 'unsafe-inline'; \
+             font-src 'self'; \
+             img-src 'self' data:; \
+             object-src 'none'; \
+             frame-ancestors 'none'; \
+             base-uri 'self'; \
+             form-action 'self';",
+        ))
+    }
+}
+
+// A bad template is logged and skipped rather than crashing the app at boot:
+// one broken page must not take down every other route.
 fn add_templates(tera: &mut Tera, dir: &Dir) {
     for file in dir.files() {
-        if let Some(ext) = file.path().extension() {
-            if ext == "html" {
-                let path = file.path().to_str().unwrap().replace("\\", "/");
-                let name = if path == "index.html" {
-                    "index".to_string()
-                } else if let Some(stripped) = path.strip_suffix("/index.html") {
-                    stripped.to_string()
-                } else if let Some(stripped) = path.strip_suffix(".html") {
-                    stripped.to_string()
-                } else {
-                    path
-                };
+        if let Some(ext) = file.path().extension()
+            && ext == "html"
+        {
+            let Some(path) = file.path().to_str() else {
+                error!(
+                    "Skipping template with non-UTF-8 path: {}",
+                    file.path().display()
+                );
+                continue;
+            };
+            let path = path.replace('\\', "/");
+            let name = if path == "index.html" {
+                "index".to_string()
+            } else if let Some(stripped) = path.strip_suffix("/index.html") {
+                stripped.to_string()
+            } else if let Some(stripped) = path.strip_suffix(".html") {
+                stripped.to_string()
+            } else {
+                path
+            };
 
-                debug!("Registering template: {}", name);
-                let content = file.contents_utf8().unwrap();
-                tera.add_raw_template(&name, content).unwrap();
+            debug!("Registering template: {name}");
+            let Some(content) = file.contents_utf8() else {
+                error!("Skipping template with non-UTF-8 contents: {name}");
+                continue;
+            };
+            if let Err(err) = tera.add_raw_template(&name, content) {
+                error!("Skipping invalid template {name}: {err}");
             }
         }
     }
@@ -576,7 +648,7 @@ async fn forward_to_dev_server(req: &actix_web::HttpRequest) -> actix_web::Resul
     Ok(res.body(body))
 }
 
-async fn serve_from_dist(
+fn serve_from_dist(
     dist_dir: &Dir<'_>,
     path: &str,
     method: &str,
@@ -613,6 +685,8 @@ async fn serve_from_dist(
         .body(file.contents().to_vec()))
 }
 
+// The `Result` wrapper is required by `ErrorHandlers::handler`'s signature.
+#[allow(clippy::unnecessary_wraps)]
 fn render_error_page<B>(res: ServiceResponse<B>) -> actix_web::Result<ErrorHandlerResponse<B>>
 where
     B: MessageBody + 'static,
@@ -681,7 +755,7 @@ where
 
 fn load_env_file() {
     match dotenv() {
-        Ok(path) => debug!(".env file loaded from: {path:?}"),
+        Ok(path) => debug!(".env file loaded from: {}", path.display()),
         Err(_) => debug!("No .env file found, relying on system environment variables."),
     }
 }

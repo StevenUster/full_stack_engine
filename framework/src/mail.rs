@@ -7,6 +7,13 @@ use lettre::{
 use log::error;
 use std::env;
 
+/// Sends an HTML email via the SMTP server configured through `SMTP_HOST`
+/// (optionally `host:port`), `SMTP_USER` and `SMTP_PASS`.
+///
+/// # Errors
+///
+/// Returns an error if the SMTP configuration is missing or invalid, or if
+/// sending fails.
 pub async fn send_mail(
     to: &str,
     subject: &str,
@@ -20,7 +27,7 @@ pub async fn send_mail(
         return Err("SMTP configuration is missing".into());
     }
 
-    log::debug!("Sending mail to {} via host {}", to, smtp_host);
+    log::debug!("Sending mail to {to} via host {smtp_host}");
 
     let email = Message::builder()
         .from(smtp_user.parse()?)
@@ -45,13 +52,11 @@ pub async fn send_mail(
     let mailer = if port == Some(465) {
         let tls_parameters = TlsParameters::new(host.to_string())?;
         builder.tls(Tls::Wrapper(tls_parameters))
+    } else if port == Some(587) {
+        let tls_parameters = TlsParameters::new(host.to_string())?;
+        builder.tls(Tls::Required(tls_parameters))
     } else {
-        if port == Some(587) {
-            let tls_parameters = TlsParameters::new(host.to_string())?;
-            builder.tls(Tls::Required(tls_parameters))
-        } else {
-            builder
-        }
+        builder
     }
     .credentials(creds)
     .build();

@@ -125,7 +125,7 @@ impl KeyExtractor for GlobalRateLimitKeyExtractor {
 /// variables `GLOBAL_RATE_LIMIT_PER_SECOND` (default 100) and
 /// `GLOBAL_RATE_LIMIT_BURST` (default 500).
 ///
-/// Note: this is a coarse app-level guard. Volumetric / distributed DDoS still
+/// Note: this is a coarse app-level guard. Volumetric / distributed `DDoS` still
 /// needs to be absorbed upstream (CDN / network layer); per-IP limiting only
 /// caps what any one address can do.
 ///
@@ -133,7 +133,6 @@ impl KeyExtractor for GlobalRateLimitKeyExtractor {
 ///
 /// Panics if the derived rate or burst is zero (only possible via an explicit
 /// `0` override, which is rejected in favour of the default).
-#[must_use]
 pub fn global_rate_limiter(
     exempt_prefixes: &[String],
 ) -> GovernorConfig<GlobalRateLimitKeyExtractor, NoOpMiddleware> {
@@ -158,48 +157,91 @@ pub fn global_rate_limiter(
         .expect("Failed to create global rate limiter config")
 }
 
-/// Rate limiter for authentication endpoints (login, register)
-pub fn auth_rate_limiter() -> Governor<ProxyIpKeyExtractor, NoOpMiddleware> {
-    let config = GovernorConfigBuilder::default()
-        .seconds_per_request(10)
-        .burst_size(1)
-        .key_extractor(ProxyIpKeyExtractor)
-        .finish()
-        .expect("Failed to create auth rate limiter config");
+type ProxyGovernorConfig = GovernorConfig<ProxyIpKeyExtractor, NoOpMiddleware>;
 
-    Governor::new(&config)
+/// Returns the shared limiter config for a call site, creating it on first
+/// use. Apps call `auth_rate_limiter()` & co. inside `configure(...)`, which
+/// actix runs once **per worker thread** — without this cache each worker
+/// would get its own token buckets and the effective per-IP limit would be
+/// multiplied by the number of workers. The config holds an `Arc` to the
+/// buckets, so every clone for the same call site enforces one shared limit.
+/// Keyed by call site (plus rate parameters), so distinct endpoints keep
+/// separate buckets.
+fn shared_config(
+    caller: &'static std::panic::Location<'static>,
+    seconds_per_request: u64,
+    burst_size: u32,
+) -> ProxyGovernorConfig {
+    type ConfigKey = (&'static str, u32, u32, u64, u32);
+    static CONFIGS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<ConfigKey, ProxyGovernorConfig>>,
+    > = std::sync::OnceLock::new();
+
+    CONFIGS
+        .get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+        .lock()
+        .unwrap()
+        .entry((
+            caller.file(),
+            caller.line(),
+            caller.column(),
+            seconds_per_request,
+            burst_size,
+        ))
+        .or_insert_with(|| {
+            GovernorConfigBuilder::default()
+                .seconds_per_request(seconds_per_request)
+                .burst_size(burst_size)
+                .key_extractor(ProxyIpKeyExtractor)
+                .finish()
+                .expect("Failed to create rate limiter config")
+        })
+        .clone()
 }
 
-/// Rate limiter for general endpoints
-pub fn general_rate_limiter() -> Governor<ProxyIpKeyExtractor, NoOpMiddleware> {
-    let config = GovernorConfigBuilder::default()
-        .seconds_per_request(1)
-        .burst_size(100)
-        .key_extractor(ProxyIpKeyExtractor)
-        .finish()
-        .expect("Failed to create general rate limiter config");
+/// Rate limiter for authentication endpoints (login, register). The limit is
+/// enforced process-wide (shared across worker threads).
+///
+/// # Panics
+///
+/// Never in practice: the preset rate and burst are non-zero constants, which
+/// is the only config the builder rejects.
+#[must_use]
+#[track_caller]
+pub fn auth_rate_limiter() -> Governor<ProxyIpKeyExtractor, NoOpMiddleware> {
+    Governor::new(&shared_config(std::panic::Location::caller(), 10, 1))
+}
 
-    Governor::new(&config)
+/// Rate limiter for general endpoints. The limit is enforced process-wide
+/// (shared across worker threads).
+///
+/// # Panics
+///
+/// Never in practice: the preset rate and burst are non-zero constants, which
+/// is the only config the builder rejects.
+#[must_use]
+#[track_caller]
+pub fn general_rate_limiter() -> Governor<ProxyIpKeyExtractor, NoOpMiddleware> {
+    Governor::new(&shared_config(std::panic::Location::caller(), 1, 100))
 }
 
 /// Rate limiter with an app-chosen request rate, for endpoints that need
 /// something other than the auth/general presets (e.g. one password-reset
-/// email per hour per IP).
+/// email per hour per IP). The limit is enforced process-wide (shared across
+/// worker threads).
 ///
 /// # Panics
 ///
 /// Panics if `seconds_per_request` or `burst_size` is zero.
 #[must_use]
+#[track_caller]
 pub fn custom_rate_limiter(
     seconds_per_request: u64,
     burst_size: u32,
 ) -> Governor<ProxyIpKeyExtractor, NoOpMiddleware> {
-    let config = GovernorConfigBuilder::default()
-        .seconds_per_request(seconds_per_request)
-        .burst_size(burst_size)
-        .key_extractor(ProxyIpKeyExtractor)
-        .finish()
-        .expect("Failed to create custom rate limiter config");
-
-    Governor::new(&config)
+    Governor::new(&shared_config(
+        std::panic::Location::caller(),
+        seconds_per_request,
+        burst_size,
+    ))
 }

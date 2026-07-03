@@ -10,6 +10,8 @@ use thiserror::Error;
 pub enum UploadError {
     #[error("file is empty or exceeds the {0}-byte limit")]
     InvalidSize(usize),
+    #[error("file type is not allowed")]
+    InvalidType,
     #[error("failed to create upload directory: {0}")]
     CreateDir(std::io::Error),
     #[error("failed to save uploaded file: {0}")]
@@ -18,14 +20,20 @@ pub enum UploadError {
 
 impl From<UploadError> for crate::error::AppError {
     fn from(e: UploadError) -> Self {
-        crate::error::AppError::Internal(e.to_string())
+        match e {
+            UploadError::InvalidSize(_) | UploadError::InvalidType => {
+                crate::error::AppError::BadRequest(e.to_string())
+            }
+            _ => crate::error::AppError::Internal(e.to_string()),
+        }
     }
 }
 
 /// Saves `temp` under `uploads/<dest_dir>/<prefix>_<uuid>.<ext>`, rejecting
-/// empty files and anything over `max_bytes`. `ext` is taken from the
-/// original filename when it's one of `allowed_extensions` (case-insensitive),
-/// otherwise the first entry of `allowed_extensions` is used.
+/// empty files and anything over `max_bytes`. The original filename's
+/// extension must be one of `allowed_extensions` (case-insensitive); a file
+/// with a missing or disallowed extension is rejected rather than silently
+/// renamed — untrusted input stays untrusted.
 ///
 /// Returns the web-facing path (e.g. `/uploads/avatars/42_<uuid>.png`), ready
 /// to store in the database and serve via the framework's `/uploads` static
@@ -33,8 +41,8 @@ impl From<UploadError> for crate::error::AppError {
 ///
 /// # Errors
 ///
-/// Returns [`UploadError`] if `temp` is empty or too large, or if the
-/// destination directory/file couldn't be created.
+/// Returns [`UploadError`] if `temp` is empty, too large, or has a disallowed
+/// extension, or if the destination directory/file couldn't be created.
 pub fn save_upload(
     temp: &TempFile,
     dest_dir: &str,
@@ -56,8 +64,7 @@ pub fn save_upload(
         .and_then(|e| e.to_str())
         .map(str::to_lowercase)
         .filter(|e| allowed_extensions.contains(&e.as_str()))
-        .or_else(|| allowed_extensions.first().map(|e| (*e).to_string()))
-        .unwrap_or_else(|| "bin".to_string());
+        .ok_or(UploadError::InvalidType)?;
 
     let filename = format!("{prefix}_{}.{ext}", uuid::Uuid::new_v4());
     let target = format!("{target_dir}/{filename}");

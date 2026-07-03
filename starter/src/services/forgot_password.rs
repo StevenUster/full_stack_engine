@@ -32,8 +32,10 @@ pub async fn post(
 
     let token = uuid::Uuid::new_v4().to_string();
 
+    // The reset link is only valid for one hour; `reset_password::post`
+    // rejects anything past `reset_token_expires_at`.
     sqlx::query!(
-        "UPDATE users SET reset_token = ? WHERE id = ?",
+        "UPDATE users SET reset_token = ?, reset_token_expires_at = strftime('%s','now') + 3600 WHERE id = ?",
         token,
         user.id
     )
@@ -47,7 +49,10 @@ pub async fn post(
 
     let t = super::load_locale("en");
     let body = match data
-        .render_email("emails_password-reset", &json!({ "t": t, "reset_url": reset_url }))
+        .render_email(
+            "emails_password-reset",
+            &json!({ "t": t, "reset_url": reset_url }),
+        )
         .await
     {
         Ok(html) => html,

@@ -5,15 +5,15 @@ use crate::{
 
 #[get("/logout")]
 pub async fn get(data: Data<AppData>) -> impl Responder {
-    logout_logic(data)
+    logout_logic(&data)
 }
 
 #[post("/logout")]
 pub async fn post(data: Data<AppData>) -> impl Responder {
-    logout_logic(data)
+    logout_logic(&data)
 }
 
-fn logout_logic(data: Data<AppData>) -> impl Responder {
+fn logout_logic(data: &Data<AppData>) -> impl Responder + use<> {
     let cookie = Cookie::build("token", "")
         .path("/")
         .same_site(actix_web::cookie::SameSite::Strict)

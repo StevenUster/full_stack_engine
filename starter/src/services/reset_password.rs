@@ -10,7 +10,11 @@ pub struct ResetPasswordQuery {
 }
 
 #[get("/reset-password")]
-pub async fn get(_data: web::Data<AppData>, req: actix_web::HttpRequest, query: web::Query<ResetPasswordQuery>) -> AppResult {
+pub async fn get(
+    _data: web::Data<AppData>,
+    req: actix_web::HttpRequest,
+    query: web::Query<ResetPasswordQuery>,
+) -> AppResult {
     use super::RenderTplExt;
     let Some(token) = &query.token else {
         return Ok(HttpResponse::SeeOther()
@@ -30,7 +34,11 @@ pub struct ResetPasswordForm {
     repeat_password: String,
 }
 
-pub async fn post(data: web::Data<AppData>, req: actix_web::HttpRequest, form: web::Form<ResetPasswordForm>) -> AppResult {
+pub async fn post(
+    data: web::Data<AppData>,
+    req: actix_web::HttpRequest,
+    form: web::Form<ResetPasswordForm>,
+) -> AppResult {
     use super::RenderTplExt;
     if form.token.is_empty() {
         return Ok(req
@@ -59,8 +67,14 @@ pub async fn post(data: web::Data<AppData>, req: actix_web::HttpRequest, form: w
     let hashed_password =
         hash_password(&form.password).map_err(|e| AppError::Internal(e.to_string()))?;
 
+    // Consumes the token only while it is unexpired, and bumps
+    // `sessions_valid_after` so every JWT issued before the password change is
+    // rejected by the framework's AuthUser extractor — resetting the password
+    // logs out an attacker who holds a stolen session.
     let result = sqlx::query!(
-        "UPDATE users SET password = ?, reset_token = NULL WHERE reset_token = ?",
+        "UPDATE users SET password = ?, reset_token = NULL, reset_token_expires_at = NULL, \
+         sessions_valid_after = strftime('%s','now') \
+         WHERE reset_token = ? AND reset_token_expires_at > strftime('%s','now')",
         hashed_password,
         form.token
     )

@@ -35,6 +35,11 @@ fn locale_cache() -> &'static Mutex<HashMap<usize, serde_json::Map<String, serde
 ///
 /// The result is cached for the lifetime of the process; the first call parses
 /// the embedded bytes, later calls clone the parsed map from memory.
+///
+/// # Panics
+///
+/// Panics if the internal cache mutex is poisoned (a previous panic while
+/// holding it).
 #[must_use]
 pub fn load_all_locales(dir: &Dir) -> serde_json::Map<String, serde_json::Value> {
     let key = std::ptr::from_ref(dir) as usize;
