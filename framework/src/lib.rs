@@ -229,6 +229,7 @@ pub struct FrameworkApp {
     cronjobs_fn: Option<CronjobsFn>,
     context_injector: Option<std::sync::Arc<ContextInjectorFn>>,
     migrator: Option<sqlx::migrate::Migrator>,
+    rate_limit_exempt_prefixes: Vec<String>,
 }
 
 impl FrameworkApp {
@@ -239,7 +240,28 @@ impl FrameworkApp {
             cronjobs_fn: None,
             context_injector: None,
             migrator: None,
+            rate_limit_exempt_prefixes: Vec::new(),
         }
+    }
+
+    /// Path prefixes exempt from the site-wide rate limiter (see
+    /// [`rate_limiter::global_rate_limiter`]). Use for routes that are hit
+    /// legitimately from a single IP at high volume — e.g. a public `/api`
+    /// consumed server-side by an SSR site, which would otherwise be throttled
+    /// as one client. An exempt prefix has **no** per-IP limit, so keep the list
+    /// tight.
+    ///
+    /// ```ignore
+    /// FrameworkApp::new(&DIST_DIR).rate_limit_exempt_prefixes(["/api"]).run().await
+    /// ```
+    #[must_use]
+    pub fn rate_limit_exempt_prefixes<I, S>(mut self, prefixes: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.rate_limit_exempt_prefixes = prefixes.into_iter().map(Into::into).collect();
+        self
     }
 
     /// Supplies migrations embedded in the binary at compile time, so a built
@@ -384,8 +406,9 @@ impl FrameworkApp {
 
         // Built once and shared across all workers (the config holds an Arc to
         // the token buckets), so the site-wide per-IP limit is enforced for the
-        // whole process rather than per worker thread.
-        let global_rate_config = rate_limiter::global_rate_limiter();
+        // whole process rather than per worker thread. Configured exempt
+        // prefixes (e.g. a public `/api`) skip the limiter entirely.
+        let global_rate_config = rate_limiter::global_rate_limiter(&self.rate_limit_exempt_prefixes);
 
         HttpServer::new(move || {
             let mut default_headers = DefaultHeaders::new()

@@ -4,19 +4,51 @@ use actix_governor::{
 };
 use actix_web::dev::ServiceRequest;
 use std::net::IpAddr;
+use std::sync::Arc;
+
+/// Extracts the client IP for a request behind a trusted reverse proxy: the
+/// right-most `X-Forwarded-For` entry (the address the proxy accepted the
+/// connection from, so prepended spoofed values are ignored), then `X-Real-IP`,
+/// then the socket peer address. IPv6 is bucketed per `/56` prefix.
+fn client_ip(req: &ServiceRequest) -> Result<IpAddr, SimpleKeyExtractionError<&'static str>> {
+    let forwarded = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.rsplit(',').next())
+        .and_then(|s| s.trim().parse::<IpAddr>().ok());
+
+    let real_ip = req
+        .headers()
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<IpAddr>().ok());
+
+    let mut ip = forwarded
+        .or(real_ip)
+        .or_else(|| req.peer_addr().map(|socket| socket.ip()))
+        .ok_or_else(|| {
+            SimpleKeyExtractionError::new("Could not determine client IP for rate limiting")
+        })?;
+
+    // Rate-limit IPv6 clients per /56 prefix rather than per address, since a
+    // single customer is often handed a whole prefix.
+    if let IpAddr::V6(ipv6) = ip {
+        let mut octets = ipv6.octets();
+        octets[7..16].fill(0);
+        ip = IpAddr::V6(octets.into());
+    }
+
+    Ok(ip)
+}
 
 /// Rate-limit key extractor for deployments behind a trusted reverse proxy
 /// (the framework's default, since apps bind `0.0.0.0` and terminate TLS at a
-/// proxy).
+/// proxy). Keys per client IP; see [`client_ip`].
 ///
-/// It keys on the right-most `X-Forwarded-For` entry — the address the proxy
-/// actually accepted the connection from — so a client cannot mint unlimited
-/// rate-limit buckets by prepending spoofed `X-Forwarded-For` values. It falls
-/// back to `X-Real-IP` and finally the socket peer address.
-///
-/// This assumes a proxy that sets/appends those headers. If the app is exposed
-/// directly to the internet, the forwarded headers are fully client-controlled;
-/// key on the socket peer address instead.
+/// This assumes a proxy that sets/appends the forwarded headers. If the app is
+/// exposed directly to the internet, those headers are client-controlled; key
+/// on the socket peer address instead.
 #[derive(Clone)]
 pub struct ProxyIpKeyExtractor;
 
@@ -25,35 +57,55 @@ impl KeyExtractor for ProxyIpKeyExtractor {
     type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
 
     fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
-        let forwarded = req
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.rsplit(',').next())
-            .and_then(|s| s.trim().parse::<IpAddr>().ok());
+        client_ip(req)
+    }
+}
 
-        let real_ip = req
-            .headers()
-            .get("x-real-ip")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.trim().parse::<IpAddr>().ok());
+/// True when `path` equals `prefix` or is a child path of it (`/api` matches
+/// `/api` and `/api/events`, but not `/apidocs`).
+fn path_has_prefix(path: &str, prefix: &str) -> bool {
+    let prefix = prefix.trim_end_matches('/');
+    prefix.is_empty()
+        || path == prefix
+        || (path.starts_with(prefix) && path.as_bytes().get(prefix.len()) == Some(&b'/'))
+}
 
-        let mut ip = forwarded
-            .or(real_ip)
-            .or_else(|| req.peer_addr().map(|socket| socket.ip()))
-            .ok_or_else(|| {
-                SimpleKeyExtractionError::new("Could not determine client IP for rate limiting")
-            })?;
+/// Key for the site-wide limiter. `Exempt` is produced **only** when a request
+/// path matches a configured exempt prefix — never derived from any
+/// client-controlled value — so it cannot be spoofed to bypass limiting on
+/// non-exempt routes.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub enum GlobalRateLimitKey {
+    Ip(IpAddr),
+    Exempt,
+}
 
-        // Rate-limit IPv6 clients per /56 prefix rather than per address, since a
-        // single customer is often handed a whole prefix.
-        if let IpAddr::V6(ipv6) = ip {
-            let mut octets = ipv6.octets();
-            octets[7..16].fill(0);
-            ip = IpAddr::V6(octets.into());
+/// Key extractor for the site-wide limiter: exempts configured path prefixes
+/// (e.g. a public `/api` consumed by an SSR site from a single server IP) and
+/// otherwise keys per client IP.
+#[derive(Clone)]
+pub struct GlobalRateLimitKeyExtractor {
+    exempt_prefixes: Arc<[String]>,
+}
+
+impl KeyExtractor for GlobalRateLimitKeyExtractor {
+    type Key = GlobalRateLimitKey;
+    type KeyExtractionError = SimpleKeyExtractionError<&'static str>;
+
+    fn extract(&self, req: &ServiceRequest) -> Result<Self::Key, Self::KeyExtractionError> {
+        let path = req.path();
+        if self
+            .exempt_prefixes
+            .iter()
+            .any(|prefix| path_has_prefix(path, prefix))
+        {
+            return Ok(GlobalRateLimitKey::Exempt);
         }
+        Ok(GlobalRateLimitKey::Ip(client_ip(req)?))
+    }
 
-        Ok(ip)
+    fn whitelisted_keys(&self) -> Vec<Self::Key> {
+        vec![GlobalRateLimitKey::Exempt]
     }
 }
 
@@ -62,6 +114,11 @@ impl KeyExtractor for ProxyIpKeyExtractor {
 /// source. Returns the shared [`GovernorConfig`] (not the middleware) so the
 /// same token buckets are shared across all worker threads — the effective
 /// limit is per IP for the whole process, not per worker.
+///
+/// `exempt_prefixes` are path prefixes that skip the limiter entirely (e.g.
+/// `["/api"]` for a public API an SSR site hammers from one IP). Exemption is
+/// path-based and cannot be spoofed. Keep it empty unless a route genuinely
+/// needs to be unmetered — an exempt path has no per-IP cap at all.
 ///
 /// Generous by default so normal browsing (a page load bursts many asset
 /// requests) is never affected; tune per deployment with the environment
@@ -77,7 +134,9 @@ impl KeyExtractor for ProxyIpKeyExtractor {
 /// Panics if the derived rate or burst is zero (only possible via an explicit
 /// `0` override, which is rejected in favour of the default).
 #[must_use]
-pub fn global_rate_limiter() -> GovernorConfig<ProxyIpKeyExtractor, NoOpMiddleware> {
+pub fn global_rate_limiter(
+    exempt_prefixes: &[String],
+) -> GovernorConfig<GlobalRateLimitKeyExtractor, NoOpMiddleware> {
     let per_second = std::env::var("GLOBAL_RATE_LIMIT_PER_SECOND")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -92,7 +151,9 @@ pub fn global_rate_limiter() -> GovernorConfig<ProxyIpKeyExtractor, NoOpMiddlewa
     GovernorConfigBuilder::default()
         .requests_per_second(per_second)
         .burst_size(burst)
-        .key_extractor(ProxyIpKeyExtractor)
+        .key_extractor(GlobalRateLimitKeyExtractor {
+            exempt_prefixes: Arc::from(exempt_prefixes.to_vec()),
+        })
         .finish()
         .expect("Failed to create global rate limiter config")
 }
