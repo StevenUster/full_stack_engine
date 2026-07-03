@@ -222,3 +222,186 @@ impl<R: Role> FromRequest for AuthUser<R> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::structs::{DefaultRole, User};
+    use actix_web::test::TestRequest;
+    use actix_web::web;
+
+    const SECRET: &str = "test-secret";
+
+    fn test_user() -> User<DefaultRole> {
+        User {
+            id: 42,
+            email: "user@example.com".to_string(),
+            password: String::new(),
+            role: DefaultRole::User,
+            created_at: chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
+            is_verified: true,
+            verification_token: None,
+        }
+    }
+
+    fn test_app_data(pool: sqlx::SqlitePool) -> web::Data<crate::AppData> {
+        web::Data::new(crate::AppData {
+            tera: tera::Tera::default(),
+            db: pool,
+            env: crate::Env::Prod,
+            domain: "localhost".to_string(),
+            protocol: "http".to_string(),
+            jwt_secret: SECRET.to_string(),
+            smtp_from: String::new(),
+            email_verification_enabled: false,
+            context_injector: None,
+        })
+    }
+
+    async fn memory_pool() -> sqlx::SqlitePool {
+        // A single connection, because every `:memory:` connection is its own
+        // database.
+        sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap()
+    }
+
+    #[test]
+    fn password_hashing_roundtrip() {
+        let hash = hash_password("hunter2!").unwrap();
+        assert!(verify_password("hunter2!", &hash));
+        assert!(!verify_password("hunter3!", &hash));
+        // Each hash gets a fresh random salt.
+        assert_ne!(hash, hash_password("hunter2!").unwrap());
+    }
+
+    #[test]
+    fn verify_password_rejects_garbage_hashes() {
+        assert!(!verify_password("whatever", "not-a-real-hash"));
+        assert!(!verify_password("whatever", ""));
+    }
+
+    #[actix_web::test]
+    async fn jwt_roundtrip_and_tampering() {
+        let jwt = create_jwt(&test_user(), SECRET).unwrap();
+        let data = test_app_data(memory_pool().await);
+
+        let req = TestRequest::default()
+            .cookie(actix_web::cookie::Cookie::new("token", jwt.clone()))
+            .app_data(data.clone())
+            .to_http_request();
+        let claims = read_jwt::<DefaultRole>(&req).unwrap();
+        assert_eq!(claims.sub, 42);
+        assert!(claims.exp > claims.iat);
+
+        // Flipping anything in the token invalidates the signature.
+        let mut tampered = jwt.clone();
+        tampered.pop();
+        let req = TestRequest::default()
+            .cookie(actix_web::cookie::Cookie::new("token", tampered))
+            .app_data(data.clone())
+            .to_http_request();
+        assert!(read_jwt::<DefaultRole>(&req).is_err());
+
+        // No cookie at all.
+        let req = TestRequest::default().app_data(data).to_http_request();
+        assert!(matches!(
+            read_jwt::<DefaultRole>(&req),
+            Err(JwtError::TokenNotFound)
+        ));
+    }
+
+    #[actix_web::test]
+    async fn jwt_signed_with_other_secret_is_rejected() {
+        let jwt = create_jwt(&test_user(), "some-other-secret").unwrap();
+        let data = test_app_data(memory_pool().await);
+
+        let req = TestRequest::default()
+            .cookie(actix_web::cookie::Cookie::new("token", jwt))
+            .app_data(data)
+            .to_http_request();
+        assert!(read_jwt::<DefaultRole>(&req).is_err());
+    }
+
+    #[actix_web::test]
+    async fn auth_user_enforces_server_side_session_revocation() {
+        use actix_web::FromRequest;
+
+        let pool = memory_pool().await;
+        sqlx::query(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, sessions_valid_after INTEGER NOT NULL DEFAULT 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO users (id, sessions_valid_after) VALUES (42, 0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let data = test_app_data(pool.clone());
+        let jwt = create_jwt(&test_user(), SECRET).unwrap();
+        let req = || {
+            TestRequest::default()
+                .cookie(actix_web::cookie::Cookie::new("token", jwt.clone()))
+                .app_data(data.clone())
+                .to_http_request()
+        };
+
+        // Token issued after the cutoff: accepted.
+        let user =
+            AuthUser::<DefaultRole>::from_request(&req(), &mut actix_web::dev::Payload::None)
+                .await
+                .unwrap();
+        assert_eq!(user.claims.sub, 42);
+
+        // Bumping the cutoff past the token's iat revokes it immediately.
+        sqlx::query("UPDATE users SET sessions_valid_after = 9999999999 WHERE id = 42")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            AuthUser::<DefaultRole>::from_request(&req(), &mut actix_web::dev::Payload::None)
+                .await
+                .is_err()
+        );
+
+        // A deleted user's outstanding tokens are rejected too.
+        sqlx::query("DELETE FROM users WHERE id = 42")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(
+            AuthUser::<DefaultRole>::from_request(&req(), &mut actix_web::dev::Payload::None)
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn require_admin_and_permission_gate_by_role() {
+        let admin = AuthUser::<DefaultRole> {
+            claims: Claims {
+                sub: 1,
+                role: DefaultRole::Admin,
+                exp: 0,
+                iat: 0,
+            },
+        };
+        let user = AuthUser::<DefaultRole> {
+            claims: Claims {
+                sub: 2,
+                role: DefaultRole::User,
+                exp: 0,
+                iat: 0,
+            },
+        };
+
+        assert!(admin.require_admin().is_ok());
+        assert!(admin.require_permission("anything").is_ok());
+        assert!(user.require_admin().is_err());
+        assert!(user.require_permission("users.read").is_err());
+    }
+}

@@ -11,6 +11,8 @@ mod logout;
 mod register;
 mod reset_password;
 mod settings;
+#[cfg(test)]
+mod tests;
 mod users;
 
 /// Loads `locales/<lang>.json`, for one-off lookups (e.g. an email subject)

@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(SQLX_OFFLINE=true cargo clippy --all-targets)",
-      "Bash(cargo clippy *)",
-      "Bash(SQLX_OFFLINE=true cargo build)"
-    ]
-  }
-}

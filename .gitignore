@@ -11,3 +11,4 @@ data
 *.swp
 node_modules/
 dist/
+.claude

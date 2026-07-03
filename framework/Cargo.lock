@@ -1298,7 +1298,7 @@ checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "full_stack_engine"
-version = "2.1.0"
+version = "2.1.1"
 dependencies = [
  "actix-files",
  "actix-governor",
@@ -1319,6 +1319,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tempfile",
  "tera",
  "thiserror 2.0.18",
  "tokio-cron-scheduler",

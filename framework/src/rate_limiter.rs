@@ -245,3 +245,93 @@ pub fn custom_rate_limiter(
         burst_size,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::test::TestRequest;
+
+    #[test]
+    fn path_has_prefix_matches_exact_and_children_only() {
+        assert!(path_has_prefix("/api", "/api"));
+        assert!(path_has_prefix("/api/events", "/api"));
+        assert!(path_has_prefix("/api/events", "/api/"));
+        // Sibling paths that merely share the prefix string are not matched.
+        assert!(!path_has_prefix("/apidocs", "/api"));
+        assert!(!path_has_prefix("/foo", "/api"));
+    }
+
+    #[test]
+    fn client_ip_ignores_spoofed_forwarded_entries() {
+        // A client can prepend arbitrary values to X-Forwarded-For; only the
+        // right-most entry (appended by the trusted proxy) is used.
+        let req = TestRequest::default()
+            .insert_header(("X-Forwarded-For", "6.6.6.6, 203.0.113.7"))
+            .to_srv_request();
+        assert_eq!(
+            client_ip(&req).unwrap(),
+            "203.0.113.7".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn client_ip_falls_back_to_real_ip_then_peer() {
+        let req = TestRequest::default()
+            .insert_header(("X-Real-IP", "198.51.100.4"))
+            .to_srv_request();
+        assert_eq!(
+            client_ip(&req).unwrap(),
+            "198.51.100.4".parse::<IpAddr>().unwrap()
+        );
+
+        let req = TestRequest::default()
+            .peer_addr("192.0.2.9:4711".parse().unwrap())
+            .to_srv_request();
+        assert_eq!(
+            client_ip(&req).unwrap(),
+            "192.0.2.9".parse::<IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn client_ip_buckets_ipv6_per_56_prefix() {
+        let ip_for = |addr: &str| {
+            let req = TestRequest::default()
+                .insert_header(("X-Real-IP", addr))
+                .to_srv_request();
+            client_ip(&req).unwrap()
+        };
+
+        // Same /56: one customer prefix maps to one bucket.
+        assert_eq!(
+            ip_for("2001:db8:1:100::1"),
+            ip_for("2001:db8:1:1ff:aaaa:bbbb:cccc:dddd")
+        );
+        // Different /56 prefixes stay separate buckets.
+        assert_ne!(ip_for("2001:db8:1:100::1"), ip_for("2001:db8:2:100::1"));
+    }
+
+    #[test]
+    fn global_key_extractor_exempts_configured_prefixes_only() {
+        let extractor = GlobalRateLimitKeyExtractor {
+            exempt_prefixes: Arc::from(vec!["/api".to_string()]),
+        };
+
+        let exempt = TestRequest::with_uri("/api/events")
+            .peer_addr("192.0.2.9:4711".parse().unwrap())
+            .to_srv_request();
+        assert!(matches!(
+            extractor.extract(&exempt).unwrap(),
+            GlobalRateLimitKey::Exempt
+        ));
+
+        // A path that merely shares the prefix string is still keyed per IP.
+        let limited = TestRequest::with_uri("/apidocs")
+            .peer_addr("192.0.2.9:4711".parse().unwrap())
+            .to_srv_request();
+        assert!(matches!(
+            extractor.extract(&limited).unwrap(),
+            GlobalRateLimitKey::Ip(_)
+        ));
+    }
+}

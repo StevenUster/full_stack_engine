@@ -95,3 +95,36 @@ impl<T: Serialize> ResultExt<T> for Result<T, AppError> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_codes_map_by_variant() {
+        assert_eq!(
+            AppError::Auth("x".into()).status_code(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(AppError::NoAuth.status_code(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            AppError::NotFound("x".into()).status_code(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            AppError::BadRequest("x".into()).status_code(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            AppError::Internal("x".into()).status_code(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[test]
+    fn database_details_are_hidden_from_users() {
+        // The user-facing message must not leak driver/query details.
+        let err = AppError::Db(sqlx::Error::RowNotFound);
+        assert_eq!(err.user_message(), "A database error occurred.");
+    }
+}

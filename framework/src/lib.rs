@@ -352,14 +352,7 @@ impl FrameworkApp {
         tera.autoescape_on(vec![""]);
         add_templates(&mut tera, self.dist_dir);
 
-        // Only an explicit `ENV=dev` opts into dev mode. Anything else —
-        // unset, "prod", or a typo like "production" — gets the hardened
-        // production behaviour (secure cookies, no dev-server proxy, no
-        // detailed error messages), so a misconfiguration fails safe.
-        let env = match env::var("ENV").as_deref() {
-            Ok("dev") => Env::Dev,
-            _ => Env::Prod,
-        };
+        let env = parse_env(env::var("ENV").ok().as_deref());
 
         start_cron_scheduler(self.cronjobs_fn.take(), &database_url).await;
 
@@ -532,6 +525,17 @@ async fn start_cron_scheduler(cronjobs_fn: Option<CronjobsFn>, database_url: &st
         info!("Cron scheduler started.");
     } else {
         info!("No cronjobs. Cron scheduler not started.");
+    }
+}
+
+/// Only an explicit `ENV=dev` opts into dev mode. Anything else — unset,
+/// "prod", or a typo like "production" — gets the hardened production
+/// behaviour (secure cookies, no dev-server proxy, no detailed error
+/// messages), so a misconfiguration fails safe.
+fn parse_env(value: Option<&str>) -> Env {
+    match value {
+        Some("dev") => Env::Dev,
+        _ => Env::Prod,
     }
 }
 
@@ -757,5 +761,77 @@ fn load_env_file() {
     match dotenv() {
         Ok(path) => debug!(".env file loaded from: {}", path.display()),
         Err(_) => debug!("No .env file found, relying on system environment variables."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    static TEST_DIST: Dir<'_> =
+        include_dir::include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/dist");
+
+    #[test]
+    fn parse_env_only_explicit_dev_opts_into_dev_mode() {
+        assert!(parse_env(Some("dev")) == Env::Dev);
+        // Everything else fails safe to prod: unset, prod, typos, wrong case.
+        assert!(parse_env(None) == Env::Prod);
+        assert!(parse_env(Some("prod")) == Env::Prod);
+        assert!(parse_env(Some("production")) == Env::Prod);
+        assert!(parse_env(Some("development")) == Env::Prod);
+        assert!(parse_env(Some("DEV")) == Env::Prod);
+        assert!(parse_env(Some("")) == Env::Prod);
+    }
+
+    fn test_tera() -> Tera {
+        let mut tera = Tera::default();
+        tera.autoescape_on(vec![""]);
+        add_templates(&mut tera, &TEST_DIST);
+        tera
+    }
+
+    #[test]
+    fn add_templates_registers_html_files_and_skips_broken_ones() {
+        let tera = test_tera();
+        let names: Vec<&str> = tera.get_template_names().collect();
+        // `index.html` -> "index", `login/index.html` -> "login".
+        assert!(names.contains(&"index"));
+        assert!(names.contains(&"login"));
+        // The syntactically broken template is skipped instead of panicking.
+        assert!(!names.contains(&"broken"));
+    }
+
+    #[test]
+    fn templates_escape_variables_by_default() {
+        let tera = test_tera();
+        let context = Context::from_serialize(serde_json::json!({
+            "value": "<script>alert(1)</script>",
+        }))
+        .unwrap();
+
+        let html = tera.render("login", &context).unwrap();
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn serve_from_dist_serves_embedded_files_with_hardened_headers() {
+        let res = serve_from_dist(&TEST_DIST, "index.html", "GET").unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let headers = res.headers();
+        assert_eq!(headers.get("Content-Type").unwrap(), "text/html");
+        assert_eq!(headers.get("X-Content-Type-Options").unwrap(), "nosniff");
+        assert!(headers.get("Content-Security-Policy").is_some());
+    }
+
+    #[test]
+    fn serve_from_dist_rejects_non_read_methods() {
+        let res = serve_from_dist(&TEST_DIST, "index.html", "POST").unwrap();
+        assert_eq!(res.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[test]
+    fn serve_from_dist_missing_file_is_an_error() {
+        assert!(serve_from_dist(&TEST_DIST, "no-such-file.html", "GET").is_err());
     }
 }
