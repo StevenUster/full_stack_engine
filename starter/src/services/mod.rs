@@ -3,17 +3,15 @@ use full_stack_engine::rate_limiter::{auth_rate_limiter, custom_rate_limiter};
 
 pub use full_stack_engine::prelude::RenderTplExt;
 
-mod api;
-mod forgot_password;
-mod index;
-mod login;
-mod logout;
-mod register;
-mod reset_password;
-mod settings;
-#[cfg(test)]
-mod tests;
-mod users;
+pub mod api;
+pub mod forgot_password;
+pub mod index;
+pub mod login;
+pub mod logout;
+pub mod register;
+pub mod reset_password;
+pub mod settings;
+pub mod users;
 
 /// Loads `locales/<lang>.json`, for one-off lookups (e.g. an email subject)
 /// outside of the global template context set up in `main.rs`.

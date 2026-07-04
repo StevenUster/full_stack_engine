@@ -769,7 +769,7 @@ mod tests {
     use super::*;
 
     static TEST_DIST: Dir<'_> =
-        include_dir::include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/dist");
+        include_dir::include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/templates");
 
     #[test]
     fn parse_env_only_explicit_dev_opts_into_dev_mode() {

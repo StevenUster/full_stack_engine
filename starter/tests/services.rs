@@ -2,18 +2,18 @@
 //! database and the real embedded templates. Routes are registered without
 //! their rate limiters so tests never trip a 429.
 
-use super::{login, register, reset_password, users};
-use crate::tera::Tera;
-use crate::{AppData, Env, hash_password};
 use actix_web::http::StatusCode;
 use actix_web::{App, test, web};
+use starter::services::{login, register, reset_password, users};
+use starter::tera::Tera;
+use starter::{AppData, Env, hash_password};
 
 const JWT_SECRET: &str = "test-secret";
 
 /// Replicates the framework's template registration (`index.html` -> `index`,
 /// `login/index.html` -> `login`, forced autoescape) for the embedded dist.
 fn test_tera() -> Tera {
-    fn add(tera: &mut Tera, dir: &crate::include_dir::Dir) {
+    fn add(tera: &mut Tera, dir: &starter::include_dir::Dir) {
         for file in dir.files() {
             let path = file.path().to_str().unwrap().replace('\\', "/");
             if let Some(stripped) = path.strip_suffix(".html") {
@@ -36,7 +36,7 @@ fn test_tera() -> Tera {
 
     let mut tera = Tera::default();
     tera.autoescape_on(vec![""]);
-    add(&mut tera, &crate::DIST_DIR);
+    add(&mut tera, &starter::DIST_DIR);
     tera
 }
 
@@ -61,7 +61,7 @@ async fn test_app_data() -> web::Data<AppData> {
         // Same locale injection as production (`main.rs`), since templates
         // reference `t.*`.
         context_injector: Some(std::sync::Arc::new(Box::new(|_req, value| {
-            full_stack_engine::i18n::inject_locale_context(value, &crate::LOCALES_DIR, "en");
+            full_stack_engine::i18n::inject_locale_context(value, &starter::LOCALES_DIR, "en");
         }))),
     })
 }
