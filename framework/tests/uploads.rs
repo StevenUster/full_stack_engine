@@ -10,13 +10,16 @@ fn saves_valid_upload_under_uploads_dir() {
     let workdir = tempfile::tempdir().unwrap();
     std::env::set_current_dir(workdir.path()).unwrap();
 
+    // Real PNG signature bytes followed by arbitrary payload: content must
+    // match the claimed extension, not just carry a plausible size/name.
+    let png_bytes: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4];
     let mut file = tempfile::NamedTempFile::new().unwrap();
-    file.write_all(b"fake image bytes").unwrap();
+    file.write_all(png_bytes).unwrap();
     let temp = TempFile {
         file,
         content_type: None,
         file_name: Some("Photo.PNG".to_string()),
-        size: 16,
+        size: png_bytes.len(),
     };
 
     let web_path = save_upload(&temp, "avatars", "42", &["png", "jpg"], 1024).unwrap();
@@ -28,5 +31,5 @@ fn saves_valid_upload_under_uploads_dir() {
     // The returned web path maps 1:1 onto the file on disk.
     let disk_path = web_path.trim_start_matches('/');
     let contents = std::fs::read(disk_path).unwrap();
-    assert_eq!(contents, b"fake image bytes");
+    assert_eq!(contents, png_bytes);
 }
