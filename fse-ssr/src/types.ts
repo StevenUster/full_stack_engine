@@ -8,9 +8,17 @@
  * the matching Tera expression, so the server fills in the real value on
  * every request.
  */
-import type { Translations } from "./translations.generated";
-
 declare const SSR_BRAND: unique symbol;
+
+/**
+ * The app's `t.*` shape. Intentionally empty here — the fse-ssr Astro
+ * integration generates a `declare module "…/ssr" { interface Translations
+ * {...} }` augmentation from the app's own locale JSON (see
+ * `.astro/fse-ssr-translations.d.ts` in a consuming project), so `t.*`
+ * accesses are typed per app without this package knowing any app's shape.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type
+export interface Translations {}
 
 /** A server-rendered scalar: types like `T`, renders as `{{ path }}`. */
 export type SsrValue<T> = T & { readonly [SSR_BRAND]?: true };

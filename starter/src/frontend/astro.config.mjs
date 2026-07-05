@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 
 import react from '@astrojs/react';
 
-import fseSsr from './fse-ssr/integration.mjs';
+import fseSsr from 'fse-ssr';
 
 // https://astro.build/config
 export default defineConfig({

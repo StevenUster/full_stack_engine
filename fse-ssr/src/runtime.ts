@@ -10,7 +10,8 @@
  * plain JavaScript semantics whenever no SSR placeholder is involved.
  *
  * This module runs only while Astro renders (build / dev server) — it never
- * ships to the browser. Island code reads values from `fse-ssr/client`.
+ * ships to the browser. Island code reads values from the package's `/client`
+ * entry.
  */
 import {
   addAttribute as astroAddAttribute,
@@ -19,7 +20,12 @@ import {
 
 import type { GlobalSsrContext, Ssr } from "./types";
 
-export type { GlobalSsrContext, Ssr, SsrList, SsrValue } from "./types";
+// `Translations` must be re-exported (not just used internally by
+// `GlobalSsrContext`) so the fse-ssr Astro integration's generated
+// `declare module ".../ssr" { interface Translations {...} }` — which merges
+// with whatever this module actually exports under that name — has a real
+// export to merge into.
+export type { GlobalSsrContext, Ssr, SsrList, SsrValue, Translations } from "./types";
 
 const KIND = Symbol("fse-ssr.kind");
 const EXPR = Symbol("fse-ssr.expr");

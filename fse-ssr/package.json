@@ -1,0 +1,48 @@
+{
+  "name": "fse-ssr",
+  "version": "0.1.1",
+  "description": "Compile-to-Tera SSR bindings for full_stack_engine's Astro starter: author native TypeScript in .astro files, get Tera output at build time.",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StevenUster/full_stack_engine.git",
+    "directory": "fse-ssr"
+  },
+  "files": [
+    "dist",
+    "integration.mjs",
+    "integration.d.ts"
+  ],
+  "exports": {
+    ".": {
+      "types": "./integration.d.ts",
+      "import": "./integration.mjs"
+    },
+    "./ssr": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch --preserveWatchOutput"
+  },
+  "peerDependencies": {
+    "astro": ">=5.0.0"
+  },
+  "dependencies": {
+    "@babel/generator": "^8.0.0",
+    "@babel/parser": "^8.0.0",
+    "@babel/traverse": "^8.0.0",
+    "@babel/types": "^8.0.0"
+  },
+  "devDependencies": {
+    "astro": "5.17.1",
+    "typescript": "^5.9.3"
+  }
+}

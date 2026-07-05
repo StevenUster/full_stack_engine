@@ -68,13 +68,13 @@ bun dev
 ### Server-rendered data in templates (fse-ssr)
 
 Pages never contain Tera syntax. Server data is used like ordinary TypeScript
-via `ssr<T>()`; the fse-ssr Astro integration (`src/frontend/fse-ssr/`)
+via `ssr<T>()`; the [fse-ssr](../fse-ssr) npm package's Astro integration
 compiles those expressions to Tera in the built HTML, and the Rust backend
 fills in the real values on every request:
 
 ```astro
 ---
-import { ssr } from "fse-ssr";
+import { ssr } from "fse-ssr/ssr";
 import type { UserPage } from "../types/pages";
 
 const { email, id, role, roles, error, t } = ssr<UserPage>();
@@ -92,9 +92,14 @@ const { email, id, role, roles, error, t } = ssr<UserPage>();
 ```
 
 Declare each page's context shape in `src/types/pages.ts` (matching what the
-service passes to `render_tpl`). `t` is typed from `locales/en.json`
-(regenerated on every dev/build start), so translation typos fail
-`astro check`.
+service passes to `render_tpl`). `t` is typed from `locales/en.json` via a
+`declare module ".../ssr" { interface Translations {...} }` augmentation the
+integration regenerates into `.astro/fse-ssr-translations.d.ts` on every
+dev/build start, so translation typos fail `astro check`. That file is picked
+up through a reference comment already present in `src/env.d.ts` — if you
+ever recreate that file, keep the
+`/// <reference path="../.astro/fse-ssr-translations.d.ts" />` line (TypeScript
+only honors triple-slash references as the first lines of a file).
 
 Supported on SSR values: interpolation (text, attributes, template literals),
 `.map()` (compiles to a `{% for %}` loop), `.length`, comparisons
