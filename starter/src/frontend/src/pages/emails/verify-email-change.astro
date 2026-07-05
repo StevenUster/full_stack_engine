@@ -1,5 +1,9 @@
 ---
+import { ssr } from "fse-ssr";
 import EmailLayout from "../../layouts/EmailLayout.astro";
+import type { VerifyEmailChangeProps } from "../../types/pages";
+
+const { verify_url } = ssr<VerifyEmailChangeProps>();
 ---
 
 <EmailLayout title="Email Change Verification">
@@ -14,7 +18,7 @@ import EmailLayout from "../../layouts/EmailLayout.astro";
 
   <div style="text-align: center; padding-top: 12px; padding-bottom: 28px;">
     <a
-      href={"{{ verify_url }}"}
+      href={verify_url}
       target="_blank"
       style="display: inline-block; padding: 14px 36px; background-color: #00205c; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 600; border-radius: 6px; letter-spacing: 0.025em; transition: background-color 0.2s ease-in-out;"
     >
@@ -27,8 +31,8 @@ import EmailLayout from "../../layouts/EmailLayout.astro";
     browser:
   </p>
   <p style="margin: 0; word-break: break-all;">
-    <a href={"{{ verify_url }}"} style="color: #528bd9; font-size: 12px; text-decoration: underline;">
-      {"{{ verify_url }}"}
+    <a href={verify_url} style="color: #528bd9; font-size: 12px; text-decoration: underline;">
+      {verify_url}
     </a>
   </p>
 

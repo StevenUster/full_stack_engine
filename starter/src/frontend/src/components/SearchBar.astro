@@ -1,22 +1,29 @@
 ---
+import { ssr } from "fse-ssr";
+import type { SsrValue } from "fse-ssr";
+
 interface Props {
   placeholder?: string;
   name?: string;
-  /** Server-side value expression (Tera). Pass "" for JS-driven searches. */
-  value?: string;
+  /** Prefill; defaults to the server-side `search` context value. */
+  value?: string | SsrValue<string>;
   /** Optional id on the input, for JS hooks. */
   inputId?: string;
   /** Show the bottom divider (when sitting atop card content). */
   bordered?: boolean;
 }
 
+const { t, search } = ssr<{ search?: string }>();
+
 const {
   placeholder = "Search...",
   name = "search",
-  value = `{{ search | default(value='') }}`,
+  value,
   inputId,
   bordered = true,
 } = Astro.props;
+
+const inputValue = value ?? search ?? "";
 ---
 
 <form
@@ -31,7 +38,7 @@ const {
       type="text"
       name={name}
       id={inputId}
-      value={value}
+      value={inputValue}
       placeholder={placeholder}
       class="w-full h-9 px-3.5 pr-9 text-sm border border-secondary-200 rounded-lg outline-hidden focus:border-primary-500 focus:ring-1 focus:ring-primary-500 bg-white text-secondary-900"
     />
@@ -53,6 +60,6 @@ const {
   </div>
 
   <button type="submit" class="btn-primary h-9 py-0">
-    <Fragment set:html={"{{ t.filters.search | default(value='Search') }}"} />
+    {t.filters.search ?? "Search"}
   </button>
 </form>

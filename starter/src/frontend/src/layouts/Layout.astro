@@ -19,6 +19,9 @@ const { title, sidebar = true } = Astro.props;
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
+    <!-- Filled by the server with the page's render context as JSON; read it
+         client-side via pageProps() from fse-ssr/client. -->
+    <script is:inline type="application/json" id="__fse-props__"></script>
   </head>
   <body class="bg-secondary-50">
     <div class="relative flex min-h-screen">

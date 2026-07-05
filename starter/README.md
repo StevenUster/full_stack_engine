@@ -65,6 +65,57 @@ cd src/frontend
 bun dev
 ```
 
+### Server-rendered data in templates (fse-ssr)
+
+Pages never contain Tera syntax. Server data is used like ordinary TypeScript
+via `ssr<T>()`; the fse-ssr Astro integration (`src/frontend/fse-ssr/`)
+compiles those expressions to Tera in the built HTML, and the Rust backend
+fills in the real values on every request:
+
+```astro
+---
+import { ssr } from "fse-ssr";
+import type { UserPage } from "../types/pages";
+
+const { email, id, role, roles, error, t } = ssr<UserPage>();
+---
+<Header backlink="/users">{email}</Header>
+<form action={`/users/${id}`} method="POST">
+  <select name="role">
+    {roles.map((r) => (
+      <option value={r.value} selected={r.value === role}>{r.label}</option>
+    ))}
+  </select>
+</form>
+{error && <p class="banner">{error}</p>}
+<p>{t.settings.delete_account.title}</p>
+```
+
+Declare each page's context shape in `src/types/pages.ts` (matching what the
+service passes to `render_tpl`). `t` is typed from `locales/en.json`
+(regenerated on every dev/build start), so translation typos fail
+`astro check`.
+
+Supported on SSR values: interpolation (text, attributes, template literals),
+`.map()` (compiles to a `{% for %}` loop), `.length`, comparisons
+(`===`, `!==`, `<`, …), `&&`/`||`/`!`/ternaries, and `?? fallback`
+(compiles to Tera's `default` filter, which also makes optional context keys
+safe). Everything else — `.filter()`, arithmetic, function calls — has no
+server-side equivalent and fails the build; do it in the service or in
+client code instead.
+
+For client-side code, the backend serializes the page's full render context
+into `<script type="application/json" id="__fse-props__">` (the placeholder
+lives in `Layout.astro`). Read it with the same types — no extra request:
+
+```ts
+import { pageProps } from "fse-ssr/client";
+const { rows } = pageProps<UsersPage>();
+```
+
+Note that this makes the entire render context visible to the client, so a
+page's context must only contain data its viewer may see.
+
 ### Database migrations
 
 Install sqlx cli if you don't have it:

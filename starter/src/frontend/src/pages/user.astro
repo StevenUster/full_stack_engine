@@ -1,17 +1,20 @@
 ---
+import { ssr } from "fse-ssr";
 import Card from "../components/Card.astro";
 import Header from "../components/Header.astro";
-import RawHtml from "../components/RawHtml.astro";
 import Layout from "../layouts/Layout.astro";
+import type { UserPage } from "../types/pages";
+
+const { id, email, role, roles } = ssr<UserPage>();
 ---
 
 <Layout title="User">
   <main class="grid place-items-center h-full">
     <div class="">
-      <Header backlink="/users">{"{{ email }}"}</Header>
+      <Header backlink="/users">{email}</Header>
       <Card>
         <form
-          action="/users/{{ id }}"
+          action={`/users/${id}`}
           method="POST"
           class="relative my-6 md:w-60"
         >
@@ -22,7 +25,13 @@ import Layout from "../layouts/Layout.astro";
               required
               class="relative w-full h-10 px-4 text-sm transition-all bg-white border rounded outline-none appearance-none focus-visible:outline-none peer border-black autofill:bg-white"
             >
-              <RawHtml html={`{% for r in roles %}<option value="{{ r.value }}" {% if r.value == role %}selected{% endif %}>{{ r.label }}</option>{% endfor %}`} />
+              {
+                roles.map((r) => (
+                  <option value={r.value} selected={r.value === role}>
+                    {r.label}
+                  </option>
+                ))
+              }
             </select>
             <label
               for="role"

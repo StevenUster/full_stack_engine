@@ -1,10 +1,14 @@
 ---
+import { ssr } from "fse-ssr";
+import type { SsrValue } from "fse-ssr";
+
 interface Props {
   id: string;
-  title: string;
+  title: string | SsrValue<string>;
 }
 
 const { id, title } = Astro.props;
+const { t } = ssr();
 ---
 
 <dialog
@@ -12,12 +16,12 @@ const { id, title } = Astro.props;
   class="m-auto backdrop:bg-black/50 backdrop:backdrop-blur-xs bg-white rounded-xl shadow-lg p-0 w-[95%] max-w-md max-h-[calc(100dvh-2rem)] open:flex flex-col overflow-hidden border border-secondary-200"
 >
   <div class="flex items-center justify-between px-6 py-4 border-b border-secondary-100 shrink-0">
-    <h3 class="text-base font-semibold text-secondary-900"><Fragment set:html={title} /></h3>
+    <h3 class="text-base font-semibold text-secondary-900">{title}</h3>
     <button
       type="button"
       class="p-1.5 text-secondary-400 hover:text-secondary-700 hover:bg-secondary-100 transition-colors rounded-lg modal-close-btn"
       data-modal-id={id}
-      aria-label="{{ t.common.close_modal }}"
+      aria-label={t.common.close_modal}
     >
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <line x1="18" y1="6" x2="6" y2="18"></line>

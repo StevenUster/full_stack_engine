@@ -1,13 +1,17 @@
 ---
+import { ssr } from "fse-ssr";
 import Card from "../components/Card.astro";
 import Layout from "../layouts/Layout.astro";
+import type { ErrorPage } from "../types/pages";
+
+const { error } = ssr<ErrorPage>();
 ---
 
 <Layout title="Error">
   <main class="grid place-items-center h-full">
     <div class="w-[800px]">
       <Card>
-        <p class="text-red-600">{"{{ error }}"}</p>
+        <p class="text-red-600">{error}</p>
       </Card>
     </div>
   </main>

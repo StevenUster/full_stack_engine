@@ -23,9 +23,9 @@ pub enum UploadError {
 impl From<UploadError> for crate::error::AppError {
     fn from(e: UploadError) -> Self {
         match e {
-            UploadError::InvalidSize(_) | UploadError::InvalidType | UploadError::ContentMismatch => {
-                crate::error::AppError::BadRequest(e.to_string())
-            }
+            UploadError::InvalidSize(_)
+            | UploadError::InvalidType
+            | UploadError::ContentMismatch => crate::error::AppError::BadRequest(e.to_string()),
             _ => crate::error::AppError::Internal(e.to_string()),
         }
     }
@@ -209,7 +209,10 @@ mod tests {
         let real_png = temp_upload_with_bytes("a.png", PNG_SIGNATURE);
         let saved = save_upload(&real_png, "t-uploads-test", "p", &["png"], 100).unwrap();
         assert!(saved.starts_with("/uploads/t-uploads-test/p_"));
-        assert_eq!(std::path::Path::new(&saved).extension(), Some("png".as_ref()));
+        assert_eq!(
+            std::path::Path::new(&saved).extension(),
+            Some("png".as_ref())
+        );
         let _ = std::fs::remove_dir_all("uploads/t-uploads-test");
     }
 
@@ -220,7 +223,10 @@ mod tests {
         // extension allow-list and size limit are satisfied.
         let html = temp_upload_with_bytes("template.html", b"<html>not an image</html>");
         let saved = save_upload(&html, "t-uploads-test2", "p", &["html"], 100).unwrap();
-        assert_eq!(std::path::Path::new(&saved).extension(), Some("html".as_ref()));
+        assert_eq!(
+            std::path::Path::new(&saved).extension(),
+            Some("html".as_ref())
+        );
         let _ = std::fs::remove_dir_all("uploads/t-uploads-test2");
     }
 }

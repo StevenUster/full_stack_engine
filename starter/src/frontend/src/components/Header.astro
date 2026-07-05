@@ -1,12 +1,15 @@
 ---
+import type { SsrValue } from "fse-ssr";
+
 interface Props {
   backlink?: string;
   action?: string;
-  action_label?: string;
-  action_when?: string;
+  actionLabel?: string | SsrValue<string>;
+  /** Server-side condition gating the action button (pass an SSR value). */
+  actionWhen?: unknown;
 }
 
-const { backlink, action, action_label, action_when } = Astro.props;
+const { backlink, action, actionLabel, actionWhen = true } = Astro.props;
 ---
 
 <header
@@ -42,14 +45,11 @@ const { backlink, action, action_label, action_when } = Astro.props;
     </h1>
   </div>
   {
-    action && (
-      <>
-        {action_when && <Fragment set:html={`{% if ${action_when} %}`} />}
+    action &&
+      actionWhen && (
         <a href={action} class="btn-primary w-full sm:w-auto">
-          <Fragment set:html={action_label || "Send"} />
+          {actionLabel ?? "Send"}
         </a>
-        {action_when && <Fragment set:html={`{% endif %}`} />}
-      </>
-    )
+      )
   }
 </header>

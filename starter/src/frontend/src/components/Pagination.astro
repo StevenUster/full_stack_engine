@@ -1,13 +1,21 @@
 ---
+import { ssr } from "fse-ssr";
+
+const { page, total_pages, total_count, per_page } = ssr<{
+  page?: number;
+  total_pages?: number;
+  total_count?: number;
+  per_page?: number;
+}>();
 ---
 
 <nav
   id="pagination-nav"
   class="flex items-center justify-between px-4 py-3 border-t border-secondary-200 text-sm"
-  data-page={`{{ page | default(value=1) }}`}
-  data-total-pages={`{{ total_pages | default(value=1) }}`}
-  data-total-count={`{{ total_count | default(value=0) }}`}
-  data-per-page={`{{ per_page | default(value=20) }}`}
+  data-page={page ?? 1}
+  data-total-pages={total_pages ?? 1}
+  data-total-count={total_count ?? 0}
+  data-per-page={per_page ?? 20}
 >
 </nav>
 

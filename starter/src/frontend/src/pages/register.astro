@@ -1,6 +1,10 @@
 ---
+import { ssr } from "fse-ssr";
 import Input from "../components/Input.astro";
 import Layout from "../layouts/Layout.astro";
+import type { RegisterPage } from "../types/pages";
+
+const { error } = ssr<RegisterPage>();
 ---
 
 <Layout title="Register" sidebar={false}>
@@ -54,16 +58,18 @@ import Layout from "../layouts/Layout.astro";
           >
         </p>
       </div>
-      <Fragment set:html="{% if error %}" />
-      <div class="px-6 py-3">
-        <div
-          class="w-full px-4 py-3 mb-4 text-sm text-pink-500 border border-pink-100 rounded bg-pink-50"
-          role="alert"
-        >
-          <p><Fragment set:html="{{ error }}" /></p>
-        </div>
-      </div>
-      <Fragment set:html="{% endif %}" />
+      {
+        error && (
+          <div class="px-6 py-3">
+            <div
+              class="w-full px-4 py-3 mb-4 text-sm text-pink-500 border border-pink-100 rounded bg-pink-50"
+              role="alert"
+            >
+              <p>{error}</p>
+            </div>
+          </div>
+        )
+      }
     </form>
   </main>
 

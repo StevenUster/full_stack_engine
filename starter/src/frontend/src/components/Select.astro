@@ -1,51 +1,40 @@
 ---
-import RawHtml from "./RawHtml.astro";
+import type { SsrValue } from "fse-ssr";
+
+interface Option {
+  value: string;
+  label: string | SsrValue<string>;
+}
 
 interface Props {
   options: Option[];
   id: string;
-  placeholder: string;
-  selected?: boolean;
+  placeholder: string | SsrValue<string>;
+  /** Server-side value that marks the matching option as selected. */
+  selected?: SsrValue<string>;
   required?: boolean;
-  object_key?: string;
+  name?: string;
 }
 
-interface Option {
-  value: string;
-  label: string;
-}
-
-const {
-  options,
-  id,
-  placeholder,
-  selected = false,
-  required = false,
-  object_key,
-} = Astro.props;
-
-const key = object_key ? `${object_key}.` : "";
+const { options, id, placeholder, selected, required = false, name } = Astro.props;
 ---
 
 <div class="relative w-full">
-  {`{% set selected = ${key}${id} | default(value=1) %}`}
   <select
     id={id}
-    name={id}
+    name={name ?? id}
     required={required}
     class="relative w-full h-10 px-3.5 text-sm transition-all bg-white border border-secondary-300 rounded-lg outline-hidden appearance-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 peer text-secondary-900 autofill:bg-white"
   >
     {
-      options.map((option: any) => {
-        const selected_attr =
-          selected &&
-          `{% if selected == '${option.value}' %}selected{% endif %}`;
-        return (
-          <RawHtml
-            html={`<option value="${option.value}" ${selected_attr}>${option.label}</option>`}
-          />
-        );
-      })
+      options.map((option) => (
+        <option
+          value={option.value}
+          selected={selected !== undefined && selected === option.value}
+        >
+          {option.label}
+        </option>
+      ))
     }
   </select>
   <label

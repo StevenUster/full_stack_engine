@@ -96,6 +96,13 @@ impl AppData {
         template_name: &str,
         context_data: &T,
     ) -> HttpResponse {
+        let value = match serde_json::to_value(context_data) {
+            Ok(value) => value,
+            Err(err) => {
+                error!("Context serialization error: {err}");
+                return HttpResponse::InternalServerError().body("Context serialization error");
+            }
+        };
         if self.env == Env::Dev {
             let path = if template_name == "index" {
                 String::new()
@@ -138,7 +145,7 @@ impl AppData {
                 return HttpResponse::InternalServerError().body("Failed to add template");
             }
 
-            let context = match Context::from_serialize(context_data) {
+            let context = match Context::from_serialize(&value) {
                 Ok(ctx) => ctx,
                 Err(err) => {
                     error!("Context serialization error: {err}");
@@ -147,14 +154,16 @@ impl AppData {
             };
 
             match tera_temp.render(template_name, &context) {
-                Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
+                Ok(html) => HttpResponse::Ok()
+                    .content_type("text/html")
+                    .body(inject_page_props(html, &value)),
                 Err(err) => {
                     error!("Template rendering error: {err}");
                     HttpResponse::InternalServerError().body("Template rendering error")
                 }
             }
         } else {
-            let context = match Context::from_serialize(context_data) {
+            let context = match Context::from_serialize(&value) {
                 Ok(ctx) => ctx,
                 Err(err) => {
                     error!("Context serialization error: {err}");
@@ -164,7 +173,9 @@ impl AppData {
 
             let template_name = template_name.replace('_', "/");
             match self.tera.render(&template_name, &context) {
-                Ok(html) => HttpResponse::Ok().content_type("text/html").body(html),
+                Ok(html) => HttpResponse::Ok()
+                    .content_type("text/html")
+                    .body(inject_page_props(html, &value)),
                 Err(err) => {
                     error!("Template rendering error ({template_name}): {err}");
                     HttpResponse::InternalServerError().finish()
@@ -218,6 +229,28 @@ impl AppData {
                 .map_err(|e| format!("Email template rendering error ({template_name}): {e}"))
         }
     }
+}
+
+/// Placeholder emitted by the frontend layout. When present, it is filled
+/// with the page's render context as JSON so client-side code (islands,
+/// inline scripts) can read the same data the page was rendered with —
+/// without a second request. Pages whose layout omits the tag get nothing
+/// injected.
+const PAGE_PROPS_TAG: &str = r#"<script type="application/json" id="__fse-props__"></script>"#;
+
+fn inject_page_props(html: String, context: &serde_json::Value) -> String {
+    if !html.contains(PAGE_PROPS_TAG) {
+        return html;
+    }
+    let Ok(json) = serde_json::to_string(context) else {
+        return html;
+    };
+    // Escape `<` so context data containing "</script>" (or "<!--") cannot
+    // break out of the script element; `<` is valid JSON and decodes
+    // back to `<` in `JSON.parse`.
+    let json = json.replace('<', "\\u003c");
+    let filled = format!(r#"<script type="application/json" id="__fse-props__">{json}</script>"#);
+    html.replacen(PAGE_PROPS_TAG, &filled, 1)
 }
 
 type ConfigureFn = Box<dyn Fn(&mut web::ServiceConfig) + Send + Sync + 'static>;
@@ -833,5 +866,86 @@ mod tests {
     #[test]
     fn serve_from_dist_missing_file_is_an_error() {
         assert!(serve_from_dist(&TEST_DIST, "no-such-file.html", "GET").is_err());
+    }
+
+    #[test]
+    fn inject_page_props_fills_the_placeholder_once() {
+        let html = format!("<head>{PAGE_PROPS_TAG}</head>");
+        let ctx = serde_json::json!({ "rows": [1, 2], "error": null });
+        let out = inject_page_props(html, &ctx);
+        assert!(out.contains(r#"<script type="application/json" id="__fse-props__">{"error":null,"rows":[1,2]}</script>"#));
+    }
+
+    #[test]
+    fn inject_page_props_escapes_script_breakout() {
+        let html = format!("<head>{PAGE_PROPS_TAG}</head>");
+        let ctx = serde_json::json!({ "evil": "</script><script>alert(1)</script>" });
+        let out = inject_page_props(html, &ctx);
+        assert!(!out.contains("</script><script>alert(1)"));
+        // The `<` of every context value is emitted as the JSON escape <.
+        assert!(out.contains("\\u003c/script>\\u003cscript>alert(1)"));
+    }
+
+    #[test]
+    fn inject_page_props_leaves_pages_without_placeholder_untouched() {
+        let html = "<head><title>x</title></head>".to_string();
+        assert_eq!(
+            inject_page_props(html.clone(), &serde_json::json!({})),
+            html
+        );
+    }
+
+    /// Pins every Tera form the frontend's fse-ssr compiler emits
+    /// (see `starter/src/frontend/fse-ssr/runtime.ts`). If this test breaks
+    /// after a Tera upgrade, the emitter must be adapted too.
+    #[test]
+    fn fse_ssr_emitted_tera_grammar_renders() {
+        let mut tera = Tera::default();
+        tera.autoescape_on(vec![""]);
+        tera.add_raw_template(
+            "page",
+            concat!(
+                // scalar + attribute position
+                "<a href=\"/users/{{ id }}\">{{ email }}</a>",
+                // `??` fallback on values
+                "[{{ missing | default(value='Home') }}]",
+                // `{cond && <...>}` on a possibly-absent key
+                "{% if error | default(value=false) %}ERR:{{ error }}{% endif %}",
+                // `{!cond && <...>}` — no parens: Tera only groups math
+                "{% if not missing | default(value=false) %}ANON{% endif %}",
+                // combined conditions stay flat; `and` binds tighter than `or`
+                "{% if flag | default(value=false) and role == 'admin' %}BOTH{% endif %}",
+                // loops with comparisons, computed keys and defaults
+                "{% for it0 in roles %}<option{% if it0.value == role %} selected{% endif %}>",
+                "{{ t.roles[it0.value] | default(value=it0.value) }}</option>{% endfor %}",
+                // `.length`
+                "({{ roles | length }})",
+            ),
+        )
+        .unwrap();
+
+        let context = Context::from_serialize(serde_json::json!({
+            "id": 7,
+            "email": "a@b.c",
+            "error": "boom",
+            "flag": true,
+            "role": "admin",
+            "roles": [
+                { "value": "admin" },
+                { "value": "user" },
+            ],
+            "t": { "roles": { "admin": "Admin" } },
+        }))
+        .unwrap();
+
+        let html = tera.render("page", &context).unwrap();
+        assert!(html.contains("<a href=\"/users/7\">a@b.c</a>"));
+        assert!(html.contains("[Home]"));
+        assert!(html.contains("ERR:boom"));
+        assert!(html.contains("ANON"));
+        assert!(html.contains("BOTH"));
+        assert!(html.contains("<option selected>Admin</option>"));
+        assert!(html.contains("<option>user</option>"));
+        assert!(html.contains("(2)"));
     }
 }

@@ -1,4 +1,6 @@
 ---
+import type { SsrValue } from "fse-ssr";
+
 interface Props {
   id: string;
   type:
@@ -10,39 +12,34 @@ interface Props {
     | "datetime-local"
     | "number"
     | "hidden";
-  placeholder?: string;
+  placeholder?: string | SsrValue<string>;
   required?: boolean;
-  object_key?: string;
   step?: string | number;
   min?: string | number;
   max?: string | number;
   name?: string;
-  value?: string;
+  /** Prefill; pass an SSR value (e.g. `email ?? ""`) for server data. */
+  value?: string | SsrValue<string>;
 }
 
-const { id, type, placeholder = " ", required, object_key, step, min, max, name, value } = Astro.props;
-
-const key = object_key ? `${object_key}.` : "";
-const fieldName = name ?? id;
-const valueAttr = value ?? `{{ ${key}${id} | default(value='') }}`;
+const { id, type, placeholder = " ", required, step, min, max, name, value } = Astro.props;
 ---
 
 <div class="relative w-full">
   <input
     id={id}
     type={type}
-    name={fieldName}
+    name={name ?? id}
     placeholder={placeholder}
     required={required}
     step={step}
     min={min}
     max={max}
-    value={valueAttr}
+    value={value}
     class="relative w-full h-10 px-3.5 text-sm placeholder-transparent transition-all border rounded-lg outline-hidden peer border-secondary-300 text-secondary-900 bg-white autofill:bg-white focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-hidden"
   />
   <label
     for={id}
     class="absolute left-2 -top-2 z-1 px-1.5 text-xs text-secondary-500 transition-all before:absolute before:top-0 before:left-0 before:z-[-1] before:block before:h-full before:w-full before:bg-white before:transition-all peer-placeholder-shown:top-2.5 peer-placeholder-shown:text-sm peer-focus:-top-2 peer-focus:text-xs peer-focus:text-primary-600 peer-disabled:cursor-not-allowed peer-disabled:text-secondary-400 peer-disabled:before:bg-transparent"
-    set:html={placeholder}
-  />
+  >{placeholder}</label>
 </div>

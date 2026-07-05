@@ -1,5 +1,5 @@
 use crate::{
-    AppData, AppError, AppResult, AppRole, AuthUser, Deserialize, Serialize, Table, TableHeader,
+    AppData, AppError, AppResult, AppRole, AuthUser, Deserialize, Serialize,
     actix_web::{HttpResponse, delete, get, post, web},
 };
 use full_stack_engine::prelude::Role;
@@ -32,6 +32,8 @@ pub async fn get(
     .fetch_all(&data.db)
     .await?;
 
+    // Column config (headers, formats) is page-static and lives in the
+    // frontend (`users.astro`); the service only supplies the data.
     let rows: Vec<Row> = users
         .into_iter()
         .map(|u| Row {
@@ -44,47 +46,8 @@ pub async fn get(
         })
         .collect();
 
-    let table = Table {
-        headers: vec![
-            TableHeader {
-                label: "ID".to_string(),
-                key: "id".to_string(),
-                format: None,
-            },
-            TableHeader {
-                label: "Email".to_string(),
-                key: "email".to_string(),
-                format: None,
-            },
-            TableHeader {
-                label: "Role".to_string(),
-                key: "role".to_string(),
-                format: None,
-            },
-            TableHeader {
-                label: "Date".to_string(),
-                key: "created_at".to_string(),
-                format: None,
-            },
-            TableHeader {
-                label: "Actions".to_string(),
-                key: "id".to_string(),
-                format: Some("delete".to_string()),
-            },
-        ],
-        rows,
-        actions: vec![],
-    };
-
     Ok(req
-        .render_tpl(
-            "users",
-            &crate::json!({
-                "headers": table.headers,
-                "rows": table.rows,
-                "actions": table.actions,
-            }),
-        )
+        .render_tpl("users", &crate::json!({ "rows": rows }))
         .await)
 }
 

@@ -1,8 +1,13 @@
 ---
+import { ssr } from "fse-ssr";
+
 interface Props {
   searchPlaceholder?: string;
   card?: boolean;
 }
+
+const { t, search } = ssr<{ search?: string }>();
+
 const { searchPlaceholder = "Search...", card = false } = Astro.props;
 const hasExtraFilters = Astro.slots.has("default");
 ---
@@ -19,7 +24,7 @@ const hasExtraFilters = Astro.slots.has("default");
         <input
           type="text"
           name="search"
-          value={`{{ search | default(value='') }}`}
+          value={search ?? ""}
           placeholder={searchPlaceholder}
           class="w-full h-9 px-3.5 pr-9 text-sm border border-secondary-200 rounded-lg outline-hidden focus:border-primary-500 focus:ring-1 focus:ring-primary-500 bg-white text-secondary-900"
         />
@@ -30,7 +35,7 @@ const hasExtraFilters = Astro.slots.has("default");
       </div>
 
       <button type="submit" class="btn-primary h-9 py-0">
-        <Fragment set:html={"{{ t.filters.search | default(value='Search') }}"} />
+        {t.filters.search ?? "Search"}
       </button>
 
       {
@@ -45,7 +50,7 @@ const hasExtraFilters = Astro.slots.has("default");
               <line x1="8" y1="12" x2="16" y2="12" />
               <line x1="11" y1="18" x2="13" y2="18" />
             </svg>
-            <Fragment set:html={"{{ t.filters.label | default(value='Filters') }}"} />
+            {t.filters.label ?? "Filters"}
             <span
               id="filters-badge"
               class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-primary-600 text-white text-[10px] font-bold items-center justify-center leading-none"
@@ -59,7 +64,7 @@ const hasExtraFilters = Astro.slots.has("default");
         id="filters-clear"
         class="h-9 px-4 hidden items-center text-sm text-secondary-600 border border-secondary-200 rounded-lg hover:bg-secondary-100 bg-white transition-colors whitespace-nowrap"
       >
-        <Fragment set:html={"{{ t.filters.clear | default(value='Reset') }}"} />
+        {t.filters.clear ?? "Reset"}
       </a>
     </div>
 
@@ -72,7 +77,7 @@ const hasExtraFilters = Astro.slots.has("default");
         >
           <slot />
           <button type="submit" class="btn-primary w-full sm:w-auto h-9 py-0">
-            <Fragment set:html={"{{ t.filters.apply | default(value='Apply') }}"} />
+            {t.filters.apply ?? "Apply"}
           </button>
         </div>
       )

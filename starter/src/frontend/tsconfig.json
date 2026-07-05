@@ -5,7 +5,9 @@
     "jsxImportSource": "react",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "fse-ssr": ["fse-ssr/runtime.ts"],
+      "fse-ssr/client": ["fse-ssr/client.ts"]
     }
   }
 }

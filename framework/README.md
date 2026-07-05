@@ -20,7 +20,7 @@ This repository contains two separate Cargo projects:
 ## Features
 
 - **Integrated Auth**: Built-in JWT and Argon2 password hashing. Is also pre-configured in the starter app.
-- **Template Engine**: First-class support for Tera templates with an Astro dev server proxy for rapid frontend development.
+- **Template Engine**: Server-side rendering via Tera, authored as plain TypeScript — the starter's fse-ssr integration compiles typed `ssr<T>()` expressions in Astro templates to Tera at build time (no template syntax in frontend code), and the server injects each page's context as JSON for client-side code. Includes an Astro dev server proxy for rapid frontend development.
 - **Cron Scheduler**: Easy async job scheduling.
 - **Rate Limiting**: proxy-aware, per-client-IP rate limiting via Actix-governor — a generous site-wide limiter is applied to every request automatically (DDoS guard, tunable via `GLOBAL_RATE_LIMIT_*` env vars), plus stricter presets for auth/custom endpoints.
 - **Database**: Pre-configured SQLx SQLite pool with automatic migrations.

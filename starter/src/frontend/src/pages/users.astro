@@ -1,8 +1,20 @@
 ---
+import { ssr } from "fse-ssr";
 import Card from "../components/Card.astro";
-import Layout from "../layouts/Layout.astro";
-import Table from "../components/Table.astro";
 import Header from "../components/Header.astro";
+import Table from "../components/Table.astro";
+import Layout from "../layouts/Layout.astro";
+import type { TableHeader, UsersPage } from "../types/pages";
+
+const { rows } = ssr<UsersPage>();
+
+const headers: TableHeader[] = [
+  { title: "ID", key: "id" },
+  { title: "Email", key: "email" },
+  { title: "Role", key: "role" },
+  { title: "Date", key: "created_at" },
+  { title: "Actions", key: "id", format: "delete" },
+];
 ---
 
 <Layout title="Users">
@@ -10,7 +22,7 @@ import Header from "../components/Header.astro";
     <div class="w-full">
       <Header>Users</Header>
       <Card padding={false}>
-        <Table />
+        <Table headers={headers} rows={rows} />
       </Card>
     </div>
   </main>

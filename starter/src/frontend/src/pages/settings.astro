@@ -1,9 +1,14 @@
 ---
-import Layout from "../layouts/Layout.astro";
+import { ssr } from "fse-ssr";
 import Card from "../components/Card.astro";
 import Header from "../components/Header.astro";
 import Input from "../components/Input.astro";
 import Modal from "../components/Modal.astro";
+import Layout from "../layouts/Layout.astro";
+import type { SettingsPage } from "../types/pages";
+
+const { t, current_email, success, error, email_success, email_error } =
+    ssr<SettingsPage>();
 ---
 
 <Layout title="Settings">
@@ -37,9 +42,7 @@ import Modal from "../components/Modal.astro";
                             class="p-4 rounded-xl bg-gray-50/50 border border-gray-100"
                         >
                             <span class="text-sm font-medium text-gray-900"
-                                ><Fragment
-                                    set:html="{{ current_email }}"
-                                /></span
+                                >{current_email}</span
                             >
                         </div>
                     </div>
@@ -60,25 +63,25 @@ import Modal from "../components/Modal.astro";
                             </button>
                         </form>
 
-                        <Fragment set:html="{% if success %}" />
-                        <div
-                            class="mt-4 p-4 rounded-xl bg-green-50 border border-green-100"
-                        >
-                            <p class="text-sm font-medium text-green-700">
-                                <Fragment set:html="{{ success }}" />
-                            </p>
-                        </div>
-                        <Fragment set:html="{% endif %}" />
+                        {
+                            success && (
+                                <div class="mt-4 p-4 rounded-xl bg-green-50 border border-green-100">
+                                    <p class="text-sm font-medium text-green-700">
+                                        {success}
+                                    </p>
+                                </div>
+                            )
+                        }
 
-                        <Fragment set:html="{% if error %}" />
-                        <div
-                            class="mt-4 p-4 rounded-xl bg-red-50 border border-red-100"
-                        >
-                            <p class="text-sm font-medium text-red-700">
-                                <Fragment set:html="{{ error }}" />
-                            </p>
-                        </div>
-                        <Fragment set:html="{% endif %}" />
+                        {
+                            error && (
+                                <div class="mt-4 p-4 rounded-xl bg-red-50 border border-red-100">
+                                    <p class="text-sm font-medium text-red-700">
+                                        {error}
+                                    </p>
+                                </div>
+                            )
+                        }
                     </div>
 
                     <!-- Delete Account -->
@@ -86,10 +89,10 @@ import Modal from "../components/Modal.astro";
                         <div class="flex items-center justify-between mb-2">
                             <div>
                                 <h3 class="text-lg font-bold text-gray-900">
-                                    <Fragment set:html={"{{ t.settings.delete_account.title }}"} />
+                                    {t.settings.delete_account.title}
                                 </h3>
                                 <p class="text-sm text-gray-500">
-                                    <Fragment set:html={"{{ t.settings.delete_account.description }}"} />
+                                    {t.settings.delete_account.description}
                                 </p>
                             </div>
                         </div>
@@ -97,13 +100,13 @@ import Modal from "../components/Modal.astro";
                             id="delete-account-form"
                             action="/settings/delete-account"
                             method="POST"
-                            data-confirm-message={"{{ t.settings.delete_account.confirm }}"}
+                            data-confirm-message={t.settings.delete_account.confirm}
                         >
                             <button
                                 type="submit"
                                 class="btn-secondary text-red-600 border-red-200 hover:bg-red-50"
                             >
-                                <Fragment set:html={"{{ t.settings.delete_account.button }}"} />
+                                {t.settings.delete_account.button}
                             </button>
                         </form>
                     </div>
@@ -149,21 +152,25 @@ import Modal from "../components/Modal.astro";
 
             <!-- Modal Messages -->
             <div id="modal-messages">
-                <Fragment set:html="{% if email_success %}" />
-                <div class="p-4 rounded-xl bg-green-50 border border-green-100">
-                    <p class="text-sm font-medium text-green-700">
-                        <Fragment set:html="{{ email_success }}" />
-                    </p>
-                </div>
-                <Fragment set:html="{% endif %}" />
+                {
+                    email_success && (
+                        <div class="p-4 rounded-xl bg-green-50 border border-green-100">
+                            <p class="text-sm font-medium text-green-700">
+                                {email_success}
+                            </p>
+                        </div>
+                    )
+                }
 
-                <Fragment set:html="{% if email_error %}" />
-                <div class="p-4 rounded-xl bg-red-50 border border-red-100">
-                    <p class="text-sm font-medium text-red-700">
-                        <Fragment set:html="{{ email_error }}" />
-                    </p>
-                </div>
-                <Fragment set:html="{% endif %}" />
+                {
+                    email_error && (
+                        <div class="p-4 rounded-xl bg-red-50 border border-red-100">
+                            <p class="text-sm font-medium text-red-700">
+                                {email_error}
+                            </p>
+                        </div>
+                    )
+                }
             </div>
         </form>
     </Modal>
