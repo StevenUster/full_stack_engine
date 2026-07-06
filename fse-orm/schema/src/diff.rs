@@ -1,0 +1,228 @@
+//! Schema diffing: old snapshot + new structs → one migration file.
+//!
+//! SQLite only supports ADD COLUMN, DROP COLUMN and RENAME COLUMN directly —
+//! and even those with restrictions. Anything else (type change, adding
+//! NOT NULL/UNIQUE, changing a default, FK or CHECK) is emitted as the
+//! standard rebuild dance: create the new shape under a temporary name, copy
+//! the rows across, drop the old table, rename.
+
+use crate::error::Error;
+use crate::model::{ColumnDef, DefaultValue, Schema, TableDef};
+use crate::sql::{column_sql, create_table_sql};
+
+#[derive(Debug, Clone)]
+pub struct Migration {
+    /// The full migration file body (plain SQL, sqlx-compatible).
+    pub sql: String,
+    /// Human-readable one-liner, e.g. `products: add archived_at`.
+    pub summary: String,
+    /// True when data is lost (dropped tables or columns).
+    pub destructive: bool,
+    /// True when the generated SQL contains a TODO the user must edit before
+    /// applying (a new NOT NULL column without a default needs a backfill).
+    pub needs_manual_edit: bool,
+}
+
+impl Migration {
+    /// `summary` reduced to a safe migration-file name fragment.
+    pub fn filename_slug(&self) -> String {
+        let mut slug = String::new();
+        for ch in self.summary.chars() {
+            if ch.is_ascii_alphanumeric() {
+                slug.push(ch.to_ascii_lowercase());
+            } else if !slug.ends_with('_') && !slug.is_empty() {
+                slug.push('_');
+            }
+        }
+        let slug = slug.trim_matches('_').to_string();
+        slug.chars().take(48).collect()
+    }
+}
+
+/// Diff two schemas. Returns `None` when they are identical.
+pub fn diff_schemas(old: &Schema, new: &Schema) -> Result<Option<Migration>, Error> {
+    let mut stmts: Vec<String> = Vec::new();
+    let mut summary: Vec<String> = Vec::new();
+    let mut destructive = false;
+    let mut needs_manual_edit = false;
+
+    for t in &new.tables {
+        if old.table(&t.name).is_none() {
+            stmts.push(create_table_sql(t));
+            summary.push(format!("create {}", t.name));
+        }
+    }
+    for t in &old.tables {
+        if new.table(&t.name).is_none() {
+            stmts.push(format!("DROP TABLE {};", t.name));
+            summary.push(format!("drop {}", t.name));
+            destructive = true;
+        }
+    }
+    for t in &new.tables {
+        if let Some(old_t) = old.table(&t.name) {
+            diff_table(
+                old_t,
+                t,
+                &mut stmts,
+                &mut summary,
+                &mut destructive,
+                &mut needs_manual_edit,
+            )?;
+        }
+    }
+
+    if stmts.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(Migration {
+        sql: stmts.join("\n\n") + "\n",
+        summary: summary.join("; "),
+        destructive,
+        needs_manual_edit,
+    }))
+}
+
+fn diff_table(
+    old: &TableDef,
+    new: &TableDef,
+    stmts: &mut Vec<String>,
+    summary: &mut Vec<String>,
+    destructive: &mut bool,
+    needs_manual_edit: &mut bool,
+) -> Result<(), Error> {
+    // Apply pending renames to a copy of the old table so the rest of the
+    // diff compares like-for-like. A rename marker whose source column no
+    // longer exists (attribute left in place after the migration ran) is
+    // ignored.
+    let mut eff = old.clone();
+    let mut renames: Vec<(String, String)> = Vec::new();
+    for c in &new.columns {
+        if let Some(from) = &c.renamed_from
+            && eff.column(&c.name).is_none()
+            && let Some(oc) = eff.columns.iter_mut().find(|oc| oc.name == *from)
+        {
+            oc.name = c.name.clone();
+            renames.push((from.clone(), c.name.clone()));
+        }
+    }
+
+    let added: Vec<&ColumnDef> = new
+        .columns
+        .iter()
+        .filter(|c| eff.column(&c.name).is_none())
+        .collect();
+    let dropped: Vec<ColumnDef> = eff
+        .columns
+        .iter()
+        .filter(|c| new.column(&c.name).is_none())
+        .cloned()
+        .collect();
+    let changed: Vec<String> = new
+        .columns
+        .iter()
+        .filter(|c| {
+            eff.column(&c.name)
+                .is_some_and(|oc| oc.signature() != c.signature())
+        })
+        .map(|c| c.name.clone())
+        .collect();
+
+    if renames.is_empty() && added.is_empty() && dropped.is_empty() && changed.is_empty() {
+        return Ok(());
+    }
+
+    let mut bits: Vec<String> = Vec::new();
+    bits.extend(renames.iter().map(|(f, t)| format!("rename {f} -> {t}")));
+    bits.extend(added.iter().map(|c| format!("add {}", c.name)));
+    bits.extend(dropped.iter().map(|c| format!("drop {}", c.name)));
+    bits.extend(changed.iter().map(|c| format!("change {c}")));
+
+    let rebuild = !changed.is_empty()
+        || added.iter().any(|c| !can_add_column(c))
+        || dropped.iter().any(|c| !can_drop_column(c));
+
+    if rebuild {
+        stmts.push(rebuild_table_sql(old, new, needs_manual_edit));
+        summary.push(format!("rebuild {} ({})", new.name, bits.join(", ")));
+    } else {
+        for (from, to) in &renames {
+            stmts.push(format!("ALTER TABLE {} RENAME COLUMN {from} TO {to};", new.name));
+        }
+        for c in &added {
+            stmts.push(format!("ALTER TABLE {} ADD COLUMN {};", new.name, column_sql(c, false)));
+        }
+        for c in &dropped {
+            stmts.push(format!("ALTER TABLE {} DROP COLUMN {};", new.name, c.name));
+        }
+        summary.push(format!("{}: {}", new.name, bits.join(", ")));
+    }
+    if !dropped.is_empty() {
+        *destructive = true;
+    }
+    Ok(())
+}
+
+/// SQLite `ALTER TABLE ... ADD COLUMN` restrictions: no PRIMARY KEY or
+/// UNIQUE, NOT NULL needs a constant default, `CURRENT_TIMESTAMP` is not
+/// allowed as the default, and a REFERENCES clause needs a NULL default.
+fn can_add_column(c: &ColumnDef) -> bool {
+    let constant_default = matches!(&c.default, Some(d) if !matches!(d, DefaultValue::Now));
+    if c.primary_key || c.unique {
+        return false;
+    }
+    if c.references.is_some() {
+        return c.nullable && c.default.is_none();
+    }
+    c.nullable && !matches!(c.default, Some(DefaultValue::Now)) || constant_default
+}
+
+/// `DROP COLUMN` is refused by SQLite for pk/unique (indexed) columns.
+fn can_drop_column(c: &ColumnDef) -> bool {
+    !c.primary_key && !c.unique
+}
+
+fn rebuild_table_sql(old: &TableDef, new: &TableDef, needs_manual_edit: &mut bool) -> String {
+    let table = &new.name;
+    let tmp_name = format!("{table}_new");
+    let tmp = TableDef {
+        name: tmp_name.clone(),
+        ..new.clone()
+    };
+    let create = create_table_sql(&tmp);
+
+    let cols: Vec<String> = new.columns.iter().map(|c| c.name.clone()).collect();
+    let exprs: Vec<String> = new
+        .columns
+        .iter()
+        .map(|c| {
+            if let Some(from) = &c.renamed_from
+                && old.column(from).is_some()
+            {
+                return from.clone();
+            }
+            if old.column(&c.name).is_some() {
+                return c.name.clone();
+            }
+            if let Some(d) = &c.default {
+                return d.sql();
+            }
+            if c.nullable {
+                return "NULL".into();
+            }
+            *needs_manual_edit = true;
+            format!("NULL /* TODO: backfill NOT NULL column {} */", c.name)
+        })
+        .collect();
+
+    format!(
+        "-- {table}: SQLite cannot express this change with ALTER TABLE, so the\n\
+         -- table is rebuilt and its rows copied over.\n\
+         {create}\n\n\
+         INSERT INTO {tmp_name} ({})\nSELECT {}\nFROM {table};\n\n\
+         DROP TABLE {table};\n\n\
+         ALTER TABLE {tmp_name} RENAME TO {table};",
+        cols.join(", "),
+        exprs.join(", "),
+    )
+}

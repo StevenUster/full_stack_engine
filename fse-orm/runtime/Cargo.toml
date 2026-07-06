@@ -1,0 +1,13 @@
+[package]
+name = "fse-orm"
+description = "Runtime support for the fse ORM: typed columns, dynamic query builder, pagination."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+fse-orm-macros = { path = "../macros" }
+sqlx = { version = "0.8", default-features = false }
+serde = "1.0"
+serde_json = "1.0"

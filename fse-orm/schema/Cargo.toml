@@ -1,0 +1,13 @@
+[package]
+name = "fse-schema"
+description = "Schema model, struct parser and SQL generation shared by fse-orm-macros and fse-cli."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

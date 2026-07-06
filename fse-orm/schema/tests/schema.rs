@@ -1,0 +1,276 @@
+//! End-to-end tests for the schema layer: source → model → DDL → diffs.
+//! Fixtures are written the way an app's `src/tables/*.rs` files would be.
+
+use fse_schema::parse::{parse_sources, pluralize, to_snake_case};
+use fse_schema::snapshot::{schema_from_json, schema_to_json};
+use fse_schema::sql::create_table_sql;
+use fse_schema::{DefaultValue, OnDelete, Schema, SqlType, diff_schemas};
+
+fn schema_of(sources: &[(&str, &str)]) -> Schema {
+    let owned: Vec<(String, String)> = sources
+        .iter()
+        .map(|(n, c)| (n.to_string(), c.to_string()))
+        .collect();
+    parse_sources(&owned).unwrap_or_else(|e| panic!("parse failed: {e}"))
+}
+
+const EVENT: &str = r#"
+#[derive(Table)]
+pub struct Event {
+    pub id: i64,
+    pub name: String,
+}
+"#;
+
+const PRODUCT_V1: &str = r#"
+#[derive(DbEnum)]
+pub enum ProductStatus {
+    Draft,
+    Published,
+    Archived,
+}
+
+#[derive(Table)]
+pub struct Product {
+    pub id: i64,
+    #[orm(unique)]
+    pub slug: String,
+    pub name: String,
+    pub description: Option<String>,
+    #[orm(default = 0.0)]
+    pub price: f64,
+    #[orm(default = "draft")]
+    pub status: ProductStatus,
+    #[orm(references(Event, on_delete = cascade))]
+    pub event_id: i64,
+    #[orm(default = now)]
+    pub created_at: NaiveDateTime,
+    #[orm(json)]
+    pub dimensions: Option<Dimensions>,
+}
+"#;
+
+fn v1() -> Schema {
+    schema_of(&[("event.rs", EVENT), ("product.rs", PRODUCT_V1)])
+}
+
+#[test]
+fn parses_the_full_model() {
+    let schema = v1();
+    assert_eq!(schema.enums.len(), 1);
+    assert_eq!(schema.enums[0].values, ["draft", "published", "archived"]);
+
+    // Tables are sorted by name for deterministic snapshots.
+    assert_eq!(schema.tables[0].name, "events");
+    let p = schema.table("products").unwrap();
+    assert_eq!(p.struct_name, "Product");
+    assert!(p.auto_id());
+
+    let id = p.column("id").unwrap();
+    assert!(id.primary_key && !id.nullable);
+
+    let slug = p.column("slug").unwrap();
+    assert!(slug.unique);
+    assert_eq!(slug.ty, SqlType::Text);
+
+    let description = p.column("description").unwrap();
+    assert!(description.nullable);
+
+    let price = p.column("price").unwrap();
+    assert_eq!(price.default, Some(DefaultValue::Float(0.0)));
+
+    let status = p.column("status").unwrap();
+    assert!(status.is_enum);
+    assert_eq!(status.check_in.as_deref().unwrap(), ["draft", "published", "archived"]);
+    assert_eq!(status.default, Some(DefaultValue::Text("draft".into())));
+
+    // FK target resolved from struct name to table name.
+    let fk = p.column("event_id").unwrap().references.as_ref().unwrap();
+    assert_eq!(fk.table, "events");
+    assert_eq!(fk.column, "id");
+    assert_eq!(fk.on_delete, Some(OnDelete::Cascade));
+
+    let created = p.column("created_at").unwrap();
+    assert_eq!(created.ty, SqlType::Timestamp);
+    assert_eq!(created.default, Some(DefaultValue::Now));
+
+    let dims = p.column("dimensions").unwrap();
+    assert!(dims.json && dims.nullable);
+    assert_eq!(dims.ty, SqlType::Text);
+}
+
+#[test]
+fn generates_create_table_sql() {
+    let schema = v1();
+    let sql = create_table_sql(schema.table("products").unwrap());
+    assert_eq!(
+        sql,
+        "CREATE TABLE products (\n    \
+             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n    \
+             slug TEXT NOT NULL UNIQUE,\n    \
+             name TEXT NOT NULL,\n    \
+             description TEXT,\n    \
+             price REAL NOT NULL DEFAULT 0,\n    \
+             status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),\n    \
+             event_id INTEGER NOT NULL,\n    \
+             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \
+             dimensions TEXT,\n    \
+             FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE\n\
+         );"
+    );
+}
+
+#[test]
+fn identical_schemas_produce_no_migration() {
+    assert!(diff_schemas(&v1(), &v1()).unwrap().is_none());
+}
+
+#[test]
+fn new_table_is_created_and_removed_table_dropped() {
+    let old = schema_of(&[("event.rs", EVENT)]);
+    let new = v1();
+
+    let m = diff_schemas(&old, &new).unwrap().unwrap();
+    assert!(m.sql.starts_with("CREATE TABLE products ("));
+    assert!(!m.destructive);
+
+    let back = diff_schemas(&new, &old).unwrap().unwrap();
+    assert_eq!(back.sql, "DROP TABLE products;\n");
+    assert!(back.destructive);
+}
+
+#[test]
+fn simple_added_column_uses_alter_table() {
+    let new_src = PRODUCT_V1.replace(
+        "pub name: String,",
+        "pub name: String,\n    pub archived_at: Option<NaiveDateTime>,",
+    );
+    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.sql, "ALTER TABLE products ADD COLUMN archived_at TIMESTAMP;\n");
+    assert!(!m.destructive && !m.needs_manual_edit);
+}
+
+#[test]
+fn renamed_column_uses_rename_column() {
+    let new_src = PRODUCT_V1.replace(
+        "pub name: String,",
+        "#[orm(renamed_from = \"name\")]\n    pub title: String,",
+    );
+    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.sql, "ALTER TABLE products RENAME COLUMN name TO title;\n");
+
+    // Attribute left in place after the migration ran: no-op, not a re-rename.
+    let renamed = schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]);
+    assert!(diff_schemas(&renamed, &renamed).unwrap().is_none());
+}
+
+#[test]
+fn dropped_column_is_destructive() {
+    let new_src = PRODUCT_V1.replace("pub description: Option<String>,", "");
+    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.sql, "ALTER TABLE products DROP COLUMN description;\n");
+    assert!(m.destructive);
+}
+
+#[test]
+fn type_change_rebuilds_the_table() {
+    let new_src = PRODUCT_V1.replace(
+        "#[orm(default = 0.0)]\n    pub price: f64,",
+        "#[orm(default = 0)]\n    pub price: i64,",
+    );
+    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
+        .unwrap()
+        .unwrap();
+    assert!(m.sql.contains("CREATE TABLE products_new ("));
+    assert!(m.sql.contains("price INTEGER NOT NULL DEFAULT 0"));
+    // Existing rows are copied across, column list intact.
+    assert!(m.sql.contains(
+        "INSERT INTO products_new (id, slug, name, description, price, status, event_id, created_at, dimensions)"
+    ));
+    assert!(m.sql.contains("DROP TABLE products;"));
+    assert!(m.sql.contains("ALTER TABLE products_new RENAME TO products;"));
+    assert!(!m.destructive && !m.needs_manual_edit);
+}
+
+#[test]
+fn new_not_null_column_without_default_needs_manual_backfill() {
+    let new_src = PRODUCT_V1.replace("pub name: String,", "pub name: String,\n    pub sku: String,");
+    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
+        .unwrap()
+        .unwrap();
+    assert!(m.needs_manual_edit);
+    assert!(m.sql.contains("/* TODO: backfill NOT NULL column sku */"));
+}
+
+#[test]
+fn added_unique_column_forces_a_rebuild() {
+    let new_src = PRODUCT_V1.replace(
+        "pub name: String,",
+        "pub name: String,\n    #[orm(unique)]\n    pub sku: Option<String>,",
+    );
+    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
+        .unwrap()
+        .unwrap();
+    assert!(m.sql.contains("CREATE TABLE products_new ("));
+    assert!(m.sql.contains("sku TEXT UNIQUE"));
+}
+
+#[test]
+fn enum_value_change_rebuilds_with_new_check() {
+    let new_src = PRODUCT_V1.replace("Archived,", "Archived,\n    Discontinued,");
+    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
+        .unwrap()
+        .unwrap();
+    assert!(m.sql.contains("CHECK (status IN ('draft', 'published', 'archived', 'discontinued'))"));
+}
+
+#[test]
+fn composite_primary_key_renders_as_table_constraint() {
+    let src = r#"
+#[derive(Table)]
+pub struct EventManager {
+    #[orm(primary_key, references(Event, on_delete = cascade))]
+    pub event_id: i64,
+    #[orm(primary_key)]
+    pub user_id: i64,
+}
+"#;
+    let schema = schema_of(&[("event.rs", EVENT), ("event_manager.rs", src)]);
+    let sql = create_table_sql(schema.table("event_managers").unwrap());
+    assert!(sql.contains("PRIMARY KEY (event_id, user_id)"));
+    assert!(!sql.contains("AUTOINCREMENT"));
+}
+
+#[test]
+fn snapshot_roundtrips() {
+    let schema = v1();
+    assert_eq!(schema_from_json(&schema_to_json(&schema)).unwrap(), schema);
+}
+
+#[test]
+fn unsupported_types_and_missing_pk_are_rejected() {
+    let no_pk = "#[derive(Table)]\npub struct Setting { pub key: String }";
+    assert!(parse_sources(&[("s.rs".into(), no_pk.into())]).is_err());
+
+    let bad_type = "#[derive(Table)]\npub struct Thing { pub id: i64, pub blob: HashMap<String, u8> }";
+    let err = parse_sources(&[("t.rs".into(), bad_type.into())]).unwrap_err();
+    assert!(err.message.contains("Thing.blob"), "got: {err}");
+}
+
+#[test]
+fn table_naming_convention() {
+    assert_eq!(pluralize(&to_snake_case("Product")), "products");
+    assert_eq!(pluralize(&to_snake_case("Category")), "categories");
+    assert_eq!(pluralize(&to_snake_case("EventManager")), "event_managers");
+    assert_eq!(pluralize(&to_snake_case("Box")), "boxes");
+
+    let src = "#[derive(Table)]\n#[orm(table = \"people\")]\npub struct Person { pub id: i64 }";
+    let schema = schema_of(&[("person.rs", src)]);
+    assert_eq!(schema.tables[0].name, "people");
+}

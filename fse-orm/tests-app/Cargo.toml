@@ -1,0 +1,24 @@
+# Internal fixture app proving the whole loop end to end: the build script
+# creates db/test.db from the structs in src/tables via fse-schema, then the
+# derive-generated sqlx::query! calls are compile-time checked against that
+# database, and the integration tests run the CRUD against it for real.
+[package]
+name = "tests-app"
+publish = false
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+fse-orm = { path = "../runtime" }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "chrono"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
+[build-dependencies]
+fse-schema = { path = "../schema" }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+tokio = { version = "1", features = ["rt"] }
