@@ -65,8 +65,8 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
         cols.iter().collect()
     };
 
-    let select_list = cols.iter().map(select_item).collect::<Vec<_>>().join(", ");
-    let build_fields: Vec<TokenStream> = cols.iter().map(build_field).collect();
+    let select_list = crate::codegen::select_list(&table.columns);
+    let build_fields = crate::codegen::build_fields(&table.columns);
 
     let pk_params: Vec<TokenStream> = pk_cols.iter().map(|c| fn_param(c)).collect();
     let (pk_bind_locals, pk_bind_names) =
@@ -250,38 +250,6 @@ fn insert_companion(
             }
         }
     })
-}
-
-/// One item of the SELECT/RETURNING list. Non-json columns get a typed
-/// override (`col as "col!: Type"`) so the record field is exactly the struct
-/// field type; json columns come back as TEXT.
-fn select_item(c: &Col) -> String {
-    let name = &c.def.name;
-    let bang = if c.def.nullable { "" } else { "!" };
-    if c.def.json {
-        if bang.is_empty() {
-            name.clone()
-        } else {
-            format!("{name} as \"{name}{bang}\"")
-        }
-    } else {
-        format!("{name} as \"{name}{bang}: {}\"", c.def.rust_type)
-    }
-}
-
-/// `field: r.field` — with serde conversion for json columns.
-fn build_field(c: &Col) -> TokenStream {
-    let id = &c.ident;
-    let name = &c.def.name;
-    if c.def.json {
-        if c.def.nullable {
-            quote! { #id: ::fse_orm::opt_from_json_str(#name, r.#id.as_deref())? }
-        } else {
-            quote! { #id: ::fse_orm::from_json_str(#name, &r.#id)? }
-        }
-    } else {
-        quote! { #id: r.#id }
-    }
 }
 
 /// json columns are serialized into a local before the query so the bind is
