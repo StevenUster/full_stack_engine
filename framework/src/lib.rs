@@ -26,6 +26,7 @@ pub mod prelude;
 pub mod rate_limiter;
 pub mod roles;
 pub mod structs;
+pub mod testing;
 pub mod uploads;
 
 pub type ContextInjectorFn =
@@ -614,9 +615,26 @@ fn security_headers(env: Env) -> DefaultHeaders {
     }
 }
 
-// A bad template is logged and skipped rather than crashing the app at boot:
-// one broken page must not take down every other route.
-fn add_templates(tera: &mut Tera, dir: &Dir) {
+fn template_name(path: &str) -> String {
+    if path == "index.html" {
+        "index".to_string()
+    } else if let Some(stripped) = path.strip_suffix("/index.html") {
+        stripped.to_string()
+    } else if let Some(stripped) = path.strip_suffix(".html") {
+        stripped.to_string()
+    } else {
+        path.to_string()
+    }
+}
+
+// Shared by the boot-time loader (logs and skips a bad template) and
+// `testing::load_templates` (collects and returns every failure instead), so
+// the two never drift on the `index.html` -> `index` naming convention.
+pub(crate) fn walk_templates(
+    tera: &mut Tera,
+    dir: &Dir,
+    on_error: &mut dyn FnMut(&str, tera::Error),
+) {
     for file in dir.files() {
         if let Some(ext) = file.path().extension()
             && ext == "html"
@@ -629,15 +647,7 @@ fn add_templates(tera: &mut Tera, dir: &Dir) {
                 continue;
             };
             let path = path.replace('\\', "/");
-            let name = if path == "index.html" {
-                "index".to_string()
-            } else if let Some(stripped) = path.strip_suffix("/index.html") {
-                stripped.to_string()
-            } else if let Some(stripped) = path.strip_suffix(".html") {
-                stripped.to_string()
-            } else {
-                path
-            };
+            let name = template_name(&path);
 
             debug!("Registering template: {name}");
             let Some(content) = file.contents_utf8() else {
@@ -645,13 +655,21 @@ fn add_templates(tera: &mut Tera, dir: &Dir) {
                 continue;
             };
             if let Err(err) = tera.add_raw_template(&name, content) {
-                error!("Skipping invalid template {name}: {err}");
+                on_error(&name, err);
             }
         }
     }
     for subd in dir.dirs() {
-        add_templates(tera, subd);
+        walk_templates(tera, subd, on_error);
     }
+}
+
+// A bad template is logged and skipped rather than crashing the app at boot:
+// one broken page must not take down every other route.
+fn add_templates(tera: &mut Tera, dir: &Dir) {
+    walk_templates(tera, dir, &mut |name, err| {
+        error!("Skipping invalid template {name}: {err}");
+    });
 }
 
 async fn forward_to_dev_server(req: &actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
@@ -832,6 +850,23 @@ mod tests {
         assert!(names.contains(&"login"));
         // The syntactically broken template is skipped instead of panicking.
         assert!(!names.contains(&"broken"));
+    }
+
+    #[test]
+    fn load_templates_reports_broken_templates_instead_of_skipping_them() {
+        let err = testing::load_templates(&TEST_DIST).unwrap_err();
+        assert!(
+            err.contains("broken"),
+            "error should name the broken template: {err}"
+        );
+    }
+
+    #[test]
+    fn load_templates_succeeds_when_every_template_parses() {
+        static OK_DIST: Dir<'_> =
+            include_dir::include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/templates/login");
+        let tera = testing::load_templates(&OK_DIST).unwrap();
+        assert!(tera.get_template_names().any(|n| n == "index"));
     }
 
     #[test]
