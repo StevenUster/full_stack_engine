@@ -29,16 +29,13 @@ async fn full_crud_roundtrip() {
     assert!(event.id > 0);
     assert_eq!(event.name, "Spring Fair");
 
-    // Insert with defaults filled by new(); override one via struct update.
+    // Insert with defaults filled by new() (nullable columns start as None);
+    // override via struct-update syntax.
     let insert = InsertProduct {
         status: ProductStatus::Published,
-        ..InsertProduct::new(
-            "t-shirt".into(),
-            "T-Shirt".into(),
-            Some("A nice shirt".into()),
-            event.id,
-            Some(Dimensions { width_cm: 30.0, height_cm: 40.0 }),
-        )
+        description: Some("A nice shirt".into()),
+        dimensions: Some(Dimensions { width_cm: 30.0, height_cm: 40.0 }),
+        ..InsertProduct::new("t-shirt".into(), "T-Shirt".into(), event.id)
     };
     let product = insert.insert(&db).await.unwrap();
 
@@ -92,7 +89,7 @@ async fn foreign_key_cascade_from_generated_ddl() {
     let db = setup().await;
 
     let event = InsertEvent::new("Autumn Fair".into()).insert(&db).await.unwrap();
-    InsertProduct::new("mug".into(), "Mug".into(), None, event.id, None)
+    InsertProduct::new("mug".into(), "Mug".into(), event.id)
         .insert(&db)
         .await
         .unwrap();
@@ -123,11 +120,11 @@ async fn db_enum_string_contract() {
     // The unique-slug constraint from #[orm(unique)] is enforced by the DDL.
     let db = setup().await;
     let event = InsertEvent::new("Fair".into()).insert(&db).await.unwrap();
-    InsertProduct::new("cap".into(), "Cap".into(), None, event.id, None)
+    InsertProduct::new("cap".into(), "Cap".into(), event.id)
         .insert(&db)
         .await
         .unwrap();
-    let duplicate = InsertProduct::new("cap".into(), "Cap 2".into(), None, event.id, None)
+    let duplicate = InsertProduct::new("cap".into(), "Cap 2".into(), event.id)
         .insert(&db)
         .await;
     assert!(duplicate.is_err());

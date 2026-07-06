@@ -66,8 +66,13 @@ pub struct ColumnDef {
     pub unique: bool,
     /// Stored as TEXT through serde (`#[orm(json)]`).
     pub json: bool,
-    /// Column holds a `#[derive(DbEnum)]` value.
+    /// Column holds a value stored as TEXT via `as_str()`/`FromStr`: a
+    /// `#[derive(DbEnum)]` (with a CHECK from `check_in`) or an
+    /// `#[orm(text)]` type (no CHECK).
     pub is_enum: bool,
+    /// `#[orm(index)]` — a plain (non-unique) index on this column.
+    #[serde(default)]
+    pub index: bool,
     pub default: Option<DefaultValue>,
     pub references: Option<ForeignKey>,
     /// Allowed values (from the enum) — rendered as a CHECK constraint.
@@ -80,10 +85,12 @@ pub struct ColumnDef {
 
 impl ColumnDef {
     /// The column identity used for change detection — everything except the
-    /// transient rename marker.
+    /// transient rename marker and the index flag (index changes are plain
+    /// CREATE/DROP INDEX statements, never a rebuild by themselves).
     pub fn signature(&self) -> ColumnDef {
         ColumnDef {
             renamed_from: None,
+            index: false,
             ..self.clone()
         }
     }

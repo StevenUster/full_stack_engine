@@ -143,7 +143,12 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
     let count_sql =
         format!("SELECT COUNT(*) as \"count!: i64\" FROM {table_name}{where_clause}");
 
-    let body = match mode {
+    // `setup` is evaluated in the surrounding scope, `body` inside
+    // `async move`. Bind expressions must be hoisted into `setup` (like
+    // sqlx, arguments are evaluated at the call site): evaluating them
+    // inside the block would make `async move` capture surrounding locals
+    // by value.
+    let (setup, body) = match mode {
         Mode::All => {
             let mut sql =
                 format!("SELECT {select_list} FROM {table_name}{where_clause}{order_clause}");
@@ -168,32 +173,35 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
                 }
                 (None, None) => {}
             }
-            quote! {
-                #(#locals)*
-                #(#extra_locals)*
-                let rows = ::sqlx::query!(#sql #(, #args)* #(, #extra_args)*)
-                    .fetch_all(__db)
-                    .await?;
-                rows.into_iter()
-                    .map(|r| -> ::sqlx::Result<#table_ident> {
-                        Ok(#table_ident { #(#build_fields),* })
-                    })
-                    .collect::<::sqlx::Result<::std::vec::Vec<#table_ident>>>()
-            }
+            (
+                quote! { #(#extra_locals)* },
+                quote! {
+                    let rows = ::sqlx::query!(#sql #(, #args)* #(, #extra_args)*)
+                        .fetch_all(__db)
+                        .await?;
+                    rows.into_iter()
+                        .map(|r| -> ::sqlx::Result<#table_ident> {
+                            Ok(#table_ident { #(#build_fields),* })
+                        })
+                        .collect::<::sqlx::Result<::std::vec::Vec<#table_ident>>>()
+                },
+            )
         }
         Mode::One => {
             let sql = format!(
                 "SELECT {select_list} FROM {table_name}{where_clause}{order_clause} LIMIT 1"
             );
-            quote! {
-                #(#locals)*
-                let row = ::sqlx::query!(#sql #(, #args)*).fetch_optional(__db).await?;
-                let row = match row {
-                    Some(r) => Some(#table_ident { #(#build_fields),* }),
-                    None => None,
-                };
-                Ok::<_, ::sqlx::Error>(row)
-            }
+            (
+                quote! {},
+                quote! {
+                    let row = ::sqlx::query!(#sql #(, #args)*).fetch_optional(__db).await?;
+                    let row = match row {
+                        Some(r) => Some(#table_ident { #(#build_fields),* }),
+                        None => None,
+                    };
+                    Ok::<_, ::sqlx::Error>(row)
+                },
+            )
         }
         Mode::Page => {
             let (Some(page), Some(per_page)) = (&input.page, &input.per_page) else {
@@ -205,43 +213,56 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
             let sql = format!(
                 "SELECT {select_list} FROM {table_name}{where_clause}{order_clause} LIMIT ? OFFSET ?"
             );
-            quote! {
-                #(#locals)*
-                let __per_page: i64 = #per_page;
-                let __page: i64 = <i64>::max(#page, 1);
-                let __offset: i64 = (__page - 1) * __per_page;
-                let total = ::sqlx::query_scalar!(#count_sql #(, #args)*)
-                    .fetch_one(__db)
-                    .await?;
-                let rows = ::sqlx::query!(#sql #(, #args)*, __per_page, __offset)
-                    .fetch_all(__db)
-                    .await?;
-                let rows = rows
-                    .into_iter()
-                    .map(|r| -> ::sqlx::Result<#table_ident> {
-                        Ok(#table_ident { #(#build_fields),* })
-                    })
-                    .collect::<::sqlx::Result<::std::vec::Vec<#table_ident>>>()?;
-                Ok::<_, ::sqlx::Error>(::fse_orm::Page { rows, total })
-            }
+            (
+                quote! {
+                    let __per_page: i64 = #per_page;
+                    let __page: i64 = <i64>::max(#page, 1);
+                    let __offset: i64 = (__page - 1) * __per_page;
+                },
+                quote! {
+                    let total = ::sqlx::query_scalar!(#count_sql #(, #args)*)
+                        .fetch_one(__db)
+                        .await?;
+                    let rows = ::sqlx::query!(#sql #(, #args)*, __per_page, __offset)
+                        .fetch_all(__db)
+                        .await?;
+                    let rows = rows
+                        .into_iter()
+                        .map(|r| -> ::sqlx::Result<#table_ident> {
+                            Ok(#table_ident { #(#build_fields),* })
+                        })
+                        .collect::<::sqlx::Result<::std::vec::Vec<#table_ident>>>()?;
+                    Ok::<_, ::sqlx::Error>(::fse_orm::Page { rows, total })
+                },
+            )
         }
-        Mode::Count => quote! {
-            #(#locals)*
-            ::sqlx::query_scalar!(#count_sql #(, #args)*).fetch_one(__db).await
-        },
+        Mode::Count => (
+            quote! {},
+            quote! {
+                ::sqlx::query_scalar!(#count_sql #(, #args)*).fetch_one(__db).await
+            },
+        ),
         Mode::Delete => {
             let sql = format!("DELETE FROM {table_name}{where_clause}");
-            quote! {
-                #(#locals)*
-                let result = ::sqlx::query!(#sql #(, #args)*).execute(__db).await?;
-                Ok::<_, ::sqlx::Error>(result.rows_affected())
-            }
+            (
+                quote! {},
+                quote! {
+                    let result = ::sqlx::query!(#sql #(, #args)*).execute(__db).await?;
+                    Ok::<_, ::sqlx::Error>(result.rows_affected())
+                },
+            )
         }
     };
 
     Ok(quote! {
         {
             let __db = #db;
+            // Reference the table type so an import used only through this
+            // macro (count!/delete!, which don't otherwise name the type)
+            // still counts as used and resolves to a real Table struct.
+            let _ = ::core::marker::PhantomData::<#table_ident>;
+            #(#locals)*
+            #setup
             async move { #body }
         }
     })

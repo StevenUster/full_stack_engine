@@ -31,7 +31,7 @@ async fn setup() -> sqlx::SqlitePool {
         let insert = InsertProduct {
             status,
             price,
-            ..InsertProduct::new(slug.into(), name.into(), None, event.id, None)
+            ..InsertProduct::new(slug.into(), name.into(), event.id)
         };
         insert.insert(&db).await.unwrap();
     }

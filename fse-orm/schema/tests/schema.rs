@@ -248,6 +248,41 @@ pub struct EventManager {
 }
 
 #[test]
+fn text_and_index_attributes() {
+    let src = r#"
+#[derive(Table)]
+pub struct Account {
+    pub id: i64,
+    #[orm(text, default = "none")]
+    pub role: AppRole,
+    #[orm(index)]
+    pub team_id: i64,
+}
+"#;
+    let schema = schema_of(&[("account.rs", src)]);
+    let t = schema.table("accounts").unwrap();
+
+    // #[orm(text)]: TEXT via as_str()/FromStr, no CHECK constraint.
+    let role = t.column("role").unwrap();
+    assert!(role.is_enum && role.check_in.is_none());
+    assert_eq!(role.ty, SqlType::Text);
+    let sql = create_table_sql(t);
+    assert!(sql.contains("role TEXT NOT NULL DEFAULT 'none'"));
+    assert!(!sql.contains("CHECK"));
+
+    // #[orm(index)]: separate CREATE INDEX statement, emitted on create.
+    let m = diff_schemas(&Schema::default(), &schema).unwrap().unwrap();
+    assert!(m.sql.contains("CREATE INDEX idx_accounts_team_id ON accounts (team_id);"));
+
+    // Removing the index later is a plain DROP INDEX, not a rebuild.
+    let without = schema_of(&[("account.rs", &src.replace("#[orm(index)]\n    ", ""))]);
+    let m = diff_schemas(&schema, &without).unwrap().unwrap();
+    assert_eq!(m.sql, "DROP INDEX IF EXISTS idx_accounts_team_id;\n");
+    let back = diff_schemas(&without, &schema).unwrap().unwrap();
+    assert_eq!(back.sql, "CREATE INDEX idx_accounts_team_id ON accounts (team_id);\n");
+}
+
+#[test]
 fn snapshot_roundtrips() {
     let schema = v1();
     assert_eq!(schema_from_json(&schema_to_json(&schema)).unwrap(), schema);

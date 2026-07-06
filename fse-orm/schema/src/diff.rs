@@ -8,7 +8,7 @@
 
 use crate::error::Error;
 use crate::model::{ColumnDef, DefaultValue, Schema, TableDef};
-use crate::sql::{column_sql, create_table_sql};
+use crate::sql::{column_sql, create_table_sql, index_name};
 
 #[derive(Debug, Clone)]
 pub struct Migration {
@@ -49,6 +49,7 @@ pub fn diff_schemas(old: &Schema, new: &Schema) -> Result<Option<Migration>, Err
     for t in &new.tables {
         if old.table(&t.name).is_none() {
             stmts.push(create_table_sql(t));
+            stmts.extend(crate::sql::index_sqls(t));
             summary.push(format!("create {}", t.name));
         }
     }
@@ -127,8 +128,23 @@ fn diff_table(
         })
         .map(|c| c.name.clone())
         .collect();
+    // Index toggles on otherwise-unchanged columns: plain CREATE/DROP INDEX.
+    let index_changes: Vec<(&ColumnDef, bool)> = new
+        .columns
+        .iter()
+        .filter_map(|c| {
+            let old_c = eff.column(&c.name)?;
+            (old_c.index != c.index && old_c.signature() == c.signature())
+                .then_some((c, c.index))
+        })
+        .collect();
 
-    if renames.is_empty() && added.is_empty() && dropped.is_empty() && changed.is_empty() {
+    if renames.is_empty()
+        && added.is_empty()
+        && dropped.is_empty()
+        && changed.is_empty()
+        && index_changes.is_empty()
+    {
         return Ok(());
     }
 
@@ -137,23 +153,53 @@ fn diff_table(
     bits.extend(added.iter().map(|c| format!("add {}", c.name)));
     bits.extend(dropped.iter().map(|c| format!("drop {}", c.name)));
     bits.extend(changed.iter().map(|c| format!("change {c}")));
+    bits.extend(
+        index_changes
+            .iter()
+            .map(|(c, on)| format!("{} {}", if *on { "index" } else { "unindex" }, c.name)),
+    );
 
     let rebuild = !changed.is_empty()
         || added.iter().any(|c| !can_add_column(c))
         || dropped.iter().any(|c| !can_drop_column(c));
 
     if rebuild {
+        // The rebuild drops the old table (and its indexes) and recreates
+        // everything, so index changes need no separate statements.
         stmts.push(rebuild_table_sql(old, new, needs_manual_edit));
+        stmts.extend(crate::sql::index_sqls(new));
         summary.push(format!("rebuild {} ({})", new.name, bits.join(", ")));
     } else {
         for (from, to) in &renames {
+            // SQLite keeps an index working across a column rename but keeps
+            // its old name; recreate it under the conventional name.
+            if let Some(c) = new.column(to)
+                && c.index
+            {
+                stmts.push(format!("DROP INDEX IF EXISTS {};", index_name(&new.name, from)));
+            }
             stmts.push(format!("ALTER TABLE {} RENAME COLUMN {from} TO {to};", new.name));
+            if let Some(c) = new.column(to)
+                && c.index
+            {
+                stmts.push(create_index_sql(&new.name, &c.name));
+            }
         }
         for c in &added {
             stmts.push(format!("ALTER TABLE {} ADD COLUMN {};", new.name, column_sql(c, false)));
+            if c.index {
+                stmts.push(create_index_sql(&new.name, &c.name));
+            }
         }
         for c in &dropped {
             stmts.push(format!("ALTER TABLE {} DROP COLUMN {};", new.name, c.name));
+        }
+        for (c, on) in &index_changes {
+            stmts.push(if *on {
+                create_index_sql(&new.name, &c.name)
+            } else {
+                format!("DROP INDEX IF EXISTS {};", index_name(&new.name, &c.name))
+            });
         }
         summary.push(format!("{}: {}", new.name, bits.join(", ")));
     }
@@ -161,6 +207,10 @@ fn diff_table(
         *destructive = true;
     }
     Ok(())
+}
+
+fn create_index_sql(table: &str, column: &str) -> String {
+    format!("CREATE INDEX {} ON {table} ({column});", index_name(table, column))
 }
 
 /// SQLite `ALTER TABLE ... ADD COLUMN` restrictions: no PRIMARY KEY or
@@ -177,9 +227,9 @@ fn can_add_column(c: &ColumnDef) -> bool {
     c.nullable && !matches!(c.default, Some(DefaultValue::Now)) || constant_default
 }
 
-/// `DROP COLUMN` is refused by SQLite for pk/unique (indexed) columns.
+/// `DROP COLUMN` is refused by SQLite for pk/unique/indexed columns.
 fn can_drop_column(c: &ColumnDef) -> bool {
-    !c.primary_key && !c.unique
+    !c.primary_key && !c.unique && !c.index
 }
 
 fn rebuild_table_sql(old: &TableDef, new: &TableDef, needs_manual_edit: &mut bool) -> String {

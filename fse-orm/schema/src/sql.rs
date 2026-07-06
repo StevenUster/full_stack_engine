@@ -57,3 +57,23 @@ pub fn create_table_sql(t: &TableDef) -> String {
 
     format!("CREATE TABLE {} (\n    {}\n);", t.name, lines.join(",\n    "))
 }
+
+pub fn index_name(table: &str, column: &str) -> String {
+    format!("idx_{table}_{column}")
+}
+
+/// `CREATE INDEX` statements for every `#[orm(index)]` column.
+pub fn index_sqls(t: &TableDef) -> Vec<String> {
+    t.columns
+        .iter()
+        .filter(|c| c.index)
+        .map(|c| {
+            format!(
+                "CREATE INDEX {} ON {} ({});",
+                index_name(&t.name, &c.name),
+                t.name,
+                c.name
+            )
+        })
+        .collect()
+}

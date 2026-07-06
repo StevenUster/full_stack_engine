@@ -31,13 +31,8 @@ async fn setup() -> (sqlx::SqlitePool, i64) {
     ] {
         let insert = InsertProduct {
             status,
-            ..InsertProduct::new(
-                slug.into(),
-                name.into(),
-                description.map(String::from),
-                event.id,
-                None,
-            )
+            description: description.map(String::from),
+            ..InsertProduct::new(slug.into(), name.into(), event.id)
         };
         insert.insert(&db).await.unwrap();
     }

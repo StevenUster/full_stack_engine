@@ -290,8 +290,18 @@ fn insert_companion(
         })
         .collect();
 
-    let required: Vec<&&Col> = insert_cols.iter().filter(|c| c.def.default.is_none()).collect();
-    let defaulted: Vec<&&Col> = insert_cols.iter().filter(|c| c.def.default.is_some()).collect();
+    // `new(...)` takes only what has no other source of a value: NOT NULL
+    // columns without a default. Defaulted columns get their default;
+    // nullable columns start as None. Override either with struct-update
+    // syntax: `InsertUser { first_name: Some(n), ..InsertUser::new(...) }`.
+    let required: Vec<&&Col> = insert_cols
+        .iter()
+        .filter(|c| c.def.default.is_none() && !c.def.nullable)
+        .collect();
+    let defaulted: Vec<&&Col> = insert_cols
+        .iter()
+        .filter(|c| c.def.default.is_some() || c.def.nullable)
+        .collect();
     let new_params: Vec<TokenStream> = required
         .iter()
         .map(|c| {
@@ -305,8 +315,12 @@ fn insert_companion(
         .iter()
         .map(|c| {
             let id = &c.ident;
-            let value = default_tokens(c)?;
-            Ok(quote! { #id: #value })
+            if c.def.default.is_some() {
+                let value = default_tokens(c)?;
+                Ok(quote! { #id: #value })
+            } else {
+                Ok(quote! { #id: None })
+            }
         })
         .collect::<syn::Result<_>>()?;
 
