@@ -1,0 +1,47 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  SQLX_OFFLINE: "true"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.8"
+
+      - name: Install frontend dependencies
+        working-directory: src/frontend
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        # `cargo build`/`test` embed this via `include_dir!`, so it must exist
+        # (and be up to date) before the Rust step runs.
+        working-directory: src/frontend
+        run: bun run build
+
+      - name: Set up Rust
+        # Pinned to match the Rust version the Dockerfile builds with.
+        uses: dtolnay/rust-toolchain@1.93.0
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Run cargo test
+        run: cargo test --verbose

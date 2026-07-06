@@ -54,16 +54,13 @@ pub async fn post(
 
     let Some(user) = user.filter(|u| password_ok && !u.role.is_none()) else {
         return Ok(req
-            .render_tpl("login", &json!({"error": "Invalid credentials"}))
+            .render_tpl("login", &json!({"error": "invalid_credentials"}))
             .await);
     };
 
     if !user.is_verified {
         return Ok(req
-            .render_tpl(
-                "login",
-                &json!({"error": "Please confirm your email address first."}),
-            )
+            .render_tpl("login", &json!({"error": "confirm_email"}))
             .await);
     }
 

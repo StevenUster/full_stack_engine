@@ -439,7 +439,10 @@ impl FrameworkApp {
             // `/uploads/...` paths). Registered after the app's own routes so
             // an app route wins on conflict. `actix-files` rejects path
             // traversal, and only this directory is exposed — private files
-            // (`data/`) stay unreachable.
+            // (`data/`) stay unreachable. Created up front so a fresh
+            // checkout/container without any uploads yet doesn't log an
+            // `actix_files` error on every worker at boot.
+            let _ = std::fs::create_dir_all("./uploads");
             app.service(actix_files::Files::new("/uploads", "./uploads"))
                 .service(web::scope("/_astro").route(
                     "/{path:.*}",

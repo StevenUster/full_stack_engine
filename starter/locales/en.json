@@ -1,49 +1,197 @@
 {
-  "common": {
-    "close_modal": "Close"
-  },
   "sidebar": {
     "index": "Home",
-    "users": "Users",
+    "products": "Products",
+    "my_orders": "My Orders",
+    "product_manager": "Product Manager",
     "settings": "Settings",
+    "users": "Users",
+    "logout": "Logout",
     "login": "Login",
-    "logout": "Logout"
+    "dark_mode": "Dark Mode",
+    "light_mode": "Light Mode"
+  },
+  "login": {
+    "title": "Login",
+    "email": "Your email",
+    "password": "Your password",
+    "submit": "Log in",
+    "no_account": "Don't have an account?",
+    "register": "Register",
+    "forgot_password": "Forgot password?",
+    "invalid_credentials": "Invalid credentials",
+    "confirm_email": "Please confirm your email address first."
+  },
+  "forgot_password": {
+    "title": "Reset Password",
+    "description": "Enter your email address and we'll send you a link to reset your password.",
+    "email": "Your email",
+    "submit": "Send link",
+    "back_to_login": "Back to Login"
+  },
+  "register": {
+    "title": "Register",
+    "first_name": "First name",
+    "last_name": "Last name",
+    "email": "Your email",
+    "password": "Your password",
+    "repeat_password": "Repeat password",
+    "submit": "Register",
+    "has_account": "Already have an account?",
+    "login": "Login",
+    "passwords_mismatch": "Passwords do not match!"
+  },
+  "register_success": {
+    "title": "Action Required: Verify Email",
+    "header": "Check Your Inbox",
+    "success": "You have successfully registered!",
+    "desc": "A confirmation link has been sent to your email address. Please click the link to verify your email before logging in.",
+    "return": "Return to Login"
+  },
+  "password_reset_email": {
+    "subject": "Password Reset",
+    "header": "Password Reset",
+    "body": "You have requested to reset your password. Please click the button below to choose a new password:",
+    "cta": "Reset Password",
+    "fallback": "If the button doesn't work, please copy the following link into your browser:",
+    "footer": "If you did not request a password reset, you can safely ignore this email."
+  },
+  "verify_email": {
+    "subject": "Email Verification",
+    "header": "Welcome!",
+    "body": "Thank you for registering. Please confirm your email address by clicking the following button:",
+    "cta": "Confirm Email",
+    "fallback": "If the button doesn't work, please copy the following link into your browser:",
+    "footer": "If you did not perform this registration, you can safely ignore this email."
+  },
+  "verify_email_change": {
+    "subject": "Confirm Your New Email",
+    "header": "Confirm Your New Email",
+    "body": "You requested to change your email address. Please confirm your new email address by clicking the following button:",
+    "cta": "Confirm New Email",
+    "fallback": "If the button doesn't work, please copy the following link into your browser:",
+    "footer": "If you did not request this change, you can safely ignore this email. Your email address will not be changed."
+  },
+  "settings": {
+    "title": "Settings",
+    "name": "Name",
+    "email_address": "Email Address",
+    "email_desc": "The primary email address associated with your account.",
+    "change_email": "Change Email",
+    "account_security": "Account Security",
+    "send_reset": "Send reset password email",
+    "update_email_title": "Update Email Address",
+    "new_email": "New Email Address",
+    "update_email_btn": "Update Email",
+    "cancel": "Cancel",
+    "delete_account": "Delete Account",
+    "delete_account_desc": "Permanently delete your account and all associated data.",
+    "delete_account_title": "Delete Account",
+    "delete_account_confirm": "Are you sure? Your account and all associated data will be permanently deleted.",
+    "delete_account_btn": "Yes, delete my account"
+  },
+  "products": {
+    "title": "Products",
+    "search_placeholder": "Search products...",
+    "empty": "No products found.",
+    "name": "Name",
+    "slug": "Slug",
+    "description": "Description",
+    "price_label": "Price",
+    "status_label": "Status",
+    "created_label": "Created",
+    "status_options": {
+      "draft": "Draft",
+      "published": "Published",
+      "archived": "Archived"
+    },
+    "slug_taken": "That slug is already in use.",
+    "quantity": "Quantity",
+    "note": "Note (optional)",
+    "place_order": "Place Order",
+    "login_to_order": "Log in to order",
+    "ordered": "Order placed! Track it from My Orders."
+  },
+  "product_manager": {
+    "title": "Product Manager",
+    "new": "New Product",
+    "create": "Create Product",
+    "tab_overview": "Overview",
+    "tab_orders": "Orders"
+  },
+  "my_orders": {
+    "empty": "No orders placed yet."
+  },
+  "users": {
+    "title": "Users",
+    "email": "Email",
+    "role": "Role",
+    "created_at": "Created At",
+    "actions": "Actions",
+    "edit": "Edit",
+    "edit_title": "Edit User",
+    "delete": "Delete"
   },
   "table": {
     "delete_title": "Delete?",
-    "delete_confirm": "Are you sure? This action cannot be undone.",
-    "delete_error": "Error occurred",
+    "delete_confirm": "Are you sure you want to delete this?",
     "cancel": "Cancel",
-    "delete_btn": "Delete"
+    "delete_btn": "Delete",
+    "delete_error": "Error occurred"
+  },
+  "errors": {
+    "invalid_credentials": "Invalid credentials",
+    "confirm_email": "Please confirm your email address first.",
+    "wrong_data": "Wrong data",
+    "password_too_short": "Password must be at least 8 characters long",
+    "passwords_mismatch": "Passwords do not match",
+    "missing_name": "Please enter your first and last name.",
+    "missing_fields": "Please fill in all required fields.",
+    "invalid_email": "Invalid email address",
+    "invalid_token": "Invalid or expired link",
+    "email_in_use": "This email address is already in use.",
+    "already_current_email": "This is already your current email.",
+    "missing_token": "Missing token",
+    "no_pending_change": "No pending email change found.",
+    "send_email_failed": "Failed to send verification email.",
+    "slug_taken": "This slug is already taken. Please choose another one."
+  },
+  "messages": {
+    "email_verification_sent": "A verification email has been sent to your new address.",
+    "password_reset_sent": "A password reset email has been sent.",
+    "email_confirmed": "Email successfully confirmed. You can now log in.",
+    "email_updated": "Email address updated successfully."
+  },
+  "common": {
+    "save": "Save",
+    "send": "Send",
+    "error": "Error",
+    "back_home": "Back to home",
+    "no_access": "No Access",
+    "no_access_desc": "You don't have access to this resource",
+    "close_modal": "Close modal",
+    "arrow_icon": "Arrow Icon",
+    "arrow_icon_desc": "Arrow icon of the select list",
+    "na": "N/A"
+  },
+  "reset_password": {
+    "title": "Reset Password",
+    "new_password": "New Password",
+    "repeat_new_password": "Repeat New Password",
+    "submit": "Change Password"
+  },
+  "filters": {
+    "label": "Filters",
+    "search": "Search",
+    "apply": "Apply",
+    "clear": "Clear",
+    "all_roles": "All roles",
+    "search_users": "Search by email..."
   },
   "roles": {
-    "admin": "Admin",
+    "admin": "Administrator",
     "manager": "Manager",
     "user": "User",
     "none": "None"
-  },
-  "filters": {
-    "search": "Search",
-    "label": "Filters",
-    "clear": "Reset",
-    "apply": "Apply"
-  },
-  "forgot_password": {
-    "title": "Forgot Password",
-    "email_placeholder": "Your email",
-    "submit": "Send reset link",
-    "back_to_login": "Back to login",
-    "success": "If an account exists for that email, a password reset link has been sent."
-  },
-  "password_reset_email": {
-    "subject": "Password Reset"
-  },
-  "settings": {
-    "delete_account": {
-      "title": "Delete Account",
-      "description": "Permanently delete your account and all associated data. This cannot be undone.",
-      "button": "Delete Account",
-      "confirm": "Are you sure? This will permanently delete your account."
-    }
   }
 }

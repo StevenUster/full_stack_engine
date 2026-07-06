@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
 COPY . .
 COPY --from=frontend-builder /app/frontend/dist ./src/frontend/dist
 
-ENV SQLX_OFFLINE=true   
+ENV SQLX_OFFLINE=true
 RUN cargo build --release
 
 FROM debian:trixie-slim AS runtime

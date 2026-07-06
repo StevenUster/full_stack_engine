@@ -1,5 +1,59 @@
 # Starter
 
+A starter app for the `full_stack_engine` framework: Rust/Actix-web backend + Astro/React frontend, showcasing auth (login/register/email verification/password reset/settings), role-based permissions, a public JSON API with self-hosted Swagger docs, and a generic **Products / Orders** manager UI (tabs, tables with search/filter/pagination, modals) meant to be copied and renamed for your own domain.
+
+---
+
+## Core Principles
+
+The rules every change to this app should respect:
+
+1. **Priorities, in order:** Security → Reliability → Speed → Readability. When they conflict, the earlier one wins.
+2. **One self-contained binary.** The Astro frontend and locales are embedded with `include_dir!`, and migrations with `sqlx::migrate!()` — a built binary carries them all and needs no `migrations/` or `locales/` directory beside it. No sidecar processes; persistent state lives only in the `data/` volume. Keep it simple and predictable.
+3. **Secure by default.** New options default to their safest value. Auth cookies stay `HttpOnly` + `SameSite=Strict` + `Secure` (prod). Secrets and tokens are never logged.
+4. **Every handler authorizes.** State-changing endpoints check role before acting. The public site and API expose only `published` products — never drafts/archived data or extra user PII.
+5. **Parameterized SQL only.** All user input goes through `sqlx` bind parameters; never string-formatted into a query.
+6. **Escaped templates.** Tera autoescaping is always on; `safe` is used only on pre-escaped values. Anything placed in `src/frontend/dist/` becomes a Tera template at boot, so raw `{{ }}` in static assets will crash startup.
+7. **Forward-only migrations.** Add a new timestamped migration per schema change and run `cargo sqlx prepare` afterwards; never edit an applied migration.
+
+See [`CLAUDE.md`](./CLAUDE.md) for the detailed rationale behind each rule.
+
+---
+
+## Features
+
+### Auth & users
+
+- Role-based permissions: `Admin`, `Manager`, `User`, `None`.
+- Email verification for new accounts (optional, toggled via `EMAIL_VERIFICATION_ENABLED`).
+- Password reset via email.
+- Email address changes with re-verification.
+- Admin user management UI (`/users`) with role assignment.
+
+### Products (example manageable resource)
+
+- Public catalog (`/products`) and detail pages — only `published` products are visible.
+- Admin CRUD (`/product-manager`) with search, filters, and pagination.
+- A tabbed detail view (Overview / Orders) — copy `ProductTabs.astro` for any resource with more than one sub-view.
+
+### Orders (example child resource)
+
+- Signed-in users place orders against a product.
+- Managers view and fulfil orders from the product's Orders tab.
+- Users can cancel their own pending orders from `/my-orders`.
+
+### Public API
+
+- Read-only, unauthenticated, CORS-enabled JSON API (`/api/products`, `/api/products/{slug}`).
+- Self-hosted Swagger UI at `/api/docs`, spec at `/api/openapi.json` — no external/CDN requests.
+
+### Frontend
+
+- Astro + React, Tailwind CSS, light/dark mode.
+- Bilingual (English default, German) via `locales/en.json` / `locales/de.json`.
+
+---
+
 ## Deployment
 
 Prepare sqlx queries:
@@ -8,7 +62,7 @@ Prepare sqlx queries:
 cargo sqlx prepare
 ```
 
-Build the image
+Build the image:
 
 ```bash
 VERSION=$(grep "^version =" Cargo.toml | cut -d '"' -f 2)
@@ -65,62 +119,6 @@ cd src/frontend
 bun dev
 ```
 
-### Server-rendered data in templates (fse-ssr)
-
-Pages never contain Tera syntax. Server data is used like ordinary TypeScript
-via `ssr<T>()`; the [fse-ssr](../fse-ssr) npm package's Astro integration
-compiles those expressions to Tera in the built HTML, and the Rust backend
-fills in the real values on every request:
-
-```astro
----
-import { ssr } from "fse-ssr/ssr";
-import type { UserPage } from "../types/pages";
-
-const { email, id, role, roles, error, t } = ssr<UserPage>();
----
-<Header backlink="/users">{email}</Header>
-<form action={`/users/${id}`} method="POST">
-  <select name="role">
-    {roles.map((r) => (
-      <option value={r.value} selected={r.value === role}>{r.label}</option>
-    ))}
-  </select>
-</form>
-{error && <p class="banner">{error}</p>}
-<p>{t.settings.delete_account.title}</p>
-```
-
-Declare each page's context shape in `src/types/pages.ts` (matching what the
-service passes to `render_tpl`). `t` is typed from `locales/en.json` via a
-`declare module ".../ssr" { interface Translations {...} }` augmentation the
-integration regenerates into `.astro/fse-ssr-translations.d.ts` on every
-dev/build start, so translation typos fail `astro check`. That file is picked
-up through a reference comment already present in `src/env.d.ts` — if you
-ever recreate that file, keep the
-`/// <reference path="../.astro/fse-ssr-translations.d.ts" />` line (TypeScript
-only honors triple-slash references as the first lines of a file).
-
-Supported on SSR values: interpolation (text, attributes, template literals),
-`.map()` (compiles to a `{% for %}` loop), `.length`, comparisons
-(`===`, `!==`, `<`, …), `&&`/`||`/`!`/ternaries, and `?? fallback`
-(compiles to Tera's `default` filter, which also makes optional context keys
-safe). Everything else — `.filter()`, arithmetic, function calls — has no
-server-side equivalent and fails the build; do it in the service or in
-client code instead.
-
-For client-side code, the backend serializes the page's full render context
-into `<script type="application/json" id="__fse-props__">` (the placeholder
-lives in `Layout.astro`). Read it with the same types — no extra request:
-
-```ts
-import { pageProps } from "fse-ssr/client";
-const { rows } = pageProps<UsersPage>();
-```
-
-Note that this makes the entire render context visible to the client, so a
-page's context must only contain data its viewer may see.
-
 ### Database migrations
 
 Install sqlx cli if you don't have it:
@@ -135,13 +133,13 @@ Add a new migration:
 sqlx migrate add migration_name
 ```
 
-Execute all migrations that haven't been apllied:
+Execute all migrations that haven't been applied:
 
 ```bash
 sqlx migrate run
 ```
 
-*Note: Before the webserver starts all migration are run to ensure that the database has everything in production.*
+_Note: Before the webserver starts all migrations are run to ensure that the database has everything in production._
 
 ## Keep everything up to date
 
@@ -162,11 +160,13 @@ bun upgrade
 ```
 
 ### NPM Packages
+
 ```bash
 bun update
 ```
 
 ### Astro
+
 ```bash
 bun x @astrojs/upgrade
 ```

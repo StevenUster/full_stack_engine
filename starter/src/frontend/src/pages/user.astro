@@ -5,62 +5,61 @@ import Header from "../components/Header.astro";
 import Layout from "../layouts/Layout.astro";
 import type { UserPage } from "../types/pages";
 
-const { id, email, role, roles } = ssr<UserPage>();
+const { t, id, email, role, roles } = ssr<UserPage>();
+const roleLabels = t.roles as Record<string, string>;
 ---
 
-<Layout title="User">
-  <main class="grid place-items-center h-full">
-    <div class="">
-      <Header backlink="/users">{email}</Header>
-      <Card>
-        <form
-          action={`/users/${id}`}
-          method="POST"
-          class="relative my-6 md:w-60"
-        >
-          <div class="relative w-full">
-            <select
-              id="role"
-              name="role"
-              required
-              class="relative w-full h-10 px-4 text-sm transition-all bg-white border rounded outline-none appearance-none focus-visible:outline-none peer border-black autofill:bg-white"
-            >
-              {
-                roles.map((r) => (
-                  <option value={r.value} selected={r.value === role}>
-                    {r.label}
-                  </option>
-                ))
-              }
-            </select>
-            <label
-              for="role"
-              class="pointer-events-none absolute top-3 left-2 z-[1] px-2 text-base transition-all before:absolute before:top-0 before:left-0 before:z-[-1] before:block before:h-full before:w-full before:bg-white before:transition-all peer-valid:-top-2 peer-valid:text-xs peer-focus:-top-2 peer-focus:text-xs peer-focus:text-primary-500"
-            >
-              Role
-            </label>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="pointer-events-none absolute top-2.5 right-2 h-5 w-5 fill-black transition-all peer-focus:fill-primary-500 peer-disabled:cursor-not-allowed"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <title id="title-role">Arrow Icon</title>
-              <desc id="description-role">Arrow icon of the select list.</desc>
-              <path
-                fill-rule="evenodd"
-                d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
-                clip-rule="evenodd"></path>
-            </svg>
+<Layout title={t.users.edit}>
+  <main class="max-w-2xl mx-auto w-full">
+    <Header backlink="/users">{t.users.edit_title}</Header>
+    <Card>
+      <form action={`/users/${id}`} method="POST" data-astro-reload class="flex flex-col gap-6">
+        <!-- Email (read-only) -->
+        <div>
+          <label class="block text-sm font-medium text-secondary-700 mb-2">
+            {t.users.email}
+          </label>
+          <div class="px-4 py-2.5 rounded-lg bg-secondary-50 border border-secondary-100">
+            <span class="text-sm font-medium text-secondary-900">
+              {email}
+            </span>
           </div>
+        </div>
 
-          <div class="flex justify-end mt-6">
-            <button type="submit" class="btn-primary w-full">
-              <span>Save</span>
-            </button>
-          </div>
-        </form>
-      </Card>
-    </div>
+        <!-- Role -->
+        <div class="relative w-full">
+          <select
+            id="role"
+            name="role"
+            required
+            class="relative w-full h-10 px-3.5 text-sm transition-all bg-white border border-secondary-300 rounded-lg outline-hidden appearance-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 peer text-secondary-900"
+          >
+            {
+              roles.map((r) => (
+                <option value={r.value} selected={r.value === role}>
+                  {roleLabels[r.value] ?? r.label}
+                </option>
+              ))
+            }
+          </select>
+          <label
+            for="role"
+            class="pointer-events-none absolute top-2.5 left-2 z-1 px-1.5 text-sm text-secondary-500 transition-all before:absolute before:top-0 before:left-0 before:z-[-1] before:block before:h-full before:w-full before:bg-white before:transition-all peer-valid:-top-2 peer-valid:text-xs peer-focus:-top-2 peer-focus:text-xs peer-focus:text-primary-600"
+          >
+            {t.users.role}
+          </label>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-secondary-400">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex sm:justify-end pt-5 border-t border-secondary-100">
+          <button type="submit" class="btn-primary w-full sm:w-auto">
+            <span>{t.common.save}</span>
+          </button>
+        </div>
+      </form>
+    </Card>
   </main>
 </Layout>

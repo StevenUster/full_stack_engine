@@ -1,12 +1,14 @@
 ---
 import { ssr } from "fse-ssr/ssr";
 import Card from "../components/Card.astro";
-import Header from "../components/Header.astro";
-import Table from "../components/Table.astro";
 import Layout from "../layouts/Layout.astro";
+import Table from "../components/Table.astro";
+import Header from "../components/Header.astro";
+import TableFilters from "../components/TableFilters.astro";
+import Pagination from "../components/Pagination.astro";
 import type { TableHeader, UsersPage } from "../types/pages";
 
-const { rows } = ssr<UsersPage>();
+const { t, rows, filter_role, roles } = ssr<UsersPage>();
 
 const headers: TableHeader[] = [
   { title: "ID", key: "id" },
@@ -15,15 +17,36 @@ const headers: TableHeader[] = [
   { title: "Date", key: "created_at" },
   { title: "Actions", key: "id", format: "delete" },
 ];
+
+const roleLabels = t.roles as Record<string, string>;
 ---
 
-<Layout title="Users">
-  <main class="grid place-items-center">
-    <div class="w-full">
-      <Header>Users</Header>
-      <Card padding={false}>
-        <Table headers={headers} rows={rows} />
-      </Card>
-    </div>
+<Layout title={t.users.title}>
+  <main>
+    <Header>{t.users.title}</Header>
+    <Card padding={false}>
+      <TableFilters searchPlaceholder={t.filters.search_users ?? "Search by email..."}>
+        <div class="relative">
+          <select
+            name="filter_role"
+            class="h-9 pl-3 pr-8 text-sm border border-secondary-200 rounded-lg bg-white focus:border-primary-500 focus:ring-1 focus:ring-primary-500 outline-hidden text-secondary-700 appearance-none"
+          >
+            <option value="">{t.filters.all_roles ?? "All roles"}</option>
+            {
+              roles.map((role) => (
+                <option value={role.value} selected={filter_role === role.value}>
+                  {roleLabels[role.value] ?? role.label}
+                </option>
+              ))
+            }
+          </select>
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-secondary-400">
+            <path d="m6 9 6 6 6-6"></path>
+          </svg>
+        </div>
+      </TableFilters>
+      <Table headers={headers} rows={rows} />
+      <Pagination />
+    </Card>
   </main>
 </Layout>

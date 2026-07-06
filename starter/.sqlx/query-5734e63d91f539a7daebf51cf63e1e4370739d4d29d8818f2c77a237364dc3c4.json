@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE users SET role = ?, sessions_valid_after = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "5734e63d91f539a7daebf51cf63e1e4370739d4d29d8818f2c77a237364dc3c4"
+}

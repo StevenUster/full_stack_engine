@@ -14,6 +14,17 @@ interface Props {
     | "hidden";
   placeholder?: string | SsrValue<string>;
   required?: boolean;
+  /**
+   * Appends a literal "*" after the placeholder label. Kept as a separate
+   * prop/child rather than having callers write `` `${value}*` `` themselves:
+   * a template literal forces the SSR proxy to flatten to a plain string via
+   * its own toString() (emitting e.g. `{{ t.x | default(value='y') }}*`),
+   * and a plain string reaching this label's JSX children isn't tagged raw
+   * HTML, so Astro HTML-escapes it — turning the embedded `'` into `&#39;`
+   * and breaking Tera's parser. Rendering the proxy and the "*" as separate
+   * children avoids the flattening entirely.
+   */
+  requiredMark?: boolean;
   step?: string | number;
   min?: string | number;
   max?: string | number;
@@ -22,7 +33,7 @@ interface Props {
   value?: string | SsrValue<string>;
 }
 
-const { id, type, placeholder = " ", required, step, min, max, name, value } = Astro.props;
+const { id, type, placeholder = " ", requiredMark, required, step, min, max, name, value } = Astro.props;
 ---
 
 <div class="relative w-full">
@@ -41,5 +52,5 @@ const { id, type, placeholder = " ", required, step, min, max, name, value } = A
   <label
     for={id}
     class="absolute left-2 -top-2 z-1 px-1.5 text-xs text-secondary-500 transition-all before:absolute before:top-0 before:left-0 before:z-[-1] before:block before:h-full before:w-full before:bg-white before:transition-all peer-placeholder-shown:top-2.5 peer-placeholder-shown:text-sm peer-focus:-top-2 peer-focus:text-xs peer-focus:text-primary-600 peer-disabled:cursor-not-allowed peer-disabled:text-secondary-400 peer-disabled:before:bg-transparent"
-  >{placeholder}</label>
+  >{placeholder}{requiredMark && "*"}</label>
 </div>

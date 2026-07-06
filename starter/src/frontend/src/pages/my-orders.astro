@@ -1,0 +1,48 @@
+---
+import { ssr } from "fse-ssr/ssr";
+import Card from "../components/Card.astro";
+import Header from "../components/Header.astro";
+import Layout from "../layouts/Layout.astro";
+import type { MyOrdersPage } from "../types/pages";
+
+const { t, rows } = ssr<MyOrdersPage>();
+---
+
+<Layout title={t.sidebar.my_orders}>
+  <main class="grid place-items-center">
+    <div class="w-full max-w-3xl">
+      <Header>{t.sidebar.my_orders}</Header>
+
+      {
+        rows.length === 0 ? (
+          <p class="text-sm text-secondary-500">{t.my_orders.empty}</p>
+        ) : (
+          <div class="flex flex-col gap-3">
+            {rows.map((row) => (
+              <Card>
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <a href={row.product_link} class="font-bold text-secondary-900 hover:underline">
+                      {row.product_name}
+                    </a>
+                    <p class="text-sm text-secondary-500">
+                      {row.quantity} &middot; {row.status}
+                      {row.note && <> &middot; {row.note}</>}
+                    </p>
+                  </div>
+                  {row.status === "pending" && (
+                    <form action={`/my-orders/${row.id}/cancel`} method="POST">
+                      <button type="submit" class="btn-secondary text-red-600 border-red-200 hover:bg-red-50">
+                        {t.table.cancel}
+                      </button>
+                    </form>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )
+      }
+    </div>
+  </main>
+</Layout>

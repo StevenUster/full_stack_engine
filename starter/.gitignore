@@ -11,3 +11,4 @@
 *.swp
 node_modules/
 dist/
+example_data.sql

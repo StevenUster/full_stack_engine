@@ -1,12 +1,13 @@
 [package]
 name = "starter"
-version = "1.0.7"
+version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ctrlc = "3.5.1"
-rusty-money = "0.5.0"
-actix-web = "4.12.1"
+ctrlc = "3.5.2"
+actix-web = "4.14.0"
+actix-multipart = "0.7.2"
+actix-files = "0.6.10"
 serde = { version = "1.0", features = ["derive"] }
 sqlx = { version = "0.8.6", features = [
     "sqlite",
@@ -15,9 +16,9 @@ sqlx = { version = "0.8.6", features = [
     "tls-native-tls",
 ] }
 dotenv = "0.15.0"
-#full_stack_engine = "1.0.7"
+uuid = { version = "1.23.3", features = ["v4"] }
 full_stack_engine = { path = "../framework" }
-uuid = { version = "1.22.0", features = ["v4"] }
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 
 [profile.release]
 lto = true

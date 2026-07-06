@@ -1,18 +1,27 @@
 ---
 import { ssr } from "fse-ssr/ssr";
-import Card from "../components/Card.astro";
 import Layout from "../layouts/Layout.astro";
-import type { ErrorPage } from "../types/pages";
 
-const { error } = ssr<ErrorPage>();
+const { t, error } = ssr<{ error?: string }>();
 ---
 
-<Layout title="Error">
-  <main class="grid place-items-center h-full">
-    <div class="w-[800px]">
-      <Card>
-        <p class="text-red-600">{error}</p>
-      </Card>
+<Layout title={t.common.error ?? "Error"} sidebar={false}>
+  <main class="min-h-screen grid place-items-center bg-secondary-50 px-4">
+    <div class="w-full max-w-md text-center flex flex-col items-center gap-5">
+      <div class="w-12 h-12 rounded-full bg-red-50 border border-red-200 flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-red-500">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-base font-semibold text-secondary-900 mb-1">
+          {t.common.error ?? "Error"}
+        </h1>
+        <p class="text-sm text-secondary-500">{error}</p>
+      </div>
+      <a href="/" class="btn-secondary">
+        {t.common.back_home ?? "Back to home"}
+      </a>
     </div>
   </main>
 </Layout>

@@ -1,29 +1,34 @@
 @import "tailwindcss";
 
-@theme {
-  --color-primary-50: #f0f4fa;
-  --color-primary-100: #dce8f7;
-  --color-primary-200: #b8d0f0;
-  --color-primary-300: #8ab0e6;
-  --color-primary-400: #528bd9;
-  --color-primary-500: #2663c9;
-  --color-primary-600: #00205c;
-  --color-primary-700: #001a4d;
-  --color-primary-800: #00143d;
-  --color-primary-900: #000e2e;
-  --color-primary-950: #00081f;
+@custom-variant dark (&:is(.dark *));
 
-  --color-secondary-50: #fbfaf7;
-  --color-secondary-100: #f6f4ed;
-  --color-secondary-200: #d1caae;
-  --color-secondary-300: #c4bb97;
-  --color-secondary-400: #afa37e;
-  --color-secondary-500: #8f825e;
-  --color-secondary-600: #6f6345;
-  --color-secondary-700: #514934;
-  --color-secondary-800: #383224;
-  --color-secondary-900: #231f16;
-  --color-secondary-950: #13100b;
+@theme {
+  --font-sans:
+    var(--font-montserrat), ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --color-primary-50: #f4f9ee;
+  --color-primary-100: #e6f2d6;
+  --color-primary-200: #cce5ad;
+  --color-primary-300: #aad27e;
+  --color-primary-400: #8bc358;
+  --color-primary-500: #92c355;
+  --color-primary-600: #6a9b3c;
+  --color-primary-700: #527830;
+  --color-primary-800: #3b5622;
+  --color-primary-900: #263715;
+  --color-primary-950: #17220c;
+
+  --color-secondary-50: #f8f5f4;
+  --color-secondary-100: #f1ece8;
+  --color-secondary-200: #e2ddd8;
+  --color-secondary-300: #cfc8c1;
+  --color-secondary-400: #a8a29a;
+  --color-secondary-500: #6b6b67;
+  --color-secondary-600: #57564f;
+  --color-secondary-700: #44433d;
+  --color-secondary-800: #33332e;
+  --color-secondary-900: #282925;
+  --color-secondary-950: #1c1c19;
 }
 
 /*
@@ -45,10 +50,10 @@
 }
 
 @utility section-title {
+  @apply font-extrabold uppercase;
   font-size: clamp(26px, 3.5vw, 30px);
   line-height: 1.15;
   letter-spacing: -0.01em;
-  @apply font-extrabold uppercase;
 }
 
 @utility btn-primary {
@@ -75,6 +80,25 @@
 }
 
 @layer base {
+  /* Light mode tokens — swap these in .dark for dark mode */
+  :root {
+    --color-bg: 248 245 244; /* secondary-50  (offwhite) */
+    --color-surface: 255 255 255; /* white         */
+    --color-border: 226 221 216; /* secondary-200 (warm border) */
+    --color-fg: 40 41 37; /* secondary-900 (charcoal) */
+    --color-fg-muted: 107 107 103; /* secondary-500 */
+    --color-primary: 111 160 58; /* green-dark    */
+  }
+
+  .dark {
+    --color-bg: 28 28 25; /* secondary-950 */
+    --color-surface: 40 41 37; /* secondary-900 (charcoal) */
+    --color-border: 59 59 53; /* raised border */
+    --color-fg: 248 245 244; /* secondary-50  (offwhite) */
+    --color-fg-muted: 168 168 162; /* secondary-400 */
+    --color-primary: 146 195 85; /* primary-500   */
+  }
+
   body {
     @apply bg-secondary-50 text-secondary-900 antialiased;
   }
@@ -85,7 +109,261 @@
   }
 }
 
-/* Sidebar mini-collapse (see Sidebar.astro's #toggle-sidebar-mini). */
+@layer utilities {
+  .dark {
+    color-scheme: dark;
+    /* Match the focus-ring offset gap to the dark page instead of white. */
+    --tw-ring-offset-color: #1c1c19;
+  }
+
+  .dark body {
+    background-color: #1c1c19;
+    color: #f8f5f4;
+  }
+
+  .dark .btn-primary {
+    background-color: #92c355;
+    color: #10210a;
+  }
+  .dark .btn-primary:hover {
+    background-color: #a7d176;
+  }
+  .dark .btn-primary:active {
+    background-color: #7fb544;
+  }
+
+  .dark .btn-secondary {
+    background-color: #33342f;
+    border-color: #44443d;
+    color: #ece7e2;
+  }
+  .dark .btn-secondary:hover {
+    background-color: #44443d;
+  }
+
+  .dark .btn-ghost {
+    color: #d4cfc8;
+  }
+  .dark .btn-ghost:hover {
+    background-color: #33342f;
+    color: #f8f5f4;
+  }
+
+  .dark .btn-danger {
+    background-color: #2a1416;
+    border-color: #7f1d1d;
+    color: #fca5a5;
+  }
+  .dark .btn-danger:hover {
+    background-color: #3a1a1c;
+  }
+
+  /* ---- Backgrounds ---- */
+  .dark .bg-white {
+    background-color: #282925;
+  }
+  .dark .bg-secondary-50 {
+    background-color: #1c1c19;
+  }
+  .dark .bg-secondary-100 {
+    background-color: #33342f;
+  }
+  .dark .bg-secondary-200 {
+    background-color: #44443d;
+  }
+  .dark .hover\:bg-secondary-100:hover {
+    background-color: #33342f;
+  }
+  .dark .hover\:bg-secondary-50:hover {
+    background-color: #33342f;
+  }
+  .dark .disabled\:bg-secondary-50:disabled {
+    background-color: #232320;
+  }
+
+  .dark .bg-primary-50 {
+    background-color: #1b2913;
+  }
+  .dark .bg-primary-100 {
+    background-color: #25360f;
+  }
+  .dark .aria-\[current\=page\]\:bg-primary-50[aria-current="page"] {
+    background-color: #1b2913;
+  }
+
+  .dark .bg-red-50 {
+    background-color: #2a1416;
+  }
+  .dark .hover\:bg-red-50:hover {
+    background-color: #2a1416;
+  }
+  .dark .bg-green-50 {
+    background-color: #14271a;
+  }
+  .dark .bg-amber-50 {
+    background-color: #2a2213;
+  }
+  .dark .bg-pink-50 {
+    background-color: #2a1420;
+  }
+
+  /* ---- Text ---- */
+  .dark .text-secondary-900,
+  .dark .text-black {
+    color: #f8f5f4;
+  }
+  .dark .text-secondary-800 {
+    color: #ece7e2;
+  }
+  .dark .text-secondary-700 {
+    color: #d4cfc8;
+  }
+  .dark .text-secondary-600 {
+    color: #d4cfc8;
+  }
+  .dark .text-secondary-500 {
+    color: #b8b3ab;
+  }
+  .dark .text-secondary-400 {
+    color: #a8a29a;
+  }
+  .dark .text-secondary-300 {
+    color: #57564f;
+  }
+  .dark .text-secondary-200 {
+    color: #44443d;
+  }
+  .dark .hover\:text-secondary-900:hover {
+    color: #f8f5f4;
+  }
+  .dark .hover\:text-secondary-800:hover {
+    color: #ece7e2;
+  }
+  .dark .hover\:text-secondary-700:hover {
+    color: #d4cfc8;
+  }
+  .dark .peer-disabled\:text-secondary-400:disabled {
+    color: #57564f;
+  }
+
+  .dark .text-primary-900,
+  .dark .text-primary-800,
+  .dark .text-primary-700 {
+    color: #aad27e;
+  }
+  .dark .text-primary-600 {
+    color: #8bc358;
+  }
+  .dark .hover\:text-primary-700:hover {
+    color: #aad27e;
+  }
+  .dark .hover\:text-primary-600:hover {
+    color: #8bc358;
+  }
+  .dark .aria-\[current\=page\]\:text-primary-800[aria-current="page"] {
+    color: #aad27e;
+  }
+
+  .dark .text-red-700,
+  .dark .text-red-600 {
+    color: #fca5a5;
+  }
+  .dark .text-red-500 {
+    color: #f87171;
+  }
+  .dark .hover\:text-red-600:hover {
+    color: #fca5a5;
+  }
+  .dark .text-green-800,
+  .dark .text-green-700,
+  .dark .text-green-600 {
+    color: #86efac;
+  }
+  .dark .text-amber-900,
+  .dark .text-amber-800,
+  .dark .text-amber-700 {
+    color: #fcd34d;
+  }
+  .dark .text-amber-500 {
+    color: #fbbf24;
+  }
+  .dark .text-pink-500 {
+    color: #f9a8d4;
+  }
+
+  /* ---- Borders ---- */
+  .dark .border-secondary-100 {
+    border-color: #33342f;
+  }
+  .dark .border-secondary-200 {
+    border-color: #3b3b35;
+  }
+  .dark .border-secondary-300 {
+    border-color: #44443d;
+  }
+  .dark .border-black {
+    border-color: #3b3b35;
+  }
+  .dark .hover\:border-secondary-300:hover {
+    border-color: #57564f;
+  }
+  .dark .disabled\:border-secondary-200:disabled {
+    border-color: #3b3b35;
+  }
+  .dark .divide-secondary-100 > :not(:last-child) {
+    border-color: #33342f;
+  }
+  .dark .divide-secondary-200 > :not(:last-child) {
+    border-color: #3b3b35;
+  }
+
+  .dark .border-primary-100 {
+    border-color: #25360f;
+  }
+  .dark .border-primary-200 {
+    border-color: #3b5622;
+  }
+  .dark .border-primary-300 {
+    border-color: #527830;
+  }
+  .dark .hover\:border-primary-200:hover {
+    border-color: #3b5622;
+  }
+
+  .dark .border-red-200 {
+    border-color: #7f1d1d;
+  }
+  .dark .border-green-100,
+  .dark .border-green-200 {
+    border-color: #166534;
+  }
+  .dark .border-amber-200 {
+    border-color: #78350f;
+  }
+  .dark .border-pink-100 {
+    border-color: #831843;
+  }
+
+  /* ---- Form fields ---- */
+  .dark input,
+  .dark select,
+  .dark textarea {
+    color: #f4f4f5;
+  }
+  /* Floating-label mask sits over the input border; match the surface colour. */
+  .dark .before\:bg-white::before {
+    background-color: #282925;
+  }
+  /* Override the browser's white autofill background. */
+  .dark input:-webkit-autofill,
+  .dark input:-webkit-autofill:hover,
+  .dark input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #282925 inset;
+    -webkit-text-fill-color: #f8f5f4;
+    caret-color: #f8f5f4;
+  }
+}
+
 html.sidebar-mini #nav-menu-1 {
   width: 4rem;
 }

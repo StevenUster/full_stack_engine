@@ -4,7 +4,7 @@ services:
     pull_policy: always
     restart: unless-stopped
     environment:
-      - ENV=prod
+      - ENV=${ENV}
       - PROTOCOL=${PROTOCOL}
       - DOMAIN=${DOMAIN}
       - DATABASE_URL=${DATABASE_URL}

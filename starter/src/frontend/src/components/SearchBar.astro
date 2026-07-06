@@ -16,7 +16,7 @@ interface Props {
 const { t, search } = ssr<{ search?: string }>();
 
 const {
-  placeholder = "Search...",
+  placeholder = "Suchen...",
   name = "search",
   value,
   inputId,
@@ -60,6 +60,6 @@ const inputValue = value ?? search ?? "";
   </div>
 
   <button type="submit" class="btn-primary h-9 py-0">
-    {t.filters.search ?? "Search"}
+    {t.filters.search ?? "Suchen"}
   </button>
 </form>

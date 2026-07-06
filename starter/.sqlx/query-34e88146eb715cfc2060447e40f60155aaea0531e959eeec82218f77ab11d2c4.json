@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, email, password, role as \"role: AppRole\", created_at, is_verified, verification_token FROM users ORDER BY created_at DESC",
+  "query": "SELECT id, name, slug, description, price, status FROM products WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -9,48 +9,42 @@
         "type_info": "Integer"
       },
       {
-        "name": "email",
+        "name": "name",
         "ordinal": 1,
         "type_info": "Text"
       },
       {
-        "name": "password",
+        "name": "slug",
         "ordinal": 2,
         "type_info": "Text"
       },
       {
-        "name": "role: AppRole",
+        "name": "description",
         "ordinal": 3,
         "type_info": "Text"
       },
       {
-        "name": "created_at",
+        "name": "price",
         "ordinal": 4,
-        "type_info": "Datetime"
+        "type_info": "Float"
       },
       {
-        "name": "is_verified",
+        "name": "status",
         "ordinal": 5,
-        "type_info": "Bool"
-      },
-      {
-        "name": "verification_token",
-        "ordinal": 6,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
       false,
       false,
+      true,
       false,
-      false,
-      false,
-      true
+      false
     ]
   },
-  "hash": "f2e31bd954da553a8509b06b45290a6ac20c15e88d19e95e3bffccabd57fb546"
+  "hash": "34e88146eb715cfc2060447e40f60155aaea0531e959eeec82218f77ab11d2c4"
 }

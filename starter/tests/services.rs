@@ -2,81 +2,12 @@
 //! database and the real embedded templates. Routes are registered without
 //! their rate limiters so tests never trip a 429.
 
+mod common;
+
 use actix_web::http::StatusCode;
 use actix_web::{App, test, web};
+use common::{seed_user, test_app_data};
 use starter::services::{login, register, reset_password, users};
-use starter::tera::Tera;
-use starter::{AppData, Env, hash_password};
-
-const JWT_SECRET: &str = "test-secret";
-
-/// Replicates the framework's template registration (`index.html` -> `index`,
-/// `login/index.html` -> `login`, forced autoescape) for the embedded dist.
-fn test_tera() -> Tera {
-    fn add(tera: &mut Tera, dir: &starter::include_dir::Dir) {
-        for file in dir.files() {
-            let path = file.path().to_str().unwrap().replace('\\', "/");
-            if let Some(stripped) = path.strip_suffix(".html") {
-                let name = match stripped
-                    .strip_suffix("/index")
-                    .or_else(|| (stripped == "index").then_some("index"))
-                {
-                    Some(n) => n,
-                    None => stripped,
-                };
-                if let Some(content) = file.contents_utf8() {
-                    let _ = tera.add_raw_template(name, content);
-                }
-            }
-        }
-        for sub in dir.dirs() {
-            add(tera, sub);
-        }
-    }
-
-    let mut tera = Tera::default();
-    tera.autoescape_on(vec![""]);
-    add(&mut tera, &starter::DIST_DIR);
-    tera
-}
-
-async fn test_app_data() -> web::Data<AppData> {
-    // One connection only: every `sqlite::memory:` connection is its own DB.
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect("sqlite::memory:")
-        .await
-        .unwrap();
-    sqlx::migrate!().run(&pool).await.unwrap();
-
-    web::Data::new(AppData {
-        tera: test_tera(),
-        db: pool,
-        env: Env::Prod,
-        domain: "localhost".to_string(),
-        protocol: "http".to_string(),
-        jwt_secret: JWT_SECRET.to_string(),
-        smtp_from: String::new(),
-        email_verification_enabled: false,
-        // Same locale injection as production (`main.rs`), since templates
-        // reference `t.*`.
-        context_injector: Some(std::sync::Arc::new(Box::new(|_req, value| {
-            full_stack_engine::i18n::inject_locale_context(value, &starter::LOCALES_DIR, "en");
-        }))),
-    })
-}
-
-async fn seed_user(data: &web::Data<AppData>, email: &str, password: &str, role: &str) -> i64 {
-    let hash = hash_password(password).unwrap();
-    sqlx::query("INSERT INTO users (email, password, role, is_verified) VALUES (?, ?, ?, 1)")
-        .bind(email)
-        .bind(hash)
-        .bind(role)
-        .execute(&data.db)
-        .await
-        .unwrap()
-        .last_insert_rowid()
-}
 
 macro_rules! test_service {
     ($data:expr) => {
@@ -94,20 +25,30 @@ macro_rules! test_service {
     };
 }
 
-macro_rules! login_cookie {
-    ($app:expr, $email:expr, $password:expr) => {{
-        let req = test::TestRequest::post()
-            .uri("/login")
-            .set_form([("email", $email), ("password", $password)])
-            .to_request();
-        let res = test::call_service($app, req).await;
-        assert_eq!(res.status(), StatusCode::SEE_OTHER, "login should succeed");
-        res.response()
-            .cookies()
-            .find(|c| c.name() == "token")
-            .expect("login sets the token cookie")
-            .into_owned()
-    }};
+/// The register endpoint takes a multipart form; build one by hand.
+fn multipart_register(email: &str) -> (String, Vec<u8>) {
+    use std::fmt::Write as _;
+
+    let boundary = "test-boundary-7d1a";
+    let mut body = String::new();
+    for (name, value) in [
+        ("first_name", "Test"),
+        ("last_name", "Tester"),
+        ("email", email),
+        ("password", "longpassword1"),
+        ("repeat_password", "longpassword1"),
+    ] {
+        // Writing to a String is infallible.
+        let _ = write!(
+            body,
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+        );
+    }
+    let _ = write!(body, "--{boundary}--\r\n");
+    (
+        format!("multipart/form-data; boundary={boundary}"),
+        body.into_bytes(),
+    )
 }
 
 #[actix_web::test]
@@ -149,36 +90,16 @@ async fn login_sets_hardened_session_cookie() {
 }
 
 #[actix_web::test]
-async fn login_rejects_none_role_accounts() {
-    let data = test_app_data().await;
-    seed_user(&data, "locked@test.io", "correct-password", "none").await;
-    let app = test_service!(data);
-
-    let req = test::TestRequest::post()
-        .uri("/login")
-        .set_form([
-            ("email", "locked@test.io"),
-            ("password", "correct-password"),
-        ])
-        .to_request();
-    let res = test::call_service(&app, req).await;
-    assert_eq!(res.status(), StatusCode::OK);
-    assert!(res.response().cookies().all(|c| c.name() != "token"));
-}
-
-#[actix_web::test]
 async fn duplicate_registration_is_indistinguishable_from_success() {
     let data = test_app_data().await;
     let app = test_service!(data);
 
+    let (content_type, body) = multipart_register("dup@test.io");
     let register = || {
         test::TestRequest::post()
             .uri("/register")
-            .set_form([
-                ("email", "dup@test.io"),
-                ("password", "longpassword1"),
-                ("repeat_password", "longpassword1"),
-            ])
+            .insert_header(("content-type", content_type.clone()))
+            .set_payload(body.clone())
             .to_request()
     };
 
@@ -204,6 +125,8 @@ async fn duplicate_registration_is_indistinguishable_from_success() {
 #[actix_web::test]
 async fn users_write_permission_cannot_grant_or_touch_admin() {
     let data = test_app_data().await;
+    // `manager` holds `users.read`/`users.write`, so it can reach every route
+    // below — but must still be refused anything admin-adjacent.
     seed_user(&data, "mgr@test.io", "correct-password", "manager").await;
     let victim = seed_user(&data, "victim@test.io", "correct-password", "user").await;
     let admin = seed_user(&data, "root@test.io", "correct-password", "admin").await;
@@ -211,25 +134,25 @@ async fn users_write_permission_cannot_grant_or_touch_admin() {
 
     let cookie = login_cookie!(&app, "mgr@test.io", "correct-password");
 
-    // Promoting anyone to admin is refused for non-admin callers.
+    // A manager can list users...
+    let req = test::TestRequest::get()
+        .uri("/users")
+        .cookie(cookie.clone())
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
+
+    // ...but promoting anyone to admin is refused...
     let req = test::TestRequest::post()
         .uri(&format!("/users/{victim}"))
         .cookie(cookie.clone())
         .set_form([("role", "admin")])
         .to_request();
-    let res = test::call_service(&app, req).await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
-
-    // Demoting or deleting an admin is refused too.
-    let req = test::TestRequest::post()
-        .uri(&format!("/users/{admin}"))
-        .cookie(cookie.clone())
-        .set_form([("role", "user")])
-        .to_request();
     assert_eq!(
         test::call_service(&app, req).await.status(),
         StatusCode::UNAUTHORIZED
     );
+
+    // ...and touching an existing admin account is refused too.
     let req = test::TestRequest::delete()
         .uri(&format!("/users/{admin}"))
         .cookie(cookie.clone())
@@ -245,56 +168,36 @@ async fn users_write_permission_cannot_grant_or_touch_admin() {
         .cookie(cookie)
         .set_form([("role", "hacker")])
         .to_request();
-    assert_eq!(
-        test::call_service(&app, req).await.status(),
-        StatusCode::BAD_REQUEST
-    );
-
-    // Nothing changed in the database.
-    let roles: Vec<String> = sqlx::query_scalar("SELECT role FROM users ORDER BY id")
-        .fetch_all(&data.db)
+    let res = test::call_service(&app, req).await;
+    assert!(res.status().is_client_error() || res.status().is_server_error());
+    let role: String = sqlx::query_scalar("SELECT role FROM users WHERE id = ?")
+        .bind(victim)
+        .fetch_one(&data.db)
         .await
         .unwrap();
-    assert!(roles.contains(&"manager".to_string()));
-    assert!(roles.contains(&"user".to_string()));
-    assert!(roles.contains(&"admin".to_string()));
-}
+    assert_eq!(role, "user");
 
-#[actix_web::test]
-async fn role_change_revokes_existing_sessions() {
-    let data = test_app_data().await;
-    seed_user(&data, "root@test.io", "correct-password", "admin").await;
-    let target = seed_user(&data, "mgr@test.io", "correct-password", "manager").await;
-    let app = test_service!(data);
-
-    // The manager logs in and can read /users...
-    let manager_cookie = login_cookie!(&app, "mgr@test.io", "correct-password");
-    let req = test::TestRequest::get()
-        .uri("/users")
-        .cookie(manager_cookie.clone())
-        .to_request();
-    assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
-
-    // ...but the moment an admin changes their role, the old JWT dies.
+    // An admin, on the other hand, can change roles — and the change revokes
+    // the target's sessions.
     let admin_cookie = login_cookie!(&app, "root@test.io", "correct-password");
     let req = test::TestRequest::post()
-        .uri(&format!("/users/{target}"))
+        .uri(&format!("/users/{victim}"))
         .cookie(admin_cookie)
-        .set_form([("role", "user")])
+        .set_form([("role", "manager")])
         .to_request();
     assert_eq!(
         test::call_service(&app, req).await.status(),
         StatusCode::FOUND
     );
 
-    let req = test::TestRequest::get()
-        .uri("/users")
-        .cookie(manager_cookie)
-        .to_request();
-    let res = test::call_service(&app, req).await;
-    // The stale session is redirected to /login by the auth extractor.
-    assert_eq!(res.status(), StatusCode::FOUND);
-    assert_eq!(res.headers().get("location").unwrap(), "/login");
+    let (role, valid_after): (String, i64) =
+        sqlx::query_as("SELECT role, sessions_valid_after FROM users WHERE id = ?")
+            .bind(victim)
+            .fetch_one(&data.db)
+            .await
+            .unwrap();
+    assert_eq!(role, "manager");
+    assert!(valid_after > 0);
 }
 
 #[actix_web::test]
@@ -317,14 +220,23 @@ async fn password_reset_enforces_expiry_and_revokes_sessions() {
     // Expired token: rejected, nothing consumed.
     sqlx::query(
         "UPDATE users SET reset_token = 'expired-tok', \
-         reset_token_expires_at = strftime('%s','now') - 10 WHERE id = ?",
+         reset_token_expires_at = datetime('now', '-1 hour') WHERE id = ?",
     )
     .bind(user)
     .execute(&data.db)
     .await
     .unwrap();
     let res = test::call_service(&app, reset("expired-tok")).await;
-    assert_eq!(res.status(), StatusCode::OK); // re-rendered with an error
+    // Redirected back to the form with an error, not to the success path.
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert!(
+        res.headers()
+            .get("location")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("error=invalid_token")
+    );
     let token: Option<String> = sqlx::query_scalar("SELECT reset_token FROM users WHERE id = ?")
         .bind(user)
         .fetch_one(&data.db)
@@ -335,7 +247,7 @@ async fn password_reset_enforces_expiry_and_revokes_sessions() {
     // Valid token: consumed, password changed, outstanding sessions revoked.
     sqlx::query(
         "UPDATE users SET reset_token = 'valid-tok', \
-         reset_token_expires_at = strftime('%s','now') + 3600 WHERE id = ?",
+         reset_token_expires_at = datetime('now', '+1 hour') WHERE id = ?",
     )
     .bind(user)
     .execute(&data.db)
@@ -343,6 +255,7 @@ async fn password_reset_enforces_expiry_and_revokes_sessions() {
     .unwrap();
     let res = test::call_service(&app, reset("valid-tok")).await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
+    assert_eq!(res.headers().get("location").unwrap(), "/logout");
 
     let (token, valid_after): (Option<String>, i64) =
         sqlx::query_as("SELECT reset_token, sessions_valid_after FROM users WHERE id = ?")

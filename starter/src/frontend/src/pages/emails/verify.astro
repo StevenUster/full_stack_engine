@@ -1,42 +1,39 @@
 ---
 import { ssr } from "fse-ssr/ssr";
 import EmailLayout from "../../layouts/EmailLayout.astro";
-import type { VerifyEmailProps } from "../../types/pages";
 
-const { verify_url } = ssr<VerifyEmailProps>();
+const { t, verify_url } = ssr<{ verify_url: string }>();
 ---
 
-<EmailLayout title="Email Verification">
+<EmailLayout title={t.verify_email.subject}>
   <h1 slot="header" style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600; letter-spacing: 0.025em;">
-    Welcome!
+    {t.verify_email.header}
   </h1>
 
   <p style="margin: 0; margin-bottom: 20px; color: #231f16; font-size: 16px; line-height: 1.625;">
-    Thank you for registering. Please confirm your email address by clicking the
-    following button:
+    {t.verify_email.body}
   </p>
 
   <div style="text-align: center; padding-top: 12px; padding-bottom: 28px;">
     <a
       href={verify_url}
       target="_blank"
-      style="display: inline-block; padding: 14px 36px; background-color: #00205c; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 600; border-radius: 6px; letter-spacing: 0.025em; transition: background-color 0.2s ease-in-out;"
+      style="display: inline-block; padding: 14px 36px; background-color: #6a9b3c; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 600; border-radius: 6px; letter-spacing: 0.025em;"
     >
-      Confirm Email
+      {t.verify_email.cta}
     </a>
   </div>
 
-  <p style="margin: 0; margin-bottom: 12px; color: #6f6345; font-size: 14px; line-height: 1.5;">
-    If the button doesn't work, please copy the following link into your
-    browser:
+  <p style="margin: 0; margin-bottom: 12px; color: #655650; font-size: 14px; line-height: 1.5;">
+    {t.verify_email.fallback}
   </p>
   <p style="margin: 0; word-break: break-all;">
-    <a href={verify_url} style="color: #528bd9; font-size: 12px; text-decoration: underline;">
+    <a href={verify_url} style="color: #6a9b3c; font-size: 12px; text-decoration: underline;">
       {verify_url}
     </a>
   </p>
 
-  <p slot="footer" style="margin: 0; color: #8f825e; font-size: 12px; line-height: 1.625;">
-    If you did not perform this registration, you can safely ignore this email.
+  <p slot="footer" style="margin: 0; color: #655650; font-size: 12px; line-height: 1.625;">
+    {t.verify_email.footer}
   </p>
 </EmailLayout>

@@ -22,8 +22,6 @@ pub async fn post(
         .fetch_optional(&data.db)
         .await?;
 
-    // Always show the same success message, whether or not the email exists,
-    // so this endpoint can't be used to enumerate registered accounts.
     let success_ctx = json!({"success": "password_reset_sent"});
 
     let Some(user) = user else {
@@ -31,12 +29,12 @@ pub async fn post(
     };
 
     let token = uuid::Uuid::new_v4().to_string();
+    let expires_at = super::token_expiry();
 
-    // The reset link is only valid for one hour; `reset_password::post`
-    // rejects anything past `reset_token_expires_at`.
     sqlx::query!(
-        "UPDATE users SET reset_token = ?, reset_token_expires_at = strftime('%s','now') + 3600 WHERE id = ?",
+        "UPDATE users SET reset_token = ?, reset_token_expires_at = ? WHERE id = ?",
         token,
+        expires_at,
         user.id
     )
     .execute(&data.db)
@@ -51,7 +49,11 @@ pub async fn post(
     let body = match data
         .render_email(
             "emails_password-reset",
-            &json!({ "t": t, "reset_url": reset_url }),
+            &json!({
+                "t": t,
+                "reset_url": reset_url,
+                "base_url": format!("{}://{}", data.protocol, data.domain),
+            }),
         )
         .await
     {

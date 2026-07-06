@@ -7,6 +7,7 @@ use crate::{
 #[derive(Deserialize)]
 pub struct ResetPasswordQuery {
     token: Option<String>,
+    error: Option<String>,
 }
 
 #[get("/reset-password")]
@@ -22,9 +23,12 @@ pub async fn get(
             .finish());
     };
 
-    Ok(req
-        .render_tpl("reset-password", &json!({ "token": token }))
-        .await)
+    let mut ctx = json!({ "token": token });
+    if let Some(error) = &query.error {
+        ctx["error"] = json!(error);
+    }
+
+    Ok(req.render_tpl("reset-password", &ctx).await)
 }
 
 #[derive(Deserialize)]
@@ -44,38 +48,46 @@ pub async fn post(
         return Ok(req
             .render_tpl(
                 "reset-password",
-                &json!({"error": "Invalid token", "token": form.token}),
+                &json!({"error": "invalid_token", "token": form.token}),
             )
             .await);
     }
 
     if form.password.len() < 8 {
-        return Ok(req
-            .render_tpl("reset-password", &json!({"error": "Password must be at least 8 characters long", "token": form.token}))
-            .await);
+        return Ok(HttpResponse::SeeOther()
+            .append_header((
+                LOCATION,
+                format!(
+                    "/reset-password?token={}&error=password_too_short",
+                    form.token
+                ),
+            ))
+            .finish());
     }
 
     if form.password != form.repeat_password {
-        return Ok(req
-            .render_tpl(
-                "reset-password",
-                &json!({"error": "Passwords do not match", "token": form.token}),
-            )
-            .await);
+        return Ok(HttpResponse::SeeOther()
+            .append_header((
+                LOCATION,
+                format!(
+                    "/reset-password?token={}&error=passwords_mismatch",
+                    form.token
+                ),
+            ))
+            .finish());
     }
 
     let hashed_password =
         hash_password(&form.password).map_err(|e| AppError::Internal(e.to_string()))?;
 
-    // Consumes the token only while it is unexpired, and bumps
-    // `sessions_valid_after` so every JWT issued before the password change is
-    // rejected by the framework's AuthUser extractor — resetting the password
-    // logs out an attacker who holds a stolen session.
+    // Consuming the token clears it, and stamps `sessions_valid_after` so any
+    // JWTs issued before the reset are invalidated. Expired tokens match no row.
+    let now = super::now_unix();
     let result = sqlx::query!(
-        "UPDATE users SET password = ?, reset_token = NULL, reset_token_expires_at = NULL, \
-         sessions_valid_after = strftime('%s','now') \
-         WHERE reset_token = ? AND reset_token_expires_at > strftime('%s','now')",
+        "UPDATE users SET password = ?, reset_token = NULL, reset_token_expires_at = NULL, sessions_valid_after = ? \
+         WHERE reset_token = ? AND reset_token_expires_at IS NOT NULL AND reset_token_expires_at > CURRENT_TIMESTAMP",
         hashed_password,
+        now,
         form.token
     )
     .execute(&data.db)
@@ -83,12 +95,12 @@ pub async fn post(
     .map_err(|e: sqlx::Error| AppError::Internal(e.to_string()))?;
 
     if result.rows_affected() == 0 {
-        return Ok(req
-            .render_tpl(
-                "reset-password",
-                &json!({"error": "Invalid or expired reset token", "token": form.token}),
-            )
-            .await);
+        return Ok(HttpResponse::SeeOther()
+            .append_header((
+                LOCATION,
+                format!("/reset-password?token={}&error=invalid_token", form.token),
+            ))
+            .finish());
     }
 
     Ok(HttpResponse::SeeOther()

@@ -1,6 +1,10 @@
 ---
 import Sidebar from "../components/Sidebar.astro";
 import "../styles/global.css";
+import { Image, Font } from "astro:assets";
+import { ClientRouter } from "astro:transitions";
+import logo from "../assets/logo.svg";
+import { ssr } from "fse-ssr/ssr";
 
 interface Props {
   title: string;
@@ -8,40 +12,81 @@ interface Props {
 }
 
 const { title, sidebar = true } = Astro.props;
+const { lang } = ssr();
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang={lang ?? "en"}>
   <head>
     <meta charset="UTF-8" />
     <meta name="description" content="Astro description" />
     <meta name="viewport" content="width=device-width" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="generator" content={Astro.generator} />
-    <title>{title}</title>
+    <Font cssVariable="--font-montserrat" preload />
+    <title set:html={title} />
     <!-- Filled by the server with the page's render context as JSON; read it
          client-side via pageProps() from fse-ssr/client. -->
     <script is:inline type="application/json" id="__fse-props__"></script>
+    <ClientRouter />
+    <script is:inline>
+      if (localStorage.getItem("sidebar-mini") === "1") {
+        document.documentElement.classList.add("sidebar-mini");
+      }
+      // Apply the saved (or system) theme before first paint to avoid a flash.
+      (function () {
+        const saved = localStorage.getItem("theme");
+        const dark =
+          saved === "dark" ||
+          (!saved &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+      })();
+      document.addEventListener("astro:before-swap", (e) => {
+        if (localStorage.getItem("sidebar-mini") === "1") {
+          e.newDocument.documentElement.classList.add("sidebar-mini");
+        }
+        if (document.documentElement.classList.contains("dark")) {
+          e.newDocument.documentElement.classList.add("dark");
+        }
+        // Keep the <Font> @font-face styles/preloads across the head swap so the
+        // browser doesn't re-evaluate them and flash a fallback font on the
+        // persisted sidebar. See https://github.com/withastro/astro/issues/15465
+        for (const head of [document.head, e.newDocument.head]) {
+          let i = 0;
+          for (const style of head.querySelectorAll("style")) {
+            if (style.textContent.includes("@font-face")) {
+              style.setAttribute("data-astro-transition-persist", "font-style-" + i++);
+            }
+          }
+          for (const link of head.querySelectorAll('link[rel="preload"][as="font"]')) {
+            link.setAttribute(
+              "data-astro-transition-persist",
+              "font-preload-" + link.getAttribute("href"),
+            );
+          }
+        }
+      });
+    </script>
   </head>
   <body class="bg-secondary-50">
     <div class="relative flex min-h-screen">
       {sidebar && <Sidebar />}
       <div
-        class={`w-full flex flex-col transition-all duration-300 ease-in-out ${sidebar ? "py-4 px-4 lg:py-6 lg:px-12" : ""}`}
+        class={`w-full flex flex-col transition-all duration-300 ease-in-out ${sidebar ? "py-6 px-5 lg:py-8 lg:px-8" : ""}`}
       >
         {
           sidebar && (
             <div class="mb-4 flex items-center gap-4">
               <button
                 id="open-sidebar"
-                class="lg:hidden p-2 -ml-2 text-black hover:text-primary-600 focus:outline-none transition-colors rounded-lg hover:bg-secondary-200"
+                class="lg:hidden p-1.5 text-secondary-500 hover:text-secondary-900 hover:bg-secondary-100 transition-colors rounded-lg focus:outline-hidden"
                 aria-label="Open menu"
               >
-
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  width="24"
-                  height="24"
+                  width="20"
+                  height="20"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -55,7 +100,7 @@ const { title, sidebar = true } = Astro.props;
                 </svg>
               </button>
               <a href="/" class="lg:hidden">
-                <img src="/logo.svg" alt="Logo" class="h-8" />
+                <Image src={logo} alt="Logo" class="h-8 w-auto" />
               </a>
             </div>
           )
@@ -72,7 +117,6 @@ const { title, sidebar = true } = Astro.props;
         });
       }
 
-      setupLayout();
       document.addEventListener("astro:page-load", setupLayout);
     </script>
   </body>

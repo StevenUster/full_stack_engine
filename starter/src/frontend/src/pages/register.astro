@@ -2,104 +2,99 @@
 import { ssr } from "fse-ssr/ssr";
 import Input from "../components/Input.astro";
 import Layout from "../layouts/Layout.astro";
-import type { RegisterPage } from "../types/pages";
+import { Image } from "astro:assets";
+import logo from "../assets/logo.svg";
 
-const { error } = ssr<RegisterPage>();
+const { t, error } = ssr<{ error?: string }>();
+const errors = t.errors as Record<string, string>;
 ---
 
-<Layout title="Register" sidebar={false}>
-  <main class="grid w-screen h-screen place-items-center">
-    <form
-      id="login-form"
-      class="overflow-hidden w-[400px] bg-white rounded shadow-md text-secondary-500 shadow-secondary-200"
-      action="/register"
-      method="POST"
-    >
-      <div class="p-6">
-        <header class="mb-4 text-center">
-          <h3 class="text-xl font-medium text-black">Register</h3>
-        </header>
-        <div class="flex flex-col gap-4 mt-12">
-          <Input
-            id="email"
-            type="email"
-            placeholder="Your email"
-            required={true}
-          />
-          <Input
-            id="password"
-            type="password"
-            placeholder="Your password"
-            required={true}
-          />
-          <Input
-            id="repeat_password"
-            type="password"
-            placeholder="Repeat password"
-            required={true}
-          />
-        </div>
-      </div>
-      <div class="flex justify-end p-6">
-        <button
-          id="submit-btn"
-          type="submit"
-          class="inline-flex items-center justify-center w-full h-10 gap-2 whitespace-nowrap btn-primary disabled:cursor-not-allowed disabled:border-primary-300 disabled:bg-primary-300 disabled:shadow-none"
-        >
-          <span>Register</span>
-        </button>
+<Layout title={t.register.title} sidebar={false}>
+  <main class="min-h-screen w-full grid place-items-center bg-secondary-50 px-4 py-12">
+    <div class="w-full max-w-sm">
+      <!-- Logo -->
+      <div class="flex justify-center mb-8">
+        <a href="/">
+          <Image src={logo} alt="Logo" class="h-16 w-auto" />
+        </a>
       </div>
 
-      <div class="pb-6 px-6 text-center">
-        <p class="text-sm">
-          Already have an account? <a
-            href="/login"
-            class="text-primary-500 hover:underline">Login</a
-          >
-        </p>
-      </div>
-      {
-        error && (
-          <div class="px-6 py-3">
-            <div
-              class="w-full px-4 py-3 mb-4 text-sm text-pink-500 border border-pink-100 rounded bg-pink-50"
-              role="alert"
-            >
-              <p>{error}</p>
+      <!-- Card -->
+      <div class="bg-white border border-secondary-200 rounded-xl overflow-hidden">
+        <div class="px-6 pt-6 pb-2">
+          <h1 class="text-lg font-semibold text-secondary-900 mb-1">
+            {t.register.title}
+          </h1>
+        </div>
+
+        <form id="login-form" action="/register" method="POST" data-astro-reload enctype="multipart/form-data">
+          <div class="px-6 py-4 flex flex-col gap-4">
+            <div class="grid grid-cols-2 gap-4">
+              <Input id="first_name" type="text" placeholder={t.register.first_name} required={true} />
+              <Input id="last_name" type="text" placeholder={t.register.last_name} required={true} />
             </div>
+            <Input id="email" type="email" placeholder={t.register.email} required={true} />
+            <Input id="password" type="password" placeholder={t.register.password} required={true} />
+            <Input id="repeat_password" type="password" placeholder={t.register.repeat_password} required={true} />
           </div>
-        )
-      }
-    </form>
+
+          <div class="px-6 pb-5 pt-1">
+            <button
+              id="submit-btn"
+              type="submit"
+              class="btn-primary w-full h-10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span>{t.register.submit}</span>
+            </button>
+          </div>
+
+          {error && (
+            <div class="px-6 pb-4">
+              <div class="w-full px-4 py-3 text-sm text-red-600 border border-red-200 rounded-lg bg-red-50" role="alert">
+                <p>{errors[error] ?? error}</p>
+              </div>
+            </div>
+          )}
+        </form>
+
+        <div class="px-6 py-4 border-t border-secondary-100 text-center">
+          <p class="text-sm text-secondary-500">
+            {t.register.has_account}
+            <a href="/login" class="text-primary-600 hover:text-primary-700 font-medium hover:underline ml-1">
+              {t.register.login}
+            </a>
+          </p>
+        </div>
+      </div>
+    </div>
   </main>
 
   <script>
-    const form = document.getElementById("login-form") as HTMLFormElement;
-    const password = document.getElementById("password") as HTMLInputElement;
-    const repeatPassword = document.getElementById("repeat_password") as HTMLInputElement;
-    const submitBtn = document.getElementById("submit-btn") as HTMLButtonElement;
+    import { pageProps } from "fse-ssr/client";
 
-    if (form && password && repeatPassword && submitBtn) {
-      form.addEventListener("submit", (e) => {
-        if (password.value !== repeatPassword.value) {
-          e.preventDefault();
-          alert("Passwords do not match!");
-          submitBtn.disabled = true;
-        } else {
-          submitBtn.disabled = false;
+    function setupRegisterForm() {
+      const form = document.getElementById("login-form") as HTMLFormElement;
+      const password = document.getElementById("password") as HTMLInputElement;
+      const repeatPassword = document.getElementById("repeat_password") as HTMLInputElement;
+      const submitBtn = document.getElementById("submit-btn") as HTMLButtonElement;
+
+      if (form && password && repeatPassword && submitBtn) {
+        form.addEventListener("submit", (e) => {
+          if (password.value !== repeatPassword.value) {
+            e.preventDefault();
+            const { t } = pageProps<{ t: { register: { passwords_mismatch?: string } } }>();
+            alert(t.register.passwords_mismatch ?? "Passwords do not match");
+          }
+        });
+
+        function checkPasswords() {
+          submitBtn.disabled = password.value !== repeatPassword.value;
         }
-      });
-
-      password.addEventListener("input", checkPasswords);
-      repeatPassword.addEventListener("input", checkPasswords);
-
-      function checkPasswords() {
-        if (password.value === repeatPassword.value) {
-          submitBtn.disabled = false;
-        } else {
-          submitBtn.disabled = true;
-        }
+        password.addEventListener("input", checkPasswords);
+        repeatPassword.addEventListener("input", checkPasswords);
       }
     }
+
+    document.addEventListener("astro:page-load", setupRegisterForm);
   </script>
 </Layout>

@@ -1,0 +1,45 @@
+---
+import { ssr } from "fse-ssr/ssr";
+import Card from "../../components/Card.astro";
+import Header from "../../components/Header.astro";
+import Pagination from "../../components/Pagination.astro";
+import SearchBar from "../../components/SearchBar.astro";
+import Layout from "../../layouts/Layout.astro";
+import type { ProductsPage } from "../../types/pages";
+
+const { t, products } = ssr<ProductsPage>();
+
+const accents: ("primary" | "secondary")[] = ["primary", "secondary"];
+---
+
+<Layout title={t.products.title}>
+  <main class="grid place-items-center">
+    <div class="w-full max-w-5xl">
+      <Header>{t.products.title}</Header>
+
+      <Card padding={false} tailwind="mb-6">
+        <SearchBar placeholder={t.products.search_placeholder ?? "Search products..."} />
+      </Card>
+
+      {
+        products.length === 0 ? (
+          <p class="text-sm text-secondary-500">{t.products.empty}</p>
+        ) : (
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {products.map((product, i) => (
+              <a href={`/products/${product.slug}`}>
+                <Card accent={accents[i % accents.length]} hover>
+                  <h3 class="text-lg font-bold text-secondary-900">{product.name}</h3>
+                  <p class="text-sm text-secondary-500 line-clamp-2">{product.description}</p>
+                  <p class="text-sm font-semibold text-primary-600">${product.price}</p>
+                </Card>
+              </a>
+            ))}
+          </div>
+        )
+      }
+
+      <Pagination />
+    </div>
+  </main>
+</Layout>

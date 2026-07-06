@@ -1,0 +1,55 @@
+---
+import { ssr } from "fse-ssr/ssr";
+import Card from "../../components/Card.astro";
+import Header from "../../components/Header.astro";
+import Input from "../../components/Input.astro";
+import Layout from "../../layouts/Layout.astro";
+import type { ProductDetailPage } from "../../types/pages";
+
+const { t, product, is_logged_in, ordered } = ssr<ProductDetailPage>();
+---
+
+<Layout title={product.name}>
+  <main class="grid place-items-center">
+    <div class="w-full max-w-2xl">
+      <Header backlink="/products">{product.name}</Header>
+
+      <Card>
+        <p class="text-secondary-600">{product.description}</p>
+        <p class="text-xl font-bold text-primary-600">${product.price}</p>
+
+        {
+          ordered && (
+            <div class="p-4 rounded-xl bg-primary-50 border border-primary-200">
+              <p class="text-sm font-medium text-primary-700">
+                {t.products.ordered ?? "Order placed! Track it from My Orders."}
+              </p>
+            </div>
+          )
+        }
+
+        {
+          is_logged_in ? (
+            <form
+              action={`/products/${product.slug}/order`}
+              method="POST"
+              class="space-y-4 pt-4 border-t border-secondary-100"
+            >
+              <Input id="quantity" type="number" placeholder={t.products.quantity ?? "Quantity"} value="1" min={1} required />
+              <Input id="note" type="text" placeholder={t.products.note ?? "Note (optional)"} />
+              <button type="submit" class="btn-primary w-full">
+                {t.products.place_order ?? "Place Order"}
+              </button>
+            </form>
+          ) : (
+            <div class="pt-4 border-t border-secondary-100">
+              <a href="/login" class="btn-primary w-full inline-flex justify-center">
+                {t.products.login_to_order ?? "Log in to order"}
+              </a>
+            </div>
+          )
+        }
+      </Card>
+    </div>
+  </main>
+</Layout>

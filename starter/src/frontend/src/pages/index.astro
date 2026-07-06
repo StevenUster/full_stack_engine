@@ -1,14 +1,17 @@
 ---
+import { ssr } from "fse-ssr/ssr";
 import Layout from "../layouts/Layout.astro";
 import Card from "../components/Card.astro";
 import Header from "../components/Header.astro";
+
+const { t } = ssr();
 ---
 
-<Layout title="Index">
-    <main class="grid place-items-center">
-        <div class="w-full">
-            <Header>Index</Header>
-            <Card> Index </Card>
-        </div>
-    </main>
+<Layout title={t.sidebar.index}>
+  <main class="grid place-items-center">
+    <div class="w-full">
+      <Header>{t.sidebar.index}</Header>
+      <Card> {t.sidebar.index} </Card>
+    </div>
+  </main>
 </Layout>

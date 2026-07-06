@@ -1,0 +1,40 @@
+---
+import { ssr } from "fse-ssr/ssr";
+import Card from "../../components/Card.astro";
+import Header from "../../components/Header.astro";
+import Input from "../../components/Input.astro";
+import Layout from "../../layouts/Layout.astro";
+import type { ProductCreatePage } from "../../types/pages";
+
+const { t, name, slug, description, price, error_slug } = ssr<ProductCreatePage>();
+---
+
+<Layout title={t.product_manager.new ?? "New Product"}>
+  <main class="grid place-items-center">
+    <div class="w-full max-w-xl">
+      <Header backlink="/product-manager">{t.product_manager.new ?? "New Product"}</Header>
+      <Card>
+        <form action="/product-manager/create" method="POST" class="space-y-4">
+          <Input id="name" type="text" placeholder={t.products.name ?? "Name"} value={name} required />
+          <Input id="slug" type="text" placeholder={t.products.slug ?? "Slug (optional)"} value={slug} />
+          <Input id="description" type="text" placeholder={t.products.description ?? "Description"} value={description} />
+          <Input id="price" type="number" placeholder={t.products.price_label ?? "Price"} value={price} step="0.01" min={0} required />
+
+          {
+            error_slug === "slug_taken" && (
+              <div class="p-4 rounded-xl bg-red-50 border border-red-100">
+                <p class="text-sm font-medium text-red-700">
+                  {t.products.slug_taken ?? "That slug is already in use."}
+                </p>
+              </div>
+            )
+          }
+
+          <button type="submit" class="btn-primary w-full">
+            {t.product_manager.create ?? "Create Product"}
+          </button>
+        </form>
+      </Card>
+    </div>
+  </main>
+</Layout>

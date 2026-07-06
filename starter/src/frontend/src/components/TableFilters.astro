@@ -35,7 +35,7 @@ const hasExtraFilters = Astro.slots.has("default");
       </div>
 
       <button type="submit" class="btn-primary h-9 py-0">
-        {t.filters.search ?? "Search"}
+        {t.filters.search ?? "Suchen"}
       </button>
 
       {
@@ -50,7 +50,7 @@ const hasExtraFilters = Astro.slots.has("default");
               <line x1="8" y1="12" x2="16" y2="12" />
               <line x1="11" y1="18" x2="13" y2="18" />
             </svg>
-            {t.filters.label ?? "Filters"}
+            {t.filters.label ?? "Filter"}
             <span
               id="filters-badge"
               class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-primary-600 text-white text-[10px] font-bold items-center justify-center leading-none"
@@ -64,7 +64,7 @@ const hasExtraFilters = Astro.slots.has("default");
         id="filters-clear"
         class="h-9 px-4 hidden items-center text-sm text-secondary-600 border border-secondary-200 rounded-lg hover:bg-secondary-100 bg-white transition-colors whitespace-nowrap"
       >
-        {t.filters.clear ?? "Reset"}
+        {t.filters.clear ?? "Zurücksetzen"}
       </a>
     </div>
 
@@ -77,7 +77,7 @@ const hasExtraFilters = Astro.slots.has("default");
         >
           <slot />
           <button type="submit" class="btn-primary w-full sm:w-auto h-9 py-0">
-            {t.filters.apply ?? "Apply"}
+            {t.filters.apply ?? "Anwenden"}
           </button>
         </div>
       )
