@@ -2,13 +2,22 @@
 //! and fulfil orders from the product-manager "Orders" tab. A minimal example
 //! of a child resource with its own moderation workflow (`pending` ->
 //! `fulfilled`/`cancelled`).
+//!
+//! The ORM has no joins by design: related rows are fetched with a second
+//! query over the collected ids (`Col::in_` on the dynamic builder) and
+//! stitched in Rust. For a page-sized list this is one extra indexed query.
+
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     AppData, AppError, AppResult, AppRole, AuthUser, Deserialize, Serialize,
     actix_web::{HttpResponse, delete, get, post, web},
+    delete_rows, find, find_one, update,
 };
 
-pub const ORDER_STATUSES: [&str; 3] = ["pending", "fulfilled", "cancelled"];
+use crate::tables::order::{InsertOrder, Order, OrderStatus};
+use crate::tables::product::{Product, ProductStatus};
+use crate::tables::user::User;
 
 #[derive(Deserialize)]
 pub struct PlaceOrderForm {
@@ -26,24 +35,20 @@ pub async fn post_place_order(
 ) -> AppResult {
     let slug = path.into_inner();
 
-    let product = sqlx::query!(
-        "SELECT id FROM products WHERE slug = ? AND status = 'published'",
-        slug
+    let product = find_one!(
+        Product,
+        &data.db,
+        slug == slug.as_str() && status == ProductStatus::Published
     )
-    .fetch_optional(&data.db)
     .await?
     .ok_or_else(|| AppError::NotFound("product".to_string()))?;
 
-    let quantity = form.quantity.max(1);
-
-    sqlx::query!(
-        "INSERT INTO orders (product_id, user_id, quantity, note) VALUES (?, ?, ?, ?)",
-        product.id,
-        user.claims.sub,
-        quantity,
-        form.note
-    )
-    .execute(&data.db)
+    InsertOrder {
+        quantity: form.quantity.max(1),
+        note: form.note.clone(),
+        ..InsertOrder::new(product.id, user.claims.sub)
+    }
+    .insert(&data.db)
     .await?;
 
     Ok(HttpResponse::Found()
@@ -51,23 +56,12 @@ pub async fn post_place_order(
         .finish())
 }
 
-#[derive(sqlx::FromRow)]
-struct MyOrderRecord {
-    id: i64,
-    quantity: i64,
-    note: Option<String>,
-    status: String,
-    created_at: String,
-    product_name: String,
-    product_slug: String,
-}
-
 #[derive(Serialize)]
 struct MyOrderRow {
     id: i64,
     quantity: i64,
     note: String,
-    status: String,
+    status: &'static str,
     created_at: String,
     product_name: String,
     product_link: String,
@@ -82,34 +76,53 @@ pub async fn get_my_orders(
 ) -> AppResult {
     use super::RenderTplExt;
 
-    let records = sqlx::query_as::<_, MyOrderRecord>(
-        "SELECT o.id, o.quantity, o.note, o.status, o.created_at, \
-                p.name AS product_name, p.slug AS product_slug \
-         FROM orders o JOIN products p ON o.product_id = p.id \
-         WHERE o.user_id = ? ORDER BY o.created_at DESC",
+    let orders = find!(
+        Order,
+        &data.db,
+        user_id == user.claims.sub,
+        order_by: created_at.desc()
     )
-    .bind(user.claims.sub)
-    .fetch_all(&data.db)
     .await?;
 
-    let rows: Vec<MyOrderRow> = records
+    let products = products_by_id(&data, &orders).await?;
+
+    let rows: Vec<MyOrderRow> = orders
         .into_iter()
-        .map(|o| MyOrderRow {
-            id: o.id,
-            quantity: o.quantity,
-            note: o.note.unwrap_or_default(),
-            status: o.status,
-            created_at: o.created_at,
-            product_name: o.product_name,
-            product_link: format!("/products/{}", o.product_slug),
+        .filter_map(|o| {
+            let product = products.get(&o.product_id)?;
+            Some(MyOrderRow {
+                id: o.id,
+                quantity: o.quantity,
+                note: o.note.unwrap_or_default(),
+                status: o.status.as_str(),
+                created_at: o.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                product_name: product.name.clone(),
+                product_link: format!("/products/{}", product.slug),
+            })
         })
         .collect();
 
     Ok(req.render_tpl("my-orders", &crate::json!({ "rows": rows })).await)
 }
 
+/// The products referenced by these orders, keyed by id.
+async fn products_by_id(
+    data: &web::Data<AppData>,
+    orders: &[Order],
+) -> Result<HashMap<i64, Product>, AppError> {
+    let ids: HashSet<i64> = orders.iter().map(|o| o.product_id).collect();
+    Ok(Product::find()
+        .filter(Product::ID.in_(ids))
+        .fetch_all(&data.db)
+        .await?
+        .into_iter()
+        .map(|p| (p.id, p))
+        .collect())
+}
+
 /// `POST /my-orders/{id}/cancel` — cancel one of the caller's own pending
-/// orders.
+/// orders. The filter carries the ownership and state checks, so a foreign
+/// or already-processed order matches nothing.
 #[post("/my-orders/{id}/cancel")]
 pub async fn post_cancel_my_order(
     data: web::Data<AppData>,
@@ -118,13 +131,12 @@ pub async fn post_cancel_my_order(
 ) -> AppResult {
     let order_id = path.into_inner();
 
-    sqlx::query!(
-        "UPDATE orders SET status = 'cancelled' \
-         WHERE id = ? AND user_id = ? AND status = 'pending'",
-        order_id,
-        user.claims.sub
+    update!(
+        Order,
+        &data.db,
+        id == order_id && user_id == user.claims.sub && status == OrderStatus::Pending;
+        status = OrderStatus::Cancelled
     )
-    .execute(&data.db)
     .await?;
 
     Ok(HttpResponse::Found()
@@ -138,22 +150,12 @@ pub struct OrderSearchParams {
     pub page: Option<i64>,
 }
 
-#[derive(sqlx::FromRow)]
-struct ProductOrderRecord {
-    id: i64,
-    quantity: i64,
-    note: Option<String>,
-    status: String,
-    created_at: String,
-    user_email: String,
-}
-
 #[derive(Serialize)]
 struct ProductOrderRow {
     id: i64,
     quantity: i64,
     note: String,
-    status: String,
+    status: &'static str,
     created_at: String,
     user_email: String,
     fulfill_url: String,
@@ -161,7 +163,7 @@ struct ProductOrderRow {
 }
 
 /// `GET /product-manager/{id}/orders` — orders tab: every order placed
-/// against this product.
+/// against this product, filterable by customer email.
 #[get("/product-manager/{id}/orders")]
 pub async fn get_product_orders(
     data: web::Data<AppData>,
@@ -174,37 +176,48 @@ pub async fn get_product_orders(
     user.require_permission("products.read")?;
 
     let product_id = path.into_inner();
-    let product = sqlx::query!("SELECT id, name FROM products WHERE id = ?", product_id)
-        .fetch_optional(&data.db)
+    let product = Product::fetch(&data.db, product_id)
         .await?
         .ok_or_else(|| AppError::NotFound("product".to_string()))?;
 
-    let search = query.search.as_deref().unwrap_or("").trim().to_string();
-    let pattern = format!("%{search}%");
+    let search = query.search.as_deref().unwrap_or("").trim().to_lowercase();
 
-    let records = sqlx::query_as::<_, ProductOrderRecord>(
-        "SELECT o.id, o.quantity, o.note, o.status, o.created_at, u.email AS user_email \
-         FROM orders o JOIN users u ON o.user_id = u.id \
-         WHERE o.product_id = ? AND (? = '' OR u.email LIKE ?) \
-         ORDER BY o.created_at DESC",
+    let orders = find!(
+        Order,
+        &data.db,
+        product_id == product_id,
+        order_by: created_at.desc()
     )
-    .bind(product_id)
-    .bind(&search)
-    .bind(&pattern)
-    .fetch_all(&data.db)
     .await?;
 
-    let rows: Vec<ProductOrderRow> = records
+    // Resolve customer emails, then apply the email search in Rust — one
+    // product's orders are a bounded set.
+    let user_ids: HashSet<i64> = orders.iter().map(|o| o.user_id).collect();
+    let emails: HashMap<i64, String> = User::find()
+        .filter(User::ID.in_(user_ids))
+        .fetch_all(&data.db)
+        .await?
         .into_iter()
-        .map(|o| ProductOrderRow {
-            id: o.id,
-            quantity: o.quantity,
-            note: o.note.unwrap_or_default(),
-            status: o.status,
-            created_at: o.created_at,
-            user_email: o.user_email,
-            fulfill_url: format!("/product-manager/{product_id}/orders/{}", o.id),
-            delete_url: format!("/product-manager/{product_id}/orders/{}", o.id),
+        .map(|u| (u.id, u.email))
+        .collect();
+
+    let rows: Vec<ProductOrderRow> = orders
+        .into_iter()
+        .filter_map(|o| {
+            let email = emails.get(&o.user_id)?;
+            if !search.is_empty() && !email.to_lowercase().contains(&search) {
+                return None;
+            }
+            Some(ProductOrderRow {
+                id: o.id,
+                quantity: o.quantity,
+                note: o.note.unwrap_or_default(),
+                status: o.status.as_str(),
+                created_at: o.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                user_email: email.clone(),
+                fulfill_url: format!("/product-manager/{product_id}/orders/{}", o.id),
+                delete_url: format!("/product-manager/{product_id}/orders/{}", o.id),
+            })
         })
         .collect();
 
@@ -230,12 +243,12 @@ pub async fn post_fulfill_order(
     user.require_permission("products.write")?;
     let (product_id, order_id) = path.into_inner();
 
-    sqlx::query!(
-        "UPDATE orders SET status = 'fulfilled' WHERE id = ? AND product_id = ?",
-        order_id,
-        product_id
+    update!(
+        Order,
+        &data.db,
+        id == order_id && product_id == product_id;
+        status = OrderStatus::Fulfilled
     )
-    .execute(&data.db)
     .await?;
 
     Ok(HttpResponse::Found()
@@ -253,13 +266,7 @@ pub async fn delete_order(
     user.require_permission("products.write")?;
     let (product_id, order_id) = path.into_inner();
 
-    sqlx::query!(
-        "DELETE FROM orders WHERE id = ? AND product_id = ?",
-        order_id,
-        product_id
-    )
-    .execute(&data.db)
-    .await?;
+    delete_rows!(Order, &data.db, id == order_id && product_id == product_id).await?;
 
     Ok(HttpResponse::Ok().finish())
 }

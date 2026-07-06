@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM orders WHERE (id = ? AND product_id = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ecd9b513e94af5d519ad58db1c31a6b9ebdd1d25d5b96aa989094bff80342f7d"
+}

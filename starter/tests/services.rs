@@ -8,6 +8,8 @@ use actix_web::http::StatusCode;
 use actix_web::{App, test, web};
 use common::{seed_user, test_app_data};
 use starter::services::{login, register, reset_password, users};
+use starter::tables::user::User;
+use starter::{count, update};
 
 macro_rules! test_service {
     ($data:expr) => {
@@ -115,10 +117,7 @@ async fn duplicate_registration_is_indistinguishable_from_success() {
         second.headers().get("location")
     );
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email = 'dup@test.io'")
-        .fetch_one(&data.db)
-        .await
-        .unwrap();
+    let count = count!(User, &data.db, email == "dup@test.io").await.unwrap();
     assert_eq!(count, 1);
 }
 
@@ -170,12 +169,8 @@ async fn users_write_permission_cannot_grant_or_touch_admin() {
         .to_request();
     let res = test::call_service(&app, req).await;
     assert!(res.status().is_client_error() || res.status().is_server_error());
-    let role: String = sqlx::query_scalar("SELECT role FROM users WHERE id = ?")
-        .bind(victim)
-        .fetch_one(&data.db)
-        .await
-        .unwrap();
-    assert_eq!(role, "user");
+    let target = User::fetch(&data.db, victim).await.unwrap().unwrap();
+    assert_eq!(target.role.as_str(), "user");
 
     // An admin, on the other hand, can change roles — and the change revokes
     // the target's sessions.
@@ -190,14 +185,9 @@ async fn users_write_permission_cannot_grant_or_touch_admin() {
         StatusCode::FOUND
     );
 
-    let (role, valid_after): (String, i64) =
-        sqlx::query_as("SELECT role, sessions_valid_after FROM users WHERE id = ?")
-            .bind(victim)
-            .fetch_one(&data.db)
-            .await
-            .unwrap();
-    assert_eq!(role, "manager");
-    assert!(valid_after > 0);
+    let target = User::fetch(&data.db, victim).await.unwrap().unwrap();
+    assert_eq!(target.role.as_str(), "manager");
+    assert!(target.sessions_valid_after > 0);
 }
 
 #[actix_web::test]
@@ -218,12 +208,13 @@ async fn password_reset_enforces_expiry_and_revokes_sessions() {
     };
 
     // Expired token: rejected, nothing consumed.
-    sqlx::query(
-        "UPDATE users SET reset_token = 'expired-tok', \
-         reset_token_expires_at = datetime('now', '-1 hour') WHERE id = ?",
+    update!(
+        User,
+        &data.db,
+        id == user;
+        reset_token = Some("expired-tok".to_string()),
+        reset_token_expires_at = Some(starter::chrono::Utc::now().naive_utc() - starter::chrono::Duration::hours(1))
     )
-    .bind(user)
-    .execute(&data.db)
     .await
     .unwrap();
     let res = test::call_service(&app, reset("expired-tok")).await;
@@ -237,34 +228,26 @@ async fn password_reset_enforces_expiry_and_revokes_sessions() {
             .unwrap()
             .contains("error=invalid_token")
     );
-    let token: Option<String> = sqlx::query_scalar("SELECT reset_token FROM users WHERE id = ?")
-        .bind(user)
-        .fetch_one(&data.db)
-        .await
-        .unwrap();
-    assert_eq!(token.as_deref(), Some("expired-tok"));
+    let row = User::fetch(&data.db, user).await.unwrap().unwrap();
+    assert_eq!(row.reset_token.as_deref(), Some("expired-tok"));
 
     // Valid token: consumed, password changed, outstanding sessions revoked.
-    sqlx::query(
-        "UPDATE users SET reset_token = 'valid-tok', \
-         reset_token_expires_at = datetime('now', '+1 hour') WHERE id = ?",
+    update!(
+        User,
+        &data.db,
+        id == user;
+        reset_token = Some("valid-tok".to_string()),
+        reset_token_expires_at = Some(starter::chrono::Utc::now().naive_utc() + starter::chrono::Duration::hours(1))
     )
-    .bind(user)
-    .execute(&data.db)
     .await
     .unwrap();
     let res = test::call_service(&app, reset("valid-tok")).await;
     assert_eq!(res.status(), StatusCode::SEE_OTHER);
     assert_eq!(res.headers().get("location").unwrap(), "/logout");
 
-    let (token, valid_after): (Option<String>, i64) =
-        sqlx::query_as("SELECT reset_token, sessions_valid_after FROM users WHERE id = ?")
-            .bind(user)
-            .fetch_one(&data.db)
-            .await
-            .unwrap();
-    assert_eq!(token, None);
-    assert!(valid_after > 0);
+    let row = User::fetch(&data.db, user).await.unwrap().unwrap();
+    assert_eq!(row.reset_token, None);
+    assert!(row.sessions_valid_after > 0);
 
     // The new password works, the old one doesn't.
     let req = test::TestRequest::post()

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE users SET password = ?, reset_token = ?, reset_token_expires_at = ?, sessions_valid_after = ? WHERE (reset_token = ? AND reset_token_expires_at > ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "0990885f534abb2e768b93cd12531ff35dad7877d9b537ebfbf75a6c25a7a20d"
+}

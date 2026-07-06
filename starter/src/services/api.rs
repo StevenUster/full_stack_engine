@@ -9,6 +9,7 @@ use crate::{
 };
 
 use super::RenderTplExt;
+use crate::tables::product::{Product, ProductStatus};
 
 const PER_PAGE: i64 = 50;
 
@@ -107,15 +108,6 @@ pub struct ApiProductsQuery {
     pub page: Option<i64>,
 }
 
-#[derive(sqlx::FromRow)]
-struct ApiProductRecord {
-    id: i64,
-    name: String,
-    slug: String,
-    description: Option<String>,
-    price: f64,
-}
-
 /// `GET /api/products` — paginated list of published products.
 #[get("/api/products")]
 pub async fn get_products(
@@ -123,33 +115,22 @@ pub async fn get_products(
     query: web::Query<ApiProductsQuery>,
 ) -> AppResult {
     let page = query.page.unwrap_or(1).max(1);
-    let offset = (page - 1) * PER_PAGE;
     let search = query.search.as_deref().unwrap_or("").trim().to_string();
-    let search_pat = format!("%{search}%");
 
-    let sql_where = "status = 'published' AND (? = '' OR name LIKE ?)";
-
-    let total_count: i64 =
-        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM products WHERE {sql_where}"))
-            .bind(&search)
-            .bind(&search_pat)
-            .fetch_one(&data.db)
-            .await?;
-
-    let products = sqlx::query_as::<_, ApiProductRecord>(&format!(
-        "SELECT id, name, slug, description, price FROM products WHERE {sql_where} \
-         ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    ))
-    .bind(&search)
-    .bind(&search_pat)
-    .bind(PER_PAGE)
-    .bind(offset)
-    .fetch_all(&data.db)
+    let result = crate::find_page!(
+        Product,
+        &data.db,
+        status == ProductStatus::Published && name.contains_opt(&search),
+        order_by: created_at.desc(),
+        page: page,
+        per_page: PER_PAGE
+    )
     .await?;
 
-    let total_pages = ((total_count + PER_PAGE - 1) / PER_PAGE).max(1);
+    let total_pages = ((result.total + PER_PAGE - 1) / PER_PAGE).max(1);
 
-    let rows: Vec<crate::serde_json::Value> = products
+    let rows: Vec<crate::serde_json::Value> = result
+        .rows
         .into_iter()
         .map(|p| {
             crate::json!({
@@ -168,7 +149,7 @@ pub async fn get_products(
         "page": page,
         "per_page": PER_PAGE,
         "total_pages": total_pages,
-        "total_count": total_count,
+        "total_count": result.total,
     })))
 }
 
@@ -177,15 +158,10 @@ pub async fn get_products(
 pub async fn get_product_detail(data: web::Data<AppData>, path: web::Path<String>) -> AppResult {
     let slug = path.into_inner();
 
-    let product = sqlx::query!(
-        "SELECT id, name, slug, description, price, status FROM products WHERE slug = ?",
-        slug
-    )
-    .fetch_optional(&data.db)
-    .await?;
+    let product = crate::find_one!(Product, &data.db, slug == slug.as_str()).await?;
 
     let product = match product {
-        Some(p) if p.status == "published" => p,
+        Some(p) if p.status == ProductStatus::Published => p,
         _ => return Ok(HttpResponse::NotFound().finish()),
     };
 

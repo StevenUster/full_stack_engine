@@ -18,6 +18,9 @@ sqlx = { version = "0.8.6", features = [
 dotenv = "0.15.0"
 uuid = { version = "1.23.3", features = ["v4"] }
 full_stack_engine = { path = "../framework" }
+# The ORM runtime. Direct dependency because the query macros expand to
+# `::fse_orm::...` paths (same reason sqlx is a direct dependency).
+fse-orm = { version = "0.1.0", path = "../fse-orm/runtime" }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 
 [profile.release]

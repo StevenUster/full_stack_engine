@@ -1,36 +1,23 @@
 //! Example manageable resource: a product catalog with a public listing +
 //! detail page and an admin CRUD UI (`/product-manager/...`). Meant as a
 //! template for "the thing your app actually manages" — copy this file,
-//! rename `Product`/`products`, and adjust the fields.
+//! rename `Product`/`products`, and adjust the fields in
+//! `src/tables/product.rs`.
 
 use crate::{
     AppData, AppError, AppResult, AppRole, AuthUser, Deserialize, Serialize,
     actix_web::{HttpResponse, delete, get, post, web},
+    find_one, find_page, update,
 };
 
+use crate::tables::product::{InsertProduct, Product, ProductStatus};
+
 const PER_PAGE: i64 = 20;
-
-/// The product lifecycle. `draft` and `archived` are hidden from the public
-/// catalog; only `published` products are shown there.
-pub const PRODUCT_STATUSES: [&str; 3] = ["draft", "published", "archived"];
-
-fn is_valid_status(status: &str) -> bool {
-    PRODUCT_STATUSES.contains(&status)
-}
 
 #[derive(Deserialize, Default)]
 pub struct ProductSearchParams {
     pub search: Option<String>,
     pub page: Option<i64>,
-}
-
-#[derive(sqlx::FromRow)]
-struct PublicProductRecord {
-    id: i64,
-    name: String,
-    slug: String,
-    description: Option<String>,
-    price: f64,
 }
 
 /// `GET /products` — public catalog: only `published` products, searchable
@@ -44,33 +31,22 @@ pub async fn get_public_products(
     use super::RenderTplExt;
 
     let page = query.page.unwrap_or(1).max(1);
-    let offset = (page - 1) * PER_PAGE;
     let search = query.search.as_deref().unwrap_or("").trim().to_string();
-    let search_pat = format!("%{search}%");
 
-    let sql_where = "status = 'published' AND (? = '' OR name LIKE ?)";
-
-    let total_count: i64 =
-        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM products WHERE {sql_where}"))
-            .bind(&search)
-            .bind(&search_pat)
-            .fetch_one(&data.db)
-            .await?;
-
-    let products = sqlx::query_as::<_, PublicProductRecord>(&format!(
-        "SELECT id, name, slug, description, price FROM products WHERE {sql_where} \
-         ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    ))
-    .bind(&search)
-    .bind(&search_pat)
-    .bind(PER_PAGE)
-    .bind(offset)
-    .fetch_all(&data.db)
+    let result = find_page!(
+        Product,
+        &data.db,
+        status == ProductStatus::Published && name.contains_opt(&search),
+        order_by: created_at.desc(),
+        page: page,
+        per_page: PER_PAGE
+    )
     .await?;
 
-    let total_pages = ((total_count + PER_PAGE - 1) / PER_PAGE).max(1);
+    let total_pages = ((result.total + PER_PAGE - 1) / PER_PAGE).max(1);
 
-    let rows: Vec<crate::serde_json::Value> = products
+    let rows: Vec<crate::serde_json::Value> = result
+        .rows
         .into_iter()
         .map(|p| {
             crate::json!({
@@ -91,7 +67,7 @@ pub async fn get_public_products(
                 "search": search,
                 "page": page,
                 "total_pages": total_pages,
-                "total_count": total_count,
+                "total_count": result.total,
                 "per_page": PER_PAGE,
             }),
         )
@@ -115,15 +91,9 @@ pub async fn get_public_product_detail(
     use super::RenderTplExt;
     let slug = path.into_inner();
 
-    let product = sqlx::query!(
-        "SELECT id, name, slug, description, price, status FROM products WHERE slug = ?",
-        slug
-    )
-    .fetch_optional(&data.db)
-    .await?;
-
+    let product = find_one!(Product, &data.db, slug == slug.as_str()).await?;
     let product = match product {
-        Some(p) if p.status == "published" => p,
+        Some(p) if p.status == ProductStatus::Published => p,
         _ => return Ok(HttpResponse::NotFound().finish()),
     };
 
@@ -145,21 +115,12 @@ pub async fn get_public_product_detail(
         .await)
 }
 
-#[derive(sqlx::FromRow)]
-struct ProductManagerRecord {
-    id: i64,
-    name: String,
-    price: f64,
-    status: String,
-    created_at: String,
-}
-
 #[derive(Serialize)]
 struct ProductManagerRow {
     id: i64,
     name: String,
     price: String,
-    status: String,
+    status: &'static str,
     created_at: String,
     link: String,
     delete_url: String,
@@ -177,44 +138,33 @@ pub async fn get_products(
     user.require_permission("products.read")?;
 
     let page = query.page.unwrap_or(1).max(1);
-    let offset = (page - 1) * PER_PAGE;
     let search = query.search.as_deref().unwrap_or("").trim().to_string();
-    let search_pat = format!("%{search}%");
 
-    let sql_where = "(? = '' OR name LIKE ?)";
-
-    let total_count: i64 =
-        sqlx::query_scalar(&format!("SELECT COUNT(*) FROM products WHERE {sql_where}"))
-            .bind(&search)
-            .bind(&search_pat)
-            .fetch_one(&data.db)
-            .await?;
-
-    let records = sqlx::query_as::<_, ProductManagerRecord>(&format!(
-        "SELECT id, name, price, status, created_at FROM products WHERE {sql_where} \
-         ORDER BY created_at DESC LIMIT ? OFFSET ?"
-    ))
-    .bind(&search)
-    .bind(&search_pat)
-    .bind(PER_PAGE)
-    .bind(offset)
-    .fetch_all(&data.db)
+    let result = find_page!(
+        Product,
+        &data.db,
+        name.contains_opt(&search),
+        order_by: created_at.desc(),
+        page: page,
+        per_page: PER_PAGE
+    )
     .await?;
 
-    let rows: Vec<ProductManagerRow> = records
+    let total_pages = ((result.total + PER_PAGE - 1) / PER_PAGE).max(1);
+
+    let rows: Vec<ProductManagerRow> = result
+        .rows
         .into_iter()
         .map(|p| ProductManagerRow {
             id: p.id,
             name: p.name,
             price: format!("{:.2}", p.price),
-            status: p.status,
-            created_at: p.created_at,
+            status: p.status.as_str(),
+            created_at: p.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
             link: format!("/product-manager/{}", p.id),
             delete_url: format!("/product-manager/{}", p.id),
         })
         .collect();
-
-    let total_pages = ((total_count + PER_PAGE - 1) / PER_PAGE).max(1);
 
     Ok(req
         .render_tpl(
@@ -224,7 +174,7 @@ pub async fn get_products(
                 "search": search,
                 "page": page,
                 "total_pages": total_pages,
-                "total_count": total_count,
+                "total_count": result.total,
                 "per_page": PER_PAGE,
             }),
         )
@@ -284,11 +234,7 @@ pub async fn post_product_create(
         .clone()
         .unwrap_or_else(|| generate_slug(&form.name));
 
-    let existing = sqlx::query!("SELECT id FROM products WHERE slug = ?", slug)
-        .fetch_optional(&data.db)
-        .await?;
-
-    if existing.is_some() {
+    if Product::fetch_by_slug(&data.db, &slug).await?.is_some() {
         return Ok(req
             .render_tpl(
                 "product-manager/create",
@@ -303,14 +249,12 @@ pub async fn post_product_create(
             .await);
     }
 
-    sqlx::query!(
-        "INSERT INTO products (name, slug, description, price) VALUES (?, ?, ?, ?)",
-        form.name,
-        slug,
-        form.description,
-        form.price
-    )
-    .execute(&data.db)
+    InsertProduct {
+        description: form.description.clone(),
+        price: form.price,
+        ..InsertProduct::new(form.name.clone(), slug)
+    }
+    .insert(&data.db)
     .await?;
 
     Ok(HttpResponse::Found()
@@ -329,13 +273,9 @@ pub async fn get_product(
     user.require_permission("products.read")?;
 
     let product_id = path.into_inner();
-    let product = sqlx::query!(
-        "SELECT id, name, slug, description, price, status FROM products WHERE id = ?",
-        product_id
-    )
-    .fetch_optional(&data.db)
-    .await?
-    .ok_or_else(|| AppError::NotFound("product".to_string()))?;
+    let product = Product::fetch(&data.db, product_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("product".to_string()))?;
 
     Ok(req
         .render_tpl(
@@ -372,26 +312,20 @@ pub async fn post_product(
         .clone()
         .unwrap_or_else(|| generate_slug(&form.name));
 
-    let current_status: String = sqlx::query_scalar("SELECT status FROM products WHERE id = ?")
-        .bind(product_id)
-        .fetch_optional(&data.db)
+    let current = Product::fetch(&data.db, product_id)
         .await?
-        .unwrap_or_else(|| "draft".to_string());
+        .ok_or_else(|| AppError::NotFound("product".to_string()))?;
 
-    let status = match form.status.as_deref() {
-        Some(s) if is_valid_status(s) => s.to_string(),
-        _ => current_status,
-    };
+    // Only accept input naming a real status; anything else keeps the
+    // current one (the enum's FromStr rejects unknown values).
+    let status = form
+        .status
+        .as_deref()
+        .and_then(|s| s.parse::<ProductStatus>().ok())
+        .unwrap_or(current.status);
 
-    let existing = sqlx::query!(
-        "SELECT id FROM products WHERE slug = ? AND id != ?",
-        slug,
-        product_id
-    )
-    .fetch_optional(&data.db)
-    .await?;
-
-    if existing.is_some() {
+    let taken = find_one!(Product, &data.db, slug == slug.as_str() && id != product_id).await?;
+    if taken.is_some() {
         return Ok(req
             .render_tpl(
                 "product-manager/details",
@@ -410,16 +344,16 @@ pub async fn post_product(
             .await);
     }
 
-    sqlx::query!(
-        "UPDATE products SET name = ?, slug = ?, description = ?, price = ?, status = ? WHERE id = ?",
-        form.name,
-        slug,
-        form.description,
-        form.price,
-        status,
-        product_id
+    update!(
+        Product,
+        &data.db,
+        id == product_id;
+        name = form.name.clone(),
+        slug = slug.clone(),
+        description = form.description.clone(),
+        price = form.price,
+        status = status
     )
-    .execute(&data.db)
     .await?;
 
     Ok(HttpResponse::Found()
@@ -435,10 +369,7 @@ pub async fn delete_product(
 ) -> AppResult {
     user.require_permission("products.write")?;
 
-    let product_id = path.into_inner();
-    sqlx::query!("DELETE FROM products WHERE id = ?", product_id)
-        .execute(&data.db)
-        .await?;
+    Product::delete(&data.db, path.into_inner()).await?;
 
     Ok(HttpResponse::Ok().finish())
 }

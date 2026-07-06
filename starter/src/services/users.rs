@@ -1,10 +1,11 @@
 use crate::{
     AppData, AppError, AppResult, AppRole, AuthUser, Deserialize, Serialize,
     actix_web::{HttpResponse, delete, get, post, web},
+    find_page, update,
 };
 use full_stack_engine::prelude::Role;
 
-type AppUser = crate::User<AppRole>;
+use crate::tables::user::User;
 
 const PER_PAGE: i64 = 20;
 
@@ -15,19 +16,11 @@ pub struct UserSearchParams {
     pub page: Option<i64>,
 }
 
-#[derive(sqlx::FromRow)]
-struct UserListRecord {
-    id: i64,
-    email: String,
-    role: String,
-    created_at: String,
-}
-
 #[derive(Serialize)]
 struct Row {
     pub id: i64,
     pub email: String,
-    pub role: String,
+    pub role: &'static str,
     pub created_at: String,
     pub link: String,
     pub delete_url: String,
@@ -44,7 +37,6 @@ pub async fn get(
     user.require_permission("users.read")?;
 
     let page = query.page.unwrap_or(1).max(1);
-    let offset = (page - 1) * PER_PAGE;
     let search = query.search.as_deref().unwrap_or("").trim().to_string();
     let filter_role = query
         .filter_role
@@ -52,85 +44,30 @@ pub async fn get(
         .unwrap_or("")
         .trim()
         .to_string();
-    let pattern = format!("%{search}%");
+    // `eq_opt`: None means "no role filter"; an unknown role string simply
+    // matches no rows (same as before).
+    let role_filter = (!filter_role.is_empty()).then_some(filter_role.as_str());
 
-    let (total_count, users) = match (search.is_empty(), filter_role.is_empty()) {
-        (true, true) => {
-            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-                .fetch_one(&data.db)
-                .await?;
-            let rows = sqlx::query_as::<_, UserListRecord>(
-                "SELECT id, email, role, created_at FROM users \
-                 ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            )
-            .bind(PER_PAGE)
-            .bind(offset)
-            .fetch_all(&data.db)
-            .await?;
-            (count, rows)
-        }
-        (false, true) => {
-            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email LIKE ?")
-                .bind(&pattern)
-                .fetch_one(&data.db)
-                .await?;
-            let rows = sqlx::query_as::<_, UserListRecord>(
-                "SELECT id, email, role, created_at FROM users \
-                 WHERE email LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            )
-            .bind(&pattern)
-            .bind(PER_PAGE)
-            .bind(offset)
-            .fetch_all(&data.db)
-            .await?;
-            (count, rows)
-        }
-        (true, false) => {
-            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE role = ?")
-                .bind(&filter_role)
-                .fetch_one(&data.db)
-                .await?;
-            let rows = sqlx::query_as::<_, UserListRecord>(
-                "SELECT id, email, role, created_at FROM users \
-                 WHERE role = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            )
-            .bind(&filter_role)
-            .bind(PER_PAGE)
-            .bind(offset)
-            .fetch_all(&data.db)
-            .await?;
-            (count, rows)
-        }
-        (false, false) => {
-            let count: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email LIKE ? AND role = ?")
-                    .bind(&pattern)
-                    .bind(&filter_role)
-                    .fetch_one(&data.db)
-                    .await?;
-            let rows = sqlx::query_as::<_, UserListRecord>(
-                "SELECT id, email, role, created_at FROM users \
-                 WHERE email LIKE ? AND role = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            )
-            .bind(&pattern)
-            .bind(&filter_role)
-            .bind(PER_PAGE)
-            .bind(offset)
-            .fetch_all(&data.db)
-            .await?;
-            (count, rows)
-        }
-    };
+    let result = find_page!(
+        User,
+        &data.db,
+        email.contains_opt(&search) && role.eq_opt(role_filter),
+        order_by: created_at.desc(),
+        page: page,
+        per_page: PER_PAGE
+    )
+    .await?;
 
-    let total_pages = ((total_count + PER_PAGE - 1) / PER_PAGE).max(1);
+    let total_pages = ((result.total + PER_PAGE - 1) / PER_PAGE).max(1);
 
-    let rows: Vec<Row> = users
+    let rows: Vec<Row> = result
+        .rows
         .into_iter()
         .map(|u| Row {
             id: u.id,
             email: u.email,
-            role: u.role,
-            created_at: u.created_at,
+            role: u.role.as_str(),
+            created_at: u.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
             link: format!("/users/{}", u.id),
             delete_url: format!("/users/{}", u.id),
         })
@@ -146,7 +83,7 @@ pub async fn get(
                 "roles": AppRole::all_roles(),
                 "page": page,
                 "total_pages": total_pages,
-                "total_count": total_count,
+                "total_count": result.total,
                 "per_page": PER_PAGE,
             }),
         )
@@ -163,14 +100,9 @@ pub async fn get_user(
     use super::RenderTplExt;
     user.require_permission("users.read")?;
 
-    let user_id = path.into_inner();
-    let user_data = sqlx::query_as!(
-        AppUser,
-        "SELECT id, email, password, role as \"role: AppRole\", created_at, is_verified, verification_token FROM users WHERE id = ?",
-        user_id
-    )
-    .fetch_one(&data.db)
-    .await?;
+    let user_data = User::fetch(&data.db, path.into_inner())
+        .await?
+        .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
     Ok(req
         .render_tpl(
@@ -219,13 +151,13 @@ pub async fn post_user(
 
     // Role change invalidates the target user's existing sessions.
     let now = super::now_unix();
-    sqlx::query!(
-        "UPDATE users SET role = ?, sessions_valid_after = ? WHERE id = ?",
-        new_role,
-        now,
-        user_id
+    update!(
+        User,
+        &data.db,
+        id == user_id;
+        role = new_role,
+        sessions_valid_after = now
     )
-    .execute(&data.db)
     .await?;
 
     Ok(HttpResponse::Found()
@@ -248,19 +180,16 @@ pub async fn delete_user(
         return Err(AppError::NoAuth);
     }
 
-    sqlx::query!("DELETE FROM users WHERE id = ?", user_id)
-        .execute(&data.db)
-        .await?;
+    User::delete(&data.db, user_id).await?;
 
     Ok(HttpResponse::Ok().finish())
 }
 
 /// Loads the target user's role, for the admin guards above.
 async fn target_role(data: &web::Data<AppData>, user_id: i64) -> Result<AppRole, AppError> {
-    let row = sqlx::query!("SELECT role FROM users WHERE id = ?", user_id)
-        .fetch_optional(&data.db)
+    let target = User::fetch(&data.db, user_id)
         .await?
         .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
 
-    Ok(AppRole::from_role_str(&row.role))
+    Ok(target.role)
 }

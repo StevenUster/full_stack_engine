@@ -16,6 +16,14 @@ macro_rules! define_roles {
         }
 
         impl AppRole {
+            /// Inherent mirror of `Role::as_str`, so ORM-generated code (and
+            /// call sites without the `Role` trait in scope) can use it.
+            pub fn as_str(&self) -> &'static str {
+                match self {
+                    $( Self::$variant => $str ),+
+                }
+            }
+
             pub fn all() -> &'static [Self] {
                 &[ $( Self::$variant ),+ ]
             }
@@ -74,6 +82,17 @@ macro_rules! define_roles {
         impl std::fmt::Display for AppRole {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}", <Self as $crate::prelude::Role>::as_str(self))
+            }
+        }
+
+        // Never fails: unknown strings map to the no-access role, so a role
+        // read back from the database can't take the app down. Required for
+        // `#[orm(text)]` columns, which decode via `FromStr`.
+        impl std::str::FromStr for AppRole {
+            type Err = ::std::string::String;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                Ok(<Self as $crate::prelude::Role>::from_role_str(s))
             }
         }
     };

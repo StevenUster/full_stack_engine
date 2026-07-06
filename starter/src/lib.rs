@@ -19,6 +19,7 @@ pub use full_stack_engine::prelude::*;
 
 pub mod cronjobs;
 pub mod services;
+pub mod tables;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Set html template directory

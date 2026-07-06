@@ -1,19 +1,19 @@
 use crate::{
     AppData, AppResult, AppRole, AuthUser, Data, Deserialize, Form, HttpResponse, LOCATION,
-    actix_web::get, actix_web::post, error, json, send_mail,
+    actix_web::get, actix_web::post, error, find_one, json, send_mail, update,
 };
+
+use crate::chrono::NaiveDateTime;
+use crate::tables::user::User;
 
 pub(crate) async fn settings_context(
     data: &AppData,
     user_id: i64,
     overrides: crate::serde_json::Value,
 ) -> Result<crate::serde_json::Value, sqlx::Error> {
-    let user_data = sqlx::query!(
-        "SELECT email, first_name, last_name FROM users WHERE id = ?",
-        user_id
-    )
-    .fetch_one(&data.db)
-    .await?;
+    let user_data = User::fetch(&data.db, user_id)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
 
     let mut ctx = json!({
         "current_email": user_data.email,
@@ -56,9 +56,9 @@ pub async fn post_change_email(
     use super::RenderTplExt;
     let new_email = form.new_email.trim().to_lowercase();
 
-    let current = sqlx::query!("SELECT email FROM users WHERE id = ?", user.claims.sub)
-        .fetch_one(&data.db)
-        .await?;
+    let current = User::fetch(&data.db, user.claims.sub)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
 
     if !new_email.contains('@') || new_email.is_empty() {
         let ctx = settings_context(
@@ -81,11 +81,7 @@ pub async fn post_change_email(
     }
 
     // An attacker could use this to find out if an email exists but I don't see a better option.
-    let existing = sqlx::query!("SELECT id FROM users WHERE email = ?", new_email)
-        .fetch_optional(&data.db)
-        .await?;
-
-    if existing.is_some() {
+    if User::fetch_by_email(&data.db, &new_email).await?.is_some() {
         let ctx = settings_context(
             &data,
             user.claims.sub,
@@ -96,12 +92,14 @@ pub async fn post_change_email(
     }
 
     if !data.email_verification_enabled {
-        sqlx::query!(
-            "UPDATE users SET email = ?, pending_email = NULL, email_change_token = NULL WHERE id = ?",
-            new_email,
-            user.claims.sub
+        update!(
+            User,
+            &data.db,
+            id == user.claims.sub;
+            email = new_email.clone(),
+            pending_email = None::<String>,
+            email_change_token = None::<String>
         )
-        .execute(&data.db)
         .await?;
 
         let ctx = settings_context(
@@ -116,14 +114,14 @@ pub async fn post_change_email(
     let token = uuid::Uuid::new_v4().to_string();
     let expires_at = super::token_expiry();
 
-    sqlx::query!(
-        "UPDATE users SET pending_email = ?, email_change_token = ?, email_change_token_expires_at = ? WHERE id = ?",
-        new_email,
-        token,
-        expires_at,
-        user.claims.sub
+    update!(
+        User,
+        &data.db,
+        id == user.claims.sub;
+        pending_email = Some(new_email.clone()),
+        email_change_token = Some(token.clone()),
+        email_change_token_expires_at = Some(expires_at)
     )
-    .execute(&data.db)
     .await?;
 
     let verify_url = format!(
@@ -189,12 +187,12 @@ pub async fn verify_email_change(
             .await);
     };
 
-    let user_row = sqlx::query!(
-        "SELECT id, pending_email FROM users WHERE email_change_token = ? \
-         AND email_change_token_expires_at IS NOT NULL AND email_change_token_expires_at > CURRENT_TIMESTAMP",
-        token
+    // An expired token matches no row (`NULL > x` is never true).
+    let user_row = find_one!(
+        User,
+        &data.db,
+        email_change_token == token.as_str() && email_change_token_expires_at > super::now()
     )
-    .fetch_optional(&data.db)
     .await?;
 
     let Some(user_row) = user_row else {
@@ -213,13 +211,16 @@ pub async fn verify_email_change(
     // `sessions_valid_after` so all previously issued JWTs are rejected, not
     // just the cookie of the browser that clicked the link.
     let now = super::now_unix();
-    sqlx::query!(
-        "UPDATE users SET email = ?, pending_email = NULL, email_change_token = NULL, email_change_token_expires_at = NULL, sessions_valid_after = ? WHERE id = ?",
-        new_email,
-        now,
-        user_row.id
+    update!(
+        User,
+        &data.db,
+        id == user_row.id;
+        email = new_email,
+        pending_email = None::<String>,
+        email_change_token = None::<String>,
+        email_change_token_expires_at = None::<NaiveDateTime>,
+        sessions_valid_after = now
     )
-    .execute(&data.db)
     .await?;
 
     Ok(HttpResponse::SeeOther()
@@ -237,17 +238,17 @@ pub async fn post_password_reset(
     let token = uuid::Uuid::new_v4().to_string();
     let expires_at = super::token_expiry();
 
-    let user_data = sqlx::query!("SELECT email FROM users WHERE id = ?", user.claims.sub)
-        .fetch_one(&data.db)
-        .await?;
+    let user_data = User::fetch(&data.db, user.claims.sub)
+        .await?
+        .ok_or(sqlx::Error::RowNotFound)?;
 
-    sqlx::query!(
-        "UPDATE users SET reset_token = ?, reset_token_expires_at = ? WHERE id = ?",
-        token,
-        expires_at,
-        user.claims.sub
+    update!(
+        User,
+        &data.db,
+        id == user.claims.sub;
+        reset_token = Some(token.clone()),
+        reset_token_expires_at = Some(expires_at)
     )
-    .execute(&data.db)
     .await?;
 
     let reset_url = format!(
@@ -301,12 +302,10 @@ pub async fn post_password_reset(
 }
 
 /// Permanently deletes the caller's own account. Apps with per-user assets
-/// (uploaded files, etc.) should clean those up here before the `DELETE`.
+/// (uploaded files, etc.) should clean those up here before the delete.
 #[post("/settings/delete-account")]
 pub async fn post_delete_account(data: Data<AppData>, user: AuthUser<AppRole>) -> AppResult {
-    sqlx::query!("DELETE FROM users WHERE id = ?", user.claims.sub)
-        .execute(&data.db)
-        .await?;
+    User::delete(&data.db, user.claims.sub).await?;
 
     Ok(HttpResponse::SeeOther()
         .append_header((LOCATION, "/logout"))

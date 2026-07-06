@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE users SET is_verified = ?, verification_token = ?, verification_token_expires_at = ? WHERE (verification_token = ? AND verification_token_expires_at > ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "25b7b230484896522cdaad814bb936c2b4f4eed1df123f771a8098782d4ad49d"
+}

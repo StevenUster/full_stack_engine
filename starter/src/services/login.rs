@@ -1,11 +1,11 @@
 use crate::{
     AppData, AppError, AppResult, AppRole, Data, Deserialize, Env, Form, HttpResponse, LOCATION,
-    Responder, Role, cookie::Cookie, cookie::time::Duration, create_jwt, get, hash_password, json,
-    verify_password,
+    Responder, Role, cookie::Cookie, cookie::time::Duration, create_jwt, find_one, get,
+    hash_password, json, verify_password,
 };
 use std::sync::OnceLock;
 
-type AppUser = crate::User<AppRole>;
+use crate::tables::user::User;
 
 static DUMMY_HASH: OnceLock<String> = OnceLock::new();
 
@@ -27,19 +27,8 @@ pub async fn post(
     form: Form<FormData>,
 ) -> AppResult {
     use super::RenderTplExt;
-    let user_res = sqlx::query_as!(
-        AppUser,
-        "SELECT id, email, password, role as \"role: AppRole\", created_at, is_verified, verification_token FROM users WHERE email = $1",
-        form.email
-    )
-    .fetch_one(&data.db)
-    .await;
 
-    let user = match user_res {
-        Ok(u) => Some(u),
-        Err(sqlx::Error::RowNotFound) => None,
-        Err(e) => return Err(e.into()),
-    };
+    let user = find_one!(User, &data.db, email == form.email.as_str()).await?;
 
     let dummy_hash = DUMMY_HASH.get_or_init(|| {
         hash_password("dummy_password_for_timing_safety").unwrap_or_else(|_| {
@@ -64,7 +53,18 @@ pub async fn post(
             .await);
     }
 
-    let jwt = create_jwt(&user, &data.jwt_secret)
+    // The framework's JWT layer works on its own `User` shape; the table
+    // struct carries a superset of those fields.
+    let claims_user = crate::User::<AppRole> {
+        id: user.id,
+        email: user.email,
+        password: user.password,
+        role: user.role,
+        created_at: user.created_at,
+        is_verified: user.is_verified,
+        verification_token: user.verification_token,
+    };
+    let jwt = create_jwt(&claims_user, &data.jwt_secret)
         .map_err(|e| AppError::Internal(format!("JWT creation error: {e}")))?;
 
     let cookie = Cookie::build("token", jwt)

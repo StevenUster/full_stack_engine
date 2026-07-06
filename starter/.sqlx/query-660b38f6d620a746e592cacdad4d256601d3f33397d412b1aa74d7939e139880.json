@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id as \"id!: i64\", product_id as \"product_id!: i64\", user_id as \"user_id!: i64\", quantity as \"quantity!: i64\", note as \"note: String\", status as \"status!\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\" FROM orders",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "product_id!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "user_id!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "quantity!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "note: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "status!",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: ::sqlx::types::chrono::NaiveDateTime",
+        "ordinal": 6,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "660b38f6d620a746e592cacdad4d256601d3f33397d412b1aa74d7939e139880"
+}

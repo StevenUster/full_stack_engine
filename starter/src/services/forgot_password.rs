@@ -1,4 +1,9 @@
-use crate::{AppData, AppResult, Data, Deserialize, Form, actix_web::get, error, json, send_mail};
+use crate::{
+    AppData, AppResult, Data, Deserialize, Form, actix_web::get, error, find_one, json, send_mail,
+    update,
+};
+
+use crate::tables::user::User;
 
 #[get("/forgot-password")]
 pub async fn get(req: actix_web::HttpRequest) -> impl actix_web::Responder {
@@ -18,9 +23,7 @@ pub async fn post(
 ) -> AppResult {
     use super::RenderTplExt;
 
-    let user = sqlx::query!("SELECT id, email FROM users WHERE email = ?", form.email)
-        .fetch_optional(&data.db)
-        .await?;
+    let user = find_one!(User, &data.db, email == form.email.as_str()).await?;
 
     let success_ctx = json!({"success": "password_reset_sent"});
 
@@ -31,13 +34,13 @@ pub async fn post(
     let token = uuid::Uuid::new_v4().to_string();
     let expires_at = super::token_expiry();
 
-    sqlx::query!(
-        "UPDATE users SET reset_token = ?, reset_token_expires_at = ? WHERE id = ?",
-        token,
-        expires_at,
-        user.id
+    update!(
+        User,
+        &data.db,
+        id == user.id;
+        reset_token = Some(token.clone()),
+        reset_token_expires_at = Some(expires_at)
     )
-    .execute(&data.db)
     .await?;
 
     let reset_url = format!(

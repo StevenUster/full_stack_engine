@@ -1,0 +1,56 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO products (name, slug, description, price, status, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id as \"id!: i64\", name as \"name!: String\", slug as \"slug!: String\", description as \"description: String\", price as \"price!: f64\", status as \"status!\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "description: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "price!: f64",
+        "ordinal": 4,
+        "type_info": "Float"
+      },
+      {
+        "name": "status!",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: ::sqlx::types::chrono::NaiveDateTime",
+        "ordinal": 6,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b5044ce3e3dfa62400957f8a26a6d61db6e075716c877b8a845c2f71b99d7cf6"
+}

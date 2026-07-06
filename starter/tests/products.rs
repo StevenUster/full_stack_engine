@@ -7,7 +7,9 @@ mod common;
 use actix_web::http::StatusCode;
 use actix_web::{App, test, web};
 use common::{seed_product, seed_user, test_app_data};
+use starter::count;
 use starter::services::{api, login, orders, products};
+use starter::tables::product::Product;
 
 macro_rules! test_service {
     ($data:expr) => {
@@ -101,10 +103,7 @@ async fn only_products_write_permission_can_manage_the_catalog() {
         StatusCode::FOUND
     );
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products WHERE name = 'Widget'")
-        .fetch_one(&data.db)
-        .await
-        .unwrap();
+    let count = count!(Product, &data.db, name == "Widget").await.unwrap();
     assert_eq!(count, 1);
 }
 

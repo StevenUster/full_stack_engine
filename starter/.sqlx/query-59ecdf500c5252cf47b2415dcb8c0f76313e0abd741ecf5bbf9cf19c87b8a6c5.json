@@ -1,0 +1,110 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO users (email, password, role, first_name, last_name, is_verified, verification_token, verification_token_expires_at, reset_token, reset_token_expires_at, pending_email, email_change_token, email_change_token_expires_at, sessions_valid_after, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id as \"id!: i64\", email as \"email!: String\", password as \"password!: String\", role as \"role!\", first_name as \"first_name: String\", last_name as \"last_name: String\", is_verified as \"is_verified!: bool\", verification_token as \"verification_token: String\", verification_token_expires_at as \"verification_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", reset_token as \"reset_token: String\", reset_token_expires_at as \"reset_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", pending_email as \"pending_email: String\", email_change_token as \"email_change_token: String\", email_change_token_expires_at as \"email_change_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", sessions_valid_after as \"sessions_valid_after!: i64\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "email!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "password!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "role!",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "first_name: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "last_name: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_verified!: bool",
+        "ordinal": 6,
+        "type_info": "Bool"
+      },
+      {
+        "name": "verification_token: String",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "verification_token_expires_at: ::sqlx::types::chrono::NaiveDateTime",
+        "ordinal": 8,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "reset_token: String",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "reset_token_expires_at: ::sqlx::types::chrono::NaiveDateTime",
+        "ordinal": 10,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "pending_email: String",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "email_change_token: String",
+        "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "email_change_token_expires_at: ::sqlx::types::chrono::NaiveDateTime",
+        "ordinal": 13,
+        "type_info": "Datetime"
+      },
+      {
+        "name": "sessions_valid_after!: i64",
+        "ordinal": 14,
+        "type_info": "Integer"
+      },
+      {
+        "name": "created_at!: ::sqlx::types::chrono::NaiveDateTime",
+        "ordinal": 15,
+        "type_info": "Datetime"
+      }
+    ],
+    "parameters": {
+      "Right": 15
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "59ecdf500c5252cf47b2415dcb8c0f76313e0abd741ecf5bbf9cf19c87b8a6c5"
+}

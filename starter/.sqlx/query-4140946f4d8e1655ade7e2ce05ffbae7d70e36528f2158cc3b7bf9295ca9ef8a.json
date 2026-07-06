@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COUNT(*) as \"count!: i64\" FROM users WHERE ((? = '' OR email LIKE '%' || ? || '%') AND (? IS NULL OR role = ?))",
+  "describe": {
+    "columns": [
+      {
+        "name": "count!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4140946f4d8e1655ade7e2ce05ffbae7d70e36528f2158cc3b7bf9295ca9ef8a"
+}

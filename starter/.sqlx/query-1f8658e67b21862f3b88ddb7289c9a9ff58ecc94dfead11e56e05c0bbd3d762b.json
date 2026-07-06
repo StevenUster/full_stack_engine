@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE users SET email = ?, pending_email = ?, email_change_token = ?, email_change_token_expires_at = ?, sessions_valid_after = ? WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "1f8658e67b21862f3b88ddb7289c9a9ff58ecc94dfead11e56e05c0bbd3d762b"
+}

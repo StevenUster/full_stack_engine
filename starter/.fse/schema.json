@@ -1,0 +1,493 @@
+{
+  "version": 1,
+  "schema": {
+    "tables": [
+      {
+        "name": "orders",
+        "struct_name": "Order",
+        "columns": [
+          {
+            "name": "id",
+            "rust_type": "i64",
+            "ty": "Integer",
+            "nullable": false,
+            "primary_key": true,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "product_id",
+            "rust_type": "i64",
+            "ty": "Integer",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": true,
+            "default": null,
+            "references": {
+              "table": "products",
+              "column": "id",
+              "on_delete": "Cascade"
+            },
+            "check_in": null
+          },
+          {
+            "name": "user_id",
+            "rust_type": "i64",
+            "ty": "Integer",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": true,
+            "default": null,
+            "references": {
+              "table": "users",
+              "column": "id",
+              "on_delete": "Cascade"
+            },
+            "check_in": null
+          },
+          {
+            "name": "quantity",
+            "rust_type": "i64",
+            "ty": "Integer",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": {
+              "Int": 1
+            },
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "note",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "status",
+            "rust_type": "OrderStatus",
+            "ty": "Text",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": true,
+            "index": false,
+            "default": {
+              "Text": "pending"
+            },
+            "references": null,
+            "check_in": [
+              "pending",
+              "fulfilled",
+              "cancelled"
+            ]
+          },
+          {
+            "name": "created_at",
+            "rust_type": "NaiveDateTime",
+            "ty": "Timestamp",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": "Now",
+            "references": null,
+            "check_in": null
+          }
+        ]
+      },
+      {
+        "name": "products",
+        "struct_name": "Product",
+        "columns": [
+          {
+            "name": "id",
+            "rust_type": "i64",
+            "ty": "Integer",
+            "nullable": false,
+            "primary_key": true,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "name",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "slug",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": false,
+            "primary_key": false,
+            "unique": true,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "description",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "price",
+            "rust_type": "f64",
+            "ty": "Real",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": {
+              "Float": 0.0
+            },
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "status",
+            "rust_type": "ProductStatus",
+            "ty": "Text",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": true,
+            "index": false,
+            "default": {
+              "Text": "draft"
+            },
+            "references": null,
+            "check_in": [
+              "draft",
+              "published",
+              "archived"
+            ]
+          },
+          {
+            "name": "created_at",
+            "rust_type": "NaiveDateTime",
+            "ty": "Timestamp",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": "Now",
+            "references": null,
+            "check_in": null
+          }
+        ]
+      },
+      {
+        "name": "users",
+        "struct_name": "User",
+        "columns": [
+          {
+            "name": "id",
+            "rust_type": "i64",
+            "ty": "Integer",
+            "nullable": false,
+            "primary_key": true,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "email",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": false,
+            "primary_key": false,
+            "unique": true,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "password",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "role",
+            "rust_type": "AppRole",
+            "ty": "Text",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": true,
+            "index": false,
+            "default": {
+              "Text": "none"
+            },
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "first_name",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "last_name",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "is_verified",
+            "rust_type": "bool",
+            "ty": "Boolean",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": {
+              "Bool": true
+            },
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "verification_token",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "verification_token_expires_at",
+            "rust_type": "NaiveDateTime",
+            "ty": "Timestamp",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "reset_token",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "reset_token_expires_at",
+            "rust_type": "NaiveDateTime",
+            "ty": "Timestamp",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "pending_email",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "email_change_token",
+            "rust_type": "String",
+            "ty": "Text",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "email_change_token_expires_at",
+            "rust_type": "NaiveDateTime",
+            "ty": "Timestamp",
+            "nullable": true,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": null,
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "sessions_valid_after",
+            "rust_type": "i64",
+            "ty": "Integer",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": {
+              "Int": 0
+            },
+            "references": null,
+            "check_in": null
+          },
+          {
+            "name": "created_at",
+            "rust_type": "NaiveDateTime",
+            "ty": "Timestamp",
+            "nullable": false,
+            "primary_key": false,
+            "unique": false,
+            "json": false,
+            "is_enum": false,
+            "index": false,
+            "default": "Now",
+            "references": null,
+            "check_in": null
+          }
+        ]
+      }
+    ],
+    "enums": [
+      {
+        "rust_name": "OrderStatus",
+        "values": [
+          "pending",
+          "fulfilled",
+          "cancelled"
+        ]
+      },
+      {
+        "rust_name": "ProductStatus",
+        "values": [
+          "draft",
+          "published",
+          "archived"
+        ]
+      }
+    ]
+  }
+}

@@ -1,8 +1,11 @@
 use crate::{
     AppData, AppError, AppResult, Deserialize,
     actix_web::{HttpResponse, get, http::header::LOCATION},
-    hash_password, json, web,
+    hash_password, json, update, web,
 };
+
+use crate::chrono::NaiveDateTime;
+use crate::tables::user::User;
 
 #[derive(Deserialize)]
 pub struct ResetPasswordQuery {
@@ -81,20 +84,21 @@ pub async fn post(
         hash_password(&form.password).map_err(|e| AppError::Internal(e.to_string()))?;
 
     // Consuming the token clears it, and stamps `sessions_valid_after` so any
-    // JWTs issued before the reset are invalidated. Expired tokens match no row.
+    // JWTs issued before the reset are invalidated. Expired tokens match no
+    // row (`NULL > x` is never true, so a missing expiry can't match either).
     let now = super::now_unix();
-    let result = sqlx::query!(
-        "UPDATE users SET password = ?, reset_token = NULL, reset_token_expires_at = NULL, sessions_valid_after = ? \
-         WHERE reset_token = ? AND reset_token_expires_at IS NOT NULL AND reset_token_expires_at > CURRENT_TIMESTAMP",
-        hashed_password,
-        now,
-        form.token
+    let updated = update!(
+        User,
+        &data.db,
+        reset_token == form.token.as_str() && reset_token_expires_at > super::now();
+        password = hashed_password,
+        reset_token = None::<String>,
+        reset_token_expires_at = None::<NaiveDateTime>,
+        sessions_valid_after = now
     )
-    .execute(&data.db)
-    .await
-    .map_err(|e: sqlx::Error| AppError::Internal(e.to_string()))?;
+    .await?;
 
-    if result.rows_affected() == 0 {
+    if updated == 0 {
         return Ok(HttpResponse::SeeOther()
             .append_header((
                 LOCATION,

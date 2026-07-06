@@ -9,6 +9,8 @@
 #![allow(dead_code)]
 
 use actix_web::web;
+use starter::tables::product::InsertProduct;
+use starter::tables::user::InsertUser;
 use starter::tera::Tera;
 use starter::{AppData, Env, hash_password};
 
@@ -53,26 +55,27 @@ pub async fn test_app_data() -> web::Data<AppData> {
 
 pub async fn seed_user(data: &web::Data<AppData>, email: &str, password: &str, role: &str) -> i64 {
     let hash = hash_password(password).unwrap();
-    sqlx::query("INSERT INTO users (email, password, role, is_verified) VALUES (?, ?, ?, 1)")
-        .bind(email)
-        .bind(hash)
-        .bind(role)
-        .execute(&data.db)
-        .await
-        .unwrap()
-        .last_insert_rowid()
+    let user = InsertUser {
+        role: <starter::AppRole as starter::Role>::from_role_str(role),
+        ..InsertUser::new(email.into(), hash)
+    }
+    .insert(&data.db)
+    .await
+    .unwrap();
+    user.id
 }
 
 /// Inserts a product with the given slug/status and returns its id.
 pub async fn seed_product(data: &web::Data<AppData>, slug: &str, status: &str) -> i64 {
-    sqlx::query("INSERT INTO products (name, slug, price, status) VALUES (?, ?, 9.99, ?)")
-        .bind(format!("Product {slug}"))
-        .bind(slug)
-        .bind(status)
-        .execute(&data.db)
-        .await
-        .unwrap()
-        .last_insert_rowid()
+    let product = InsertProduct {
+        price: 9.99,
+        status: status.parse().unwrap(),
+        ..InsertProduct::new(format!("Product {slug}"), slug.into())
+    }
+    .insert(&data.db)
+    .await
+    .unwrap();
+    product.id
 }
 
 #[macro_export]

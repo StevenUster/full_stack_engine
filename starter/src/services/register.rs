@@ -1,8 +1,11 @@
 use crate::{
     AppData, AppError, AppResult, AppRole, HttpResponse, actix_web::get,
-    actix_web::http::header::LOCATION, error, hash_password, send_mail, serde_json::json, web,
+    actix_web::http::header::LOCATION, error, hash_password, send_mail, serde_json::json, update,
+    web,
 };
 use actix_multipart::form::{MultipartForm, text::Text};
+
+use crate::tables::user::{InsertUser, User};
 
 #[derive(MultipartForm)]
 pub struct RegisterForm {
@@ -83,20 +86,16 @@ pub async fn post(
     };
     let verification_token_expires_at = verification_token.as_ref().map(|_| super::token_expiry());
 
-    let role = AppRole::User;
-
-    let insert_result = sqlx::query!(
-        "INSERT INTO users (email, password, role, is_verified, verification_token, verification_token_expires_at, first_name, last_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        email,
-        hashed_password,
-        role,
+    let insert_result = InsertUser {
+        role: AppRole::User,
         is_verified,
-        verification_token,
+        first_name: Some(first_name.clone()),
+        last_name: Some(last_name.clone()),
+        verification_token: verification_token.clone(),
         verification_token_expires_at,
-        first_name,
-        last_name,
-    )
-    .execute(&data.db)
+        ..InsertUser::new(email.clone(), hashed_password)
+    }
+    .insert(&data.db)
     .await;
 
     match insert_result {
@@ -180,16 +179,19 @@ pub async fn verify_email(
         return Ok(HttpResponse::BadRequest().body("Missing token"));
     };
 
-    let result = sqlx::query!(
-        "UPDATE users SET is_verified = 1, verification_token = NULL, verification_token_expires_at = NULL \
-         WHERE verification_token = ? AND verification_token_expires_at IS NOT NULL AND verification_token_expires_at > CURRENT_TIMESTAMP",
-        token
+    // An expired token matches no row (`NULL > x` is never true, so a
+    // missing expiry can't verify either).
+    let updated = update!(
+        User,
+        &data.db,
+        verification_token == token.as_str() && verification_token_expires_at > super::now();
+        is_verified = true,
+        verification_token = None::<String>,
+        verification_token_expires_at = None::<crate::chrono::NaiveDateTime>
     )
-    .execute(&data.db)
-    .await
-    .map_err(|e| AppError::Internal(e.to_string()))?;
+    .await?;
 
-    if result.rows_affected() == 0 {
+    if updated == 0 {
         return Ok(req
             .render_tpl("login", &json!({"error": "invalid_token"}))
             .await);

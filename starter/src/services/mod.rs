@@ -23,13 +23,16 @@ pub(super) fn load_locale(lang: &str) -> crate::serde_json::Value {
 /// email change) stays valid after it is issued.
 const TOKEN_TTL_HOURS: i64 = 24;
 
-/// Expiry timestamp for a freshly issued email token, formatted to match
-/// `SQLite`'s `CURRENT_TIMESTAMP` (`YYYY-MM-DD HH:MM:SS`, UTC) so it can be
-/// compared directly in SQL.
-pub(super) fn token_expiry() -> String {
-    (chrono::Utc::now() + chrono::Duration::hours(TOKEN_TTL_HOURS))
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string()
+/// Expiry timestamp for a freshly issued email token (UTC, like everything
+/// the ORM writes into TIMESTAMP columns).
+pub(super) fn token_expiry() -> chrono::NaiveDateTime {
+    chrono::Utc::now().naive_utc() + chrono::Duration::hours(TOKEN_TTL_HOURS)
+}
+
+/// Current UTC time, for comparing against TIMESTAMP columns (token expiry
+/// checks in `find_one!`/`update!` filters).
+pub(super) fn now() -> chrono::NaiveDateTime {
+    chrono::Utc::now().naive_utc()
 }
 
 /// Current unix time, used to stamp `users.sessions_valid_after` when existing
