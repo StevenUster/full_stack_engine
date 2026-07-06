@@ -8,6 +8,6 @@ repository.workspace = true
 
 [dependencies]
 fse-orm-macros = { path = "../macros" }
-sqlx = { version = "0.8", default-features = false }
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
 serde = "1.0"
 serde_json = "1.0"

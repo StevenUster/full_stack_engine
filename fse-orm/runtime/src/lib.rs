@@ -5,6 +5,12 @@
 
 pub use fse_orm_macros::{DbEnum, Table, count, delete, find, find_one, find_page, update};
 
+pub mod builder;
+pub mod column;
+
+pub use builder::{DeleteBuilder, SelectBuilder, UpdateBuilder};
+pub use column::{Bindable, Col, Cond, Order};
+
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 

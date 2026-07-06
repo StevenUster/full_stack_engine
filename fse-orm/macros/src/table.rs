@@ -164,16 +164,108 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
     }
 
     let insert_companion = insert_companion(ident, vis, &table.name, &select_list, &build_fields, &insert_cols)?;
+    let col_consts = column_consts(&cols)?;
+    let from_row_fields: Vec<TokenStream> = cols.iter().map(from_row_field).collect();
 
     Ok(quote! {
         impl #ident {
             pub const TABLE: &'static str = #table_name;
 
+            #(#col_consts)*
+
+            /// Dynamic (unchecked) SELECT — for query shapes decided at
+            /// runtime. Prefer the checked `find!` macro where possible.
+            pub fn find() -> ::fse_orm::SelectBuilder<Self> {
+                ::fse_orm::SelectBuilder::new(Self::TABLE)
+            }
+
+            /// Dynamic (unchecked) partial UPDATE.
+            pub fn update_set() -> ::fse_orm::UpdateBuilder {
+                ::fse_orm::UpdateBuilder::new(Self::TABLE)
+            }
+
+            /// Dynamic (unchecked) DELETE.
+            pub fn delete_where() -> ::fse_orm::DeleteBuilder {
+                ::fse_orm::DeleteBuilder::new(Self::TABLE)
+            }
+
             #(#methods)*
+        }
+
+        impl<'r> ::sqlx::FromRow<'r, ::sqlx::sqlite::SqliteRow> for #ident {
+            fn from_row(row: &'r ::sqlx::sqlite::SqliteRow) -> ::std::result::Result<Self, ::sqlx::Error> {
+                Ok(Self { #(#from_row_fields),* })
+            }
         }
 
         #insert_companion
     })
+}
+
+/// Typed column tokens for the dynamic builder: `Product::STATUS`,
+/// `Product::CREATED_AT`, ... json columns get none (their TEXT form is not
+/// meaningfully comparable).
+fn column_consts(cols: &[Col]) -> syn::Result<Vec<TokenStream>> {
+    let mut consts = Vec::new();
+    for c in cols.iter().filter(|c| !c.def.json) {
+        let name = &c.def.name;
+        let upper = name.to_uppercase();
+        if upper == "TABLE" {
+            return Err(syn::Error::new(
+                c.ident.span(),
+                "a column named `table` collides with the generated TABLE const; rename it",
+            ));
+        }
+        let const_ident = format_ident!("{upper}");
+        let ty = &c.inner_ty;
+        consts.push(quote! {
+            pub const #const_ident: ::fse_orm::Col<#ty> = ::fse_orm::Col::new(#name);
+        });
+    }
+    Ok(consts)
+}
+
+/// One field of the generated `FromRow` impl, with the same json/enum
+/// conversions as the checked queries.
+fn from_row_field(c: &Col) -> TokenStream {
+    let id = &c.ident;
+    let name = &c.def.name;
+    if c.def.json {
+        if c.def.nullable {
+            quote! {
+                #id: ::fse_orm::opt_from_json_str(
+                    #name,
+                    ::sqlx::Row::try_get::<::std::option::Option<::std::string::String>, _>(row, #name)?.as_deref(),
+                )?
+            }
+        } else {
+            quote! {
+                #id: ::fse_orm::from_json_str(
+                    #name,
+                    &::sqlx::Row::try_get::<::std::string::String, _>(row, #name)?,
+                )?
+            }
+        }
+    } else if c.def.is_enum {
+        if c.def.nullable {
+            quote! {
+                #id: ::fse_orm::opt_parse_db_value(
+                    #name,
+                    ::sqlx::Row::try_get::<::std::option::Option<::std::string::String>, _>(row, #name)?.as_deref(),
+                )?
+            }
+        } else {
+            quote! {
+                #id: ::fse_orm::parse_db_value(
+                    #name,
+                    &::sqlx::Row::try_get::<::std::string::String, _>(row, #name)?,
+                )?
+            }
+        }
+    } else {
+        let ty = &c.field_ty;
+        quote! { #id: ::sqlx::Row::try_get::<#ty, _>(row, #name)? }
+    }
 }
 
 /// The `InsertX` companion: every insertable column as a public field, a
