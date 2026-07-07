@@ -41,8 +41,46 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
     let syn::Fields::Named(fields) = &item.fields else {
         return Err(syn::Error::new(span, "Table needs named fields"));
     };
+    // Relation fields (`#[orm(relation = fk)]`) are not columns: they are
+    // skipped in the column zip below and default to `None` in every
+    // constructor, populated only by an `include:` join.
+    let relation_names: std::collections::HashSet<&str> =
+        table.relations.iter().map(|r| r.field.as_str()).collect();
+    let column_fields: Vec<&syn::Field> = fields
+        .named
+        .iter()
+        .filter(|f| {
+            f.ident
+                .as_ref()
+                .is_none_or(|id| !relation_names.contains(id.to_string().as_str()))
+        })
+        .collect();
+    let relation_inits: Vec<TokenStream> = table
+        .relations
+        .iter()
+        .map(|r| {
+            let id = format_ident!("{}", r.field);
+            quote! { #id: None }
+        })
+        .collect();
+    // One hidden `__fse_relation_<field>` associated function per relation,
+    // used by `find!`/`find_one!`'s `include:` — see relation.rs for why this
+    // has to be generated here (in the relation's own owning struct) rather
+    // than at the `find!` call site.
+    let relation_helpers: Vec<TokenStream> = table
+        .relations
+        .iter()
+        .map(|r| {
+            let target = crate::lookup::load_table(&r.target_struct, span)?;
+            crate::relation::helper_fn_def(
+                &crate::relation::Included { relation: r.clone(), target },
+                span,
+            )
+        })
+        .collect::<syn::Result<_>>()?;
+
     let mut cols: Vec<Col> = Vec::new();
-    for (def, field) in table.columns.iter().zip(&fields.named) {
+    for (def, field) in table.columns.iter().zip(&column_fields) {
         cols.push(Col {
             def: def.clone(),
             ident: field.ident.clone().expect("named field"),
@@ -90,7 +128,7 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
             #(#pk_bind_locals)*
             let row = ::sqlx::query!(#fetch_sql, #(#pk_bind_names),*).fetch_optional(db).await?;
             match row {
-                Some(r) => Ok(Some(Self { #(#build_fields),* })),
+                Some(r) => Ok(Some(Self { #(#build_fields,)* #(#relation_inits),* })),
                 None => Ok(None),
             }
         }
@@ -98,7 +136,7 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
         pub async fn fetch_all(db: impl ::sqlx::SqliteExecutor<'_>) -> ::sqlx::Result<Vec<Self>> {
             let rows = ::sqlx::query!(#fetch_all_sql).fetch_all(db).await?;
             rows.into_iter()
-                .map(|r| -> ::sqlx::Result<Self> { Ok(Self { #(#build_fields),* }) })
+                .map(|r| -> ::sqlx::Result<Self> { Ok(Self { #(#build_fields,)* #(#relation_inits),* }) })
                 .collect()
         }
 
@@ -130,7 +168,7 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
                 #(#bind_local)*
                 let row = ::sqlx::query!(#sql, #(#bind_name),*).fetch_optional(db).await?;
                 match row {
-                    Some(r) => Ok(Some(Self { #(#build_fields),* })),
+                    Some(r) => Ok(Some(Self { #(#build_fields,)* #(#relation_inits),* })),
                     None => Ok(None),
                 }
             }
@@ -163,7 +201,7 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
         });
     }
 
-    let insert_companion = insert_companion(ident, vis, &table.name, &select_list, &build_fields, &insert_cols)?;
+    let insert_companion = insert_companion(ident, vis, &table.name, &select_list, &build_fields, &relation_inits, &insert_cols)?;
     let col_consts = column_consts(&cols)?;
     let from_row_fields: Vec<TokenStream> = cols.iter().map(from_row_field).collect();
 
@@ -190,11 +228,13 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
             }
 
             #(#methods)*
+
+            #(#relation_helpers)*
         }
 
         impl<'r> ::sqlx::FromRow<'r, ::sqlx::sqlite::SqliteRow> for #ident {
             fn from_row(row: &'r ::sqlx::sqlite::SqliteRow) -> ::std::result::Result<Self, ::sqlx::Error> {
-                Ok(Self { #(#from_row_fields),* })
+                Ok(Self { #(#from_row_fields,)* #(#relation_inits),* })
             }
         }
 
@@ -277,6 +317,7 @@ fn insert_companion(
     table_name: &str,
     select_list: &str,
     build_fields: &[TokenStream],
+    relation_inits: &[TokenStream],
     insert_cols: &[&Col],
 ) -> syn::Result<TokenStream> {
     let insert_ident = format_ident!("Insert{}", ident);
@@ -352,7 +393,7 @@ fn insert_companion(
                 #(#locals)*
                 #(#bind_locals)*
                 let r = ::sqlx::query!(#sql #(, #bind_names)*).fetch_one(db).await?;
-                Ok(#ident { #(#build_fields),* })
+                Ok(#ident { #(#build_fields,)* #(#relation_inits),* })
             }
         }
     })

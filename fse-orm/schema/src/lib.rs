@@ -21,5 +21,5 @@ mod error;
 pub use diff::{Migration, diff_schemas};
 pub use error::Error;
 pub use model::{
-    ColumnDef, DefaultValue, EnumDef, ForeignKey, OnDelete, Schema, SqlType, TableDef,
+    ColumnDef, DefaultValue, EnumDef, ForeignKey, OnDelete, RelationDef, Schema, SqlType, TableDef,
 };

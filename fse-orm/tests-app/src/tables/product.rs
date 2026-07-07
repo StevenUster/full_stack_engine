@@ -2,6 +2,8 @@ use chrono::NaiveDateTime;
 use fse_orm::{DbEnum, Table};
 use serde::{Deserialize, Serialize};
 
+use crate::tables::event::Event;
+
 #[derive(DbEnum, Debug, Clone, Copy, PartialEq)]
 pub enum ProductStatus {
     Draft,
@@ -31,6 +33,10 @@ pub struct Product {
     pub active: bool,
     #[orm(references(Event, on_delete = cascade))]
     pub event_id: i64,
+    /// A relation field: not a column, populated by an INNER JOIN (the FK is
+    /// NOT NULL) when a query asks for it via `include: [event]`.
+    #[orm(relation = event_id)]
+    pub event: Option<Event>,
     #[orm(default = now)]
     pub created_at: NaiveDateTime,
     #[orm(json)]

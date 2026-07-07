@@ -100,7 +100,7 @@ pub fn expand(input: &UpdateInput) -> syn::Result<TokenStream> {
         return Err(syn::Error::new(input.filter.span(), "update! needs at least one `col = value`"));
     }
 
-    let compiled = filter::compile(&input.filter, &table)?;
+    let compiled = filter::compile(&input.filter, &table, None)?;
     let where_clause = if compiled.sql.is_empty() {
         String::new()
     } else {

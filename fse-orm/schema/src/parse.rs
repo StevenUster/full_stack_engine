@@ -7,8 +7,15 @@ use quote::ToTokens;
 
 use crate::error::Error;
 use crate::model::{
-    ColumnDef, DefaultValue, EnumDef, ForeignKey, OnDelete, Schema, SqlType, TableDef,
+    ColumnDef, DefaultValue, EnumDef, ForeignKey, OnDelete, RelationDef, Schema, SqlType, TableDef,
 };
+
+/// A parsed struct field is either a database column or a Prisma-style
+/// relation field (`#[orm(relation = fk)]`), which carries no DDL.
+enum ParsedField {
+    Column(Box<ColumnDef>),
+    Relation(RelationDef),
+}
 
 /// Parse a whole tables folder: `sources` is `(file name, file content)`,
 /// where the file name is only used in error messages. Two passes — enums
@@ -78,6 +85,23 @@ pub fn parse_sources(sources: &[(String, String)]) -> Result<Schema, Error> {
         }
     }
 
+    // Resolve each relation's target table from the table it joins through: the
+    // FK column's (now table-resolved) reference. Also verify the relation's
+    // declared target struct matches that foreign key's target.
+    for table in &mut tables {
+        let fk_targets: Vec<(String, String)> = table
+            .columns
+            .iter()
+            .filter_map(|c| c.references.as_ref().map(|fk| (c.name.clone(), fk.table.clone())))
+            .collect();
+        for rel in &mut table.relations {
+            if let Some((_, target)) = fk_targets.iter().find(|(name, _)| *name == rel.local_column)
+            {
+                rel.target_table = target.clone();
+            }
+        }
+    }
+
     Ok(Schema { tables, enums })
 }
 
@@ -133,17 +157,124 @@ pub fn table_from_struct(
     };
 
     let mut columns = Vec::new();
+    let mut relations = Vec::new();
     for field in &fields.named {
-        columns.push(column_from_field(&struct_name, field, enums)?);
+        match field_from_field(&struct_name, field, enums)? {
+            ParsedField::Column(c) => columns.push(*c),
+            ParsedField::Relation(r) => relations.push(r),
+        }
     }
 
-    let table = TableDef { name, struct_name: struct_name.clone(), columns };
+    // A relation joins through one of this table's own foreign-key columns, so
+    // resolve its LEFT/INNER-ness (nullable FK → LEFT) and validate the column.
+    for rel in &mut relations {
+        let Some(col) = columns.iter().find(|c| c.name == rel.local_column) else {
+            return Err(Error::new(format!(
+                "{struct_name}.{}: relation column `{}` is not a field on this struct",
+                rel.field, rel.local_column
+            )));
+        };
+        if col.references.is_none() {
+            return Err(Error::new(format!(
+                "{struct_name}.{}: relation column `{}` has no #[orm(references(...))] — a relation \
+                 must join through a foreign key",
+                rel.field, rel.local_column
+            )));
+        }
+        rel.nullable = col.nullable;
+    }
+
+    let table = TableDef { name, struct_name: struct_name.clone(), columns, relations };
     if table.primary_key().is_empty() {
         return Err(Error::new(format!(
             "{struct_name}: no primary key — add an `id: i64` field or mark fields with #[orm(primary_key)]"
         )));
     }
     Ok(table)
+}
+
+/// Classify a struct field: a relation field (`#[orm(relation = fk)]`) carries
+/// no DDL and joins to another table; anything else is a database column.
+fn field_from_field(
+    struct_name: &str,
+    field: &syn::Field,
+    enums: Option<&[EnumDef]>,
+) -> Result<ParsedField, Error> {
+    if let Some(rel) = relation_from_field(struct_name, field)? {
+        return Ok(ParsedField::Relation(rel));
+    }
+    Ok(ParsedField::Column(Box::new(column_from_field(struct_name, field, enums)?)))
+}
+
+/// A relation field is `#[orm(relation = fk_column)] name: Option<Target>`. It
+/// must be `Option` (unloaded relations are `None`) and carry no other orm
+/// keys. Returns `None` when the field is an ordinary column.
+///
+/// Parses each `#[orm(...)]` attribute's arguments as a plain
+/// `Punctuated<Meta, Comma>` (the generic form: bare `unique`, `name = value`,
+/// or `name(...)`) rather than probing key-by-key with `parse_nested_meta` —
+/// every field is scanned here before we know whether it is a relation or an
+/// ordinary column, so this must never partially consume a key's value (e.g.
+/// `references(Target, on_delete = cascade)`) only to abandon it; `Meta`
+/// parses each item fully regardless of which key it turns out to be.
+fn relation_from_field(
+    struct_name: &str,
+    field: &syn::Field,
+) -> Result<Option<RelationDef>, Error> {
+    let field_name = field.ident.as_ref().expect("named field").to_string();
+    let ctx = format!("{struct_name}.{field_name}");
+
+    let mut local_column: Option<String> = None;
+    let mut other_key = false;
+    for attr in field.attrs.iter().filter(|a| a.path().is_ident("orm")) {
+        let metas = attr
+            .parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+            .map_err(|e| Error::new(format!("{ctx}: {e}")))?;
+        for meta in &metas {
+            if meta.path().is_ident("relation") {
+                let syn::Meta::NameValue(nv) = meta else {
+                    return Err(Error::new(format!("{ctx}: expected `relation = fk_column`")));
+                };
+                let syn::Expr::Path(p) = &nv.value else {
+                    return Err(Error::new(format!("{ctx}: relation value must be a column name")));
+                };
+                let Some(ident) = p.path.get_ident() else {
+                    return Err(Error::new(format!("{ctx}: relation value must be a column name")));
+                };
+                local_column = Some(ident.to_string());
+            } else {
+                other_key = true;
+            }
+        }
+    }
+    let Some(local_column) = local_column else {
+        return Ok(None);
+    };
+    if other_key {
+        return Err(Error::new(format!(
+            "{ctx}: a #[orm(relation = ...)] field takes no other orm keys"
+        )));
+    }
+
+    let (nullable, inner) = unwrap_option(&field.ty);
+    if !nullable {
+        return Err(Error::new(format!(
+            "{ctx}: a relation field must be `Option<Target>` (it is `None` until loaded)"
+        )));
+    }
+    let Some(target_struct) = last_segment_ident(inner) else {
+        return Err(Error::new(format!("{ctx}: relation target must be a struct type")));
+    };
+
+    Ok(Some(RelationDef {
+        field: field_name,
+        target_struct,
+        // Resolved from local_column's foreign key in `parse_sources`.
+        target_table: String::new(),
+        local_column,
+        // Resolved from the FK column's nullability in `table_from_struct`.
+        nullable: false,
+    }))
 }
 
 fn column_from_field(

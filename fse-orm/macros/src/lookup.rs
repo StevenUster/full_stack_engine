@@ -7,7 +7,8 @@
 use std::path::PathBuf;
 
 use fse_schema::TableDef;
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenStream};
+use quote::{format_ident, quote};
 
 pub fn load_table(struct_name: &str, span: Span) -> syn::Result<TableDef> {
     let manifest: PathBuf = std::env::var("CARGO_MANIFEST_DIR")
@@ -52,6 +53,27 @@ pub fn load_table(struct_name: &str, span: Span) -> syn::Result<TableDef> {
                 ),
             )
         })
+}
+
+/// The fully-qualified path to a table struct (`crate::tables::event::Event`),
+/// derived from `orm.tables_dir` under the convention this whole macro system
+/// already assumes: one struct per file, file stem = `snake_case(struct
+/// name)`, directory tree mirrors the module tree below `src/`. Needed for a
+/// relation's target type: `include: [event]` never spells `Event` at the
+/// call site, so the generated code cannot rely on the caller having
+/// imported it — every other codegen path in this crate has the same
+/// no-caller-imports invariant (see `codegen::override_type`).
+pub fn table_path(struct_name: &str, span: Span) -> syn::Result<TokenStream> {
+    let manifest: PathBuf = std::env::var("CARGO_MANIFEST_DIR")
+        .map_err(|_| syn::Error::new(span, "CARGO_MANIFEST_DIR is not set"))?
+        .into();
+    let dir = tables_dir_from_config(&manifest);
+    let module = dir.strip_prefix("src/").unwrap_or(dir.as_str());
+    let module_segments: Vec<syn::Ident> =
+        module.split('/').filter(|s| !s.is_empty()).map(|s| format_ident!("{s}")).collect();
+    let file_stem = format_ident!("{}", fse_schema::parse::to_snake_case(struct_name));
+    let struct_ident = format_ident!("{struct_name}");
+    Ok(quote! { crate::#(#module_segments::)* #file_stem::#struct_ident })
 }
 
 /// `orm.tables_dir` from fse.toml, defaulting to the starter layout.

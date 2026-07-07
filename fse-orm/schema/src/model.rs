@@ -36,11 +36,21 @@ pub struct TableDef {
     /// Rust struct name (`Product`).
     pub struct_name: String,
     pub columns: Vec<ColumnDef>,
+    /// Prisma-style relation fields: struct fields that are *not* database
+    /// columns but hold a related row (`Option<OtherTable>`), populated by an
+    /// eager join when a query asks for them via `include:`. Skipped by the
+    /// migration diff entirely — they carry no DDL.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relations: Vec<RelationDef>,
 }
 
 impl TableDef {
     pub fn column(&self, name: &str) -> Option<&ColumnDef> {
         self.columns.iter().find(|c| c.name == name)
+    }
+
+    pub fn relation(&self, field: &str) -> Option<&RelationDef> {
+        self.relations.iter().find(|r| r.field == field)
     }
 
     pub fn primary_key(&self) -> Vec<&ColumnDef> {
@@ -53,6 +63,25 @@ impl TableDef {
         let pk = self.primary_key();
         pk.len() == 1 && pk[0].name == "id" && pk[0].ty == SqlType::Integer
     }
+}
+
+/// A belongs-to relation field: `#[orm(relation = fk_column)] field:
+/// Option<Target>`. Traverses `local_column` (a foreign key on this table) to
+/// its referenced row. When the FK column is nullable the join is a LEFT JOIN
+/// and the field is `None` for rows with no parent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RelationDef {
+    /// Struct field name (`run`, `donor`).
+    pub field: String,
+    /// Target struct name (`Run`), taken from the field's `Option<Target>` type.
+    pub target_struct: String,
+    /// Target SQL table (`runs`); resolved from `local_column`'s foreign key by
+    /// [`crate::parse::parse_sources`]. Empty in single-struct (derive) contexts.
+    pub target_table: String,
+    /// The foreign-key column on this table the relation joins through.
+    pub local_column: String,
+    /// True when `local_column` is nullable → LEFT JOIN, `None` when absent.
+    pub nullable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -13,7 +13,7 @@ use quote::{format_ident, quote};
 use syn::Token;
 use syn::parse::{Parse, ParseStream};
 
-use crate::{codegen, filter, lookup};
+use crate::{codegen, filter, lookup, relation};
 
 pub struct QueryInput {
     pub table_ident: syn::Ident,
@@ -24,6 +24,10 @@ pub struct QueryInput {
     pub offset: Option<syn::Expr>,
     pub page: Option<syn::Expr>,
     pub per_page: Option<syn::Expr>,
+    /// `include: [run, donor]` — eager-load these relation fields via a real
+    /// SQL JOIN. Only meaningful for `find!`/`find_one!` (see
+    /// `forbid_unused_options`).
+    pub include: Vec<syn::Ident>,
 }
 
 pub struct OrderItem {
@@ -48,6 +52,7 @@ impl Parse for QueryInput {
             offset: None,
             page: None,
             per_page: None,
+            include: Vec::new(),
         };
 
         while input.peek(Token![,]) {
@@ -63,11 +68,13 @@ impl Parse for QueryInput {
                 "offset" => parsed.offset = Some(input.parse()?),
                 "page" => parsed.page = Some(input.parse()?),
                 "per_page" => parsed.per_page = Some(input.parse()?),
+                "include" => parsed.include = parse_include_list(input)?,
                 other => {
                     return Err(syn::Error::new(
                         keyword.span(),
                         format!(
-                            "unknown option `{other}`; expected order_by, limit, offset, page or per_page"
+                            "unknown option `{other}`; expected order_by, limit, offset, page, \
+                             per_page or include"
                         ),
                     ));
                 }
@@ -114,6 +121,15 @@ fn parse_order_items(input: ParseStream) -> syn::Result<Vec<OrderItem>> {
     }
 }
 
+/// `include: [run, donor]` — a bracketed, comma-separated list of relation
+/// field names.
+fn parse_include_list(input: ParseStream) -> syn::Result<Vec<syn::Ident>> {
+    let content;
+    syn::bracketed!(content in input);
+    let items = content.parse_terminated(syn::Ident::parse, Token![,])?;
+    Ok(items.into_iter().collect())
+}
+
 pub enum Mode {
     All,
     One,
@@ -124,22 +140,64 @@ pub enum Mode {
 
 pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
     let table = lookup::load_table(&input.table_ident.to_string(), input.table_ident.span())?;
-    let filter = filter::compile(&input.filter, &table)?;
+    forbid_unused_options(input, mode)?;
+
+    let includes = relation::resolve(&table, &input.include)?;
+    let table_name = &table.name;
+
+    // A join makes a bare column name ambiguous between the primary table and
+    // a joined one, so once anything is joined in, the primary table's own
+    // SELECT items, WHERE clause and ORDER BY are all qualified
+    // (`{table}.{col}`). With no `include:` this stays `None`, so every
+    // string generated below is byte-identical to before `include:` existed
+    // — the overwhelming majority of call sites never churn the offline
+    // query cache from this feature.
+    let qualifier: Option<&str> = if includes.is_empty() { None } else { Some(table_name.as_str()) };
+
+    let filter = filter::compile(&input.filter, &table, qualifier)?;
     let where_clause = if filter.sql.is_empty() {
         String::new()
     } else {
         format!(" WHERE {}", filter.sql)
     };
-    let order_clause = order_clause(input, &table)?;
-    forbid_unused_options(input, mode)?;
+    let order_clause = order_clause(input, &table, qualifier)?;
 
     let table_ident = &input.table_ident;
     let db = &input.db;
     let locals = &filter.locals;
     let args = &filter.args;
-    let select_list = codegen::select_list(&table.columns);
+    let own_select = match qualifier {
+        Some(q) => codegen::select_list_qualified(&table.columns, q),
+        None => codegen::select_list(&table.columns),
+    };
+    let joins: String =
+        includes.iter().map(|inc| format!(" {}", relation::join_clause(table_name, inc))).collect();
+    let select_list = {
+        let mut items = vec![own_select];
+        items.extend(includes.iter().flat_map(relation::select_items));
+        items.join(", ")
+    };
     let build_fields = codegen::build_fields(&table.columns);
-    let table_name = &table.name;
+    // Every relation field on the struct needs an initializer: the ones named
+    // in `include:` are built by the owning struct's own hidden
+    // `__fse_relation_*` helper (see relation.rs — it, not this call site,
+    // is where the target type name resolves), the rest default to `None`
+    // (same as an ordinary `fetch`/`fetch_all` that never touches relations).
+    let relation_fields: Vec<TokenStream> = table
+        .relations
+        .iter()
+        .map(|r| match includes.iter().find(|inc| inc.relation.field == r.field) {
+            Some(inc) => {
+                let id = format_ident!("{}", r.field);
+                let call = relation::call_expr(table_ident, inc);
+                quote! { #id: #call }
+            }
+            None => {
+                let id = format_ident!("{}", r.field);
+                quote! { #id: None }
+            }
+        })
+        .collect();
     let count_sql =
         format!("SELECT COUNT(*) as \"count!: i64\" FROM {table_name}{where_clause}");
 
@@ -151,7 +209,7 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
     let (setup, body) = match mode {
         Mode::All => {
             let mut sql =
-                format!("SELECT {select_list} FROM {table_name}{where_clause}{order_clause}");
+                format!("SELECT {select_list} FROM {table_name}{joins}{where_clause}{order_clause}");
             let mut extra_locals = Vec::new();
             let mut extra_args: Vec<syn::Ident> = Vec::new();
             match (&input.limit, &input.offset) {
@@ -181,7 +239,7 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
                         .await?;
                     rows.into_iter()
                         .map(|r| -> ::sqlx::Result<#table_ident> {
-                            Ok(#table_ident { #(#build_fields),* })
+                            Ok(#table_ident { #(#build_fields,)* #(#relation_fields),* })
                         })
                         .collect::<::sqlx::Result<::std::vec::Vec<#table_ident>>>()
                 },
@@ -189,14 +247,14 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
         }
         Mode::One => {
             let sql = format!(
-                "SELECT {select_list} FROM {table_name}{where_clause}{order_clause} LIMIT 1"
+                "SELECT {select_list} FROM {table_name}{joins}{where_clause}{order_clause} LIMIT 1"
             );
             (
                 quote! {},
                 quote! {
                     let row = ::sqlx::query!(#sql #(, #args)*).fetch_optional(__db).await?;
                     let row = match row {
-                        Some(r) => Some(#table_ident { #(#build_fields),* }),
+                        Some(r) => Some(#table_ident { #(#build_fields,)* #(#relation_fields),* }),
                         None => None,
                     };
                     Ok::<_, ::sqlx::Error>(row)
@@ -211,7 +269,7 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
                 ));
             };
             let sql = format!(
-                "SELECT {select_list} FROM {table_name}{where_clause}{order_clause} LIMIT ? OFFSET ?"
+                "SELECT {select_list} FROM {table_name}{joins}{where_clause}{order_clause} LIMIT ? OFFSET ?"
             );
             (
                 quote! {
@@ -229,7 +287,7 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
                     let rows = rows
                         .into_iter()
                         .map(|r| -> ::sqlx::Result<#table_ident> {
-                            Ok(#table_ident { #(#build_fields),* })
+                            Ok(#table_ident { #(#build_fields,)* #(#relation_fields),* })
                         })
                         .collect::<::sqlx::Result<::std::vec::Vec<#table_ident>>>()?;
                     Ok::<_, ::sqlx::Error>(::fse_orm::Page { rows, total })
@@ -268,7 +326,7 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
     })
 }
 
-fn order_clause(input: &QueryInput, table: &TableDef) -> syn::Result<String> {
+fn order_clause(input: &QueryInput, table: &TableDef, qualifier: Option<&str>) -> syn::Result<String> {
     if input.order_by.is_empty() {
         return Ok(String::new());
     }
@@ -281,6 +339,10 @@ fn order_clause(input: &QueryInput, table: &TableDef) -> syn::Result<String> {
                 format!("no column `{name}` on table `{}`", table.name),
             ));
         }
+        let name = match qualifier {
+            Some(q) => format!("{q}.{name}"),
+            None => name,
+        };
         items.push(if item.descending {
             format!("{name} DESC")
         } else {
@@ -316,6 +378,9 @@ fn forbid_unused_options(input: &QueryInput, mode: &Mode) -> syn::Result<()> {
             if input.limit.is_some() || input.offset.is_some() {
                 return complain("limit/offset (use page/per_page)");
             }
+            if !input.include.is_empty() {
+                return complain("include (not yet supported on find_page!)");
+            }
         }
         Mode::Count | Mode::Delete => {
             if !input.order_by.is_empty()
@@ -325,6 +390,9 @@ fn forbid_unused_options(input: &QueryInput, mode: &Mode) -> syn::Result<()> {
                 || input.per_page.is_some()
             {
                 return complain("order_by/limit/offset/page/per_page");
+            }
+            if !input.include.is_empty() {
+                return complain("include");
             }
         }
     }

@@ -7,6 +7,7 @@ mod db_enum;
 mod filter;
 mod find;
 mod lookup;
+mod relation;
 mod table;
 mod update;
 
@@ -15,6 +16,14 @@ mod update;
 /// `delete`, plus an `InsertX` companion struct whose `insert` returns the
 /// full row. All generated SQL is literal, so `sqlx` verifies it against the
 /// real database schema at compile time.
+///
+/// A field `#[orm(relation = fk_column)] name: Option<Target>` is a
+/// Prisma-style relation, not a column: it stays `None` from every ordinary
+/// constructor and is populated only when a `find!`/`find_one!` call asks
+/// for it via `include: [name]`, via a real SQL JOIN through `fk_column`
+/// (which must itself carry `#[orm(references(Target, ...))]`). A nullable
+/// `fk_column` becomes a LEFT JOIN (the relation may be `None`); NOT NULL
+/// becomes an INNER JOIN (always `Some`).
 #[proc_macro_derive(Table, attributes(orm))]
 pub fn derive_table(input: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(input as syn::ItemStruct);
@@ -42,16 +51,22 @@ fn expand_query(input: TokenStream, mode: find::Mode) -> TokenStream {
         .into()
 }
 
-/// `find!(Table, executor, filter [, order_by: ...][, limit: n][, offset: n])`
+/// `find!(Table, executor, filter [, order_by: ...][, limit: n][, offset: n][, include: [rel, ...]])`
 /// → awaitable, yields `sqlx::Result<Vec<Table>>`. Filter grammar: `all`,
 /// comparisons, `contains`/`starts_with`, `_opt` variants (empty string /
 /// `None` mean "no filter"), `is_null`/`is_not_null`, `&&`, `||`.
+///
+/// `include: [field, ...]` eagerly loads Prisma-style relation fields
+/// (`#[orm(relation = fk)] field: Option<Target>`) via a real SQL JOIN —
+/// still a literal `sqlx::query!` call, so sqlx checks the joined columns
+/// too. Not supported on `find_page!`/`count!`/`delete!`.
 #[proc_macro]
 pub fn find(input: TokenStream) -> TokenStream {
     expand_query(input, find::Mode::All)
 }
 
-/// `find_one!(Table, executor, filter)` → `sqlx::Result<Option<Table>>`.
+/// `find_one!(Table, executor, filter [, include: [rel, ...]])` →
+/// `sqlx::Result<Option<Table>>`.
 #[proc_macro]
 pub fn find_one(input: TokenStream) -> TokenStream {
     expand_query(input, find::Mode::One)

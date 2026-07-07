@@ -28,41 +28,57 @@ pub struct Filter {
     pub args: Vec<syn::Ident>,
 }
 
-pub fn compile(expr: &syn::Expr, table: &TableDef) -> syn::Result<Filter> {
+/// `qualifier`: when a query joins other tables via `include:`, a bare column
+/// name is ambiguous, so every reference to the primary table's own columns
+/// must be qualified (`{qualifier}.{col}`). `None` (the no-join case)
+/// produces byte-identical SQL to before this parameter existed.
+pub fn compile(expr: &syn::Expr, table: &TableDef, qualifier: Option<&str>) -> syn::Result<Filter> {
     if let syn::Expr::Path(p) = expr
         && p.path.is_ident("all")
     {
         return Ok(Filter { sql: String::new(), locals: Vec::new(), args: Vec::new() });
     }
     let mut filter = Filter { sql: String::new(), locals: Vec::new(), args: Vec::new() };
-    let sql = walk(expr, table, &mut filter)?;
+    let sql = walk(expr, table, qualifier, &mut filter)?;
     filter.sql = sql;
     Ok(filter)
 }
 
-fn walk(expr: &syn::Expr, table: &TableDef, out: &mut Filter) -> syn::Result<String> {
+fn qualified(name: &str, qualifier: Option<&str>) -> String {
+    match qualifier {
+        Some(q) => format!("{q}.{name}"),
+        None => name.to_string(),
+    }
+}
+
+fn walk(
+    expr: &syn::Expr,
+    table: &TableDef,
+    qualifier: Option<&str>,
+    out: &mut Filter,
+) -> syn::Result<String> {
     match expr {
-        syn::Expr::Paren(p) => walk(&p.expr, table, out),
+        syn::Expr::Paren(p) => walk(&p.expr, table, qualifier, out),
         syn::Expr::Binary(b) => match b.op {
             syn::BinOp::And(_) => {
-                let left = walk(&b.left, table, out)?;
-                let right = walk(&b.right, table, out)?;
+                let left = walk(&b.left, table, qualifier, out)?;
+                let right = walk(&b.right, table, qualifier, out)?;
                 Ok(format!("({left} AND {right})"))
             }
             syn::BinOp::Or(_) => {
-                let left = walk(&b.left, table, out)?;
-                let right = walk(&b.right, table, out)?;
+                let left = walk(&b.left, table, qualifier, out)?;
+                let right = walk(&b.right, table, qualifier, out)?;
                 Ok(format!("({left} OR {right})"))
             }
-            syn::BinOp::Eq(_) => comparison(b, "=", table, out),
-            syn::BinOp::Ne(_) => comparison(b, "<>", table, out),
-            syn::BinOp::Lt(_) => comparison(b, "<", table, out),
-            syn::BinOp::Le(_) => comparison(b, "<=", table, out),
-            syn::BinOp::Gt(_) => comparison(b, ">", table, out),
-            syn::BinOp::Ge(_) => comparison(b, ">=", table, out),
+            syn::BinOp::Eq(_) => comparison(b, "=", table, qualifier, out),
+            syn::BinOp::Ne(_) => comparison(b, "<>", table, qualifier, out),
+            syn::BinOp::Lt(_) => comparison(b, "<", table, qualifier, out),
+            syn::BinOp::Le(_) => comparison(b, "<=", table, qualifier, out),
+            syn::BinOp::Gt(_) => comparison(b, ">", table, qualifier, out),
+            syn::BinOp::Ge(_) => comparison(b, ">=", table, qualifier, out),
             _ => Err(syn::Error::new(b.op.span(), "unsupported operator in filter")),
         },
-        syn::Expr::MethodCall(call) => method(call, table, out),
+        syn::Expr::MethodCall(call) => method(call, table, qualifier, out),
         other => Err(syn::Error::new(
             other.span(),
             "expected a filter like `col == value`, `col.contains(v)` or `all`",
@@ -74,20 +90,22 @@ fn comparison(
     b: &syn::ExprBinary,
     op: &str,
     table: &TableDef,
+    qualifier: Option<&str>,
     out: &mut Filter,
 ) -> syn::Result<String> {
     let column = column_of(&b.left, table)?;
     let arg = bind(&b.right, out);
-    Ok(format!("{} {op} {arg}", column.name))
+    Ok(format!("{} {op} {arg}", qualified(&column.name, qualifier)))
 }
 
 fn method(
     call: &syn::ExprMethodCall,
     table: &TableDef,
+    qualifier: Option<&str>,
     out: &mut Filter,
 ) -> syn::Result<String> {
     let column = column_of(&call.receiver, table)?;
-    let name = &column.name;
+    let name = qualified(&column.name, qualifier);
     let method = call.method.to_string();
 
     let one_arg = || -> syn::Result<&syn::Expr> {
