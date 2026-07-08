@@ -3,8 +3,9 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use tests_app::tables::event::{Event, InsertEvent};
-use tests_app::tables::product::{Dimensions, InsertProduct, Product, ProductStatus};
+use fse_orm::insert;
+use tests_app::tables::event::Event;
+use tests_app::tables::product::{Dimensions, Product, ProductStatus};
 
 static NEXT_DB: AtomicU64 = AtomicU64::new(0);
 
@@ -25,19 +26,24 @@ async fn setup() -> sqlx::SqlitePool {
 async fn full_crud_roundtrip() {
     let db = setup().await;
 
-    let event = InsertEvent::new("Spring Fair".into()).insert(&db).await.unwrap();
+    let event = insert!(Event, &db, name = "Spring Fair".to_string()).await.unwrap();
     assert!(event.id > 0);
     assert_eq!(event.name, "Spring Fair");
 
-    // Insert with defaults filled by new() (nullable columns start as None);
-    // override via struct-update syntax.
-    let insert = InsertProduct {
-        status: ProductStatus::Published,
-        description: Some("A nice shirt".into()),
-        dimensions: Some(Dimensions { width_cm: 30.0, height_cm: 40.0 }),
-        ..InsertProduct::new("t-shirt".into(), "T-Shirt".into(), event.id)
-    };
-    let product = insert.insert(&db).await.unwrap();
+    // Columns left out (price, active, created_at) get filled by their own
+    // `#[orm(default = ...)]` DDL default — never reproduced in Rust.
+    let product = insert!(
+        Product,
+        &db,
+        slug = "t-shirt".to_string(),
+        name = "T-Shirt".to_string(),
+        event_id = event.id,
+        status = ProductStatus::Published,
+        description = Some("A nice shirt".to_string()),
+        dimensions = Some(Dimensions { width_cm: 30.0, height_cm: 40.0 })
+    )
+    .await
+    .unwrap();
 
     assert!(product.id > 0);
     assert_eq!(product.price, 0.0, "default = 0.0");
@@ -88,9 +94,8 @@ async fn full_crud_roundtrip() {
 async fn foreign_key_cascade_from_generated_ddl() {
     let db = setup().await;
 
-    let event = InsertEvent::new("Autumn Fair".into()).insert(&db).await.unwrap();
-    InsertProduct::new("mug".into(), "Mug".into(), event.id)
-        .insert(&db)
+    let event = insert!(Event, &db, name = "Autumn Fair".to_string()).await.unwrap();
+    insert!(Product, &db, slug = "mug".to_string(), name = "Mug".to_string(), event_id = event.id)
         .await
         .unwrap();
     assert_eq!(Product::count(&db).await.unwrap(), 1);
@@ -119,13 +124,17 @@ async fn db_enum_string_contract() {
 
     // The unique-slug constraint from #[orm(unique)] is enforced by the DDL.
     let db = setup().await;
-    let event = InsertEvent::new("Fair".into()).insert(&db).await.unwrap();
-    InsertProduct::new("cap".into(), "Cap".into(), event.id)
-        .insert(&db)
+    let event = insert!(Event, &db, name = "Fair".to_string()).await.unwrap();
+    insert!(Product, &db, slug = "cap".to_string(), name = "Cap".to_string(), event_id = event.id)
         .await
         .unwrap();
-    let duplicate = InsertProduct::new("cap".into(), "Cap 2".into(), event.id)
-        .insert(&db)
-        .await;
+    let duplicate = insert!(
+        Product,
+        &db,
+        slug = "cap".to_string(),
+        name = "Cap 2".to_string(),
+        event_id = event.id
+    )
+    .await;
     assert!(duplicate.is_err());
 }

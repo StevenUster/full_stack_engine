@@ -1,6 +1,6 @@
 [package]
 name = "fse-orm-macros"
-description = "Proc macros for the fse ORM: derive(Table), derive(DbEnum), find! and update!."
+description = "Proc macros for the fse ORM: derive(Table), derive(DbEnum), find!, insert! and update!."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ repository.workspace = true
 proc-macro = true
 
 [dependencies]
-fse-schema = { version = "0.2.0", path = "../schema" }
+fse-schema = { version = "0.3.0", path = "../schema" }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"

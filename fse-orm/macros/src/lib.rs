@@ -6,6 +6,7 @@ mod codegen;
 mod db_enum;
 mod filter;
 mod find;
+mod insert;
 mod lookup;
 mod relation;
 mod table;
@@ -13,9 +14,9 @@ mod update;
 
 /// Marks a struct as a database table and generates compile-time-checked
 /// CRUD: `fetch`, `fetch_all`, `fetch_by_<unique>`, `count`, `update`,
-/// `delete`, plus an `InsertX` companion struct whose `insert` returns the
-/// full row. All generated SQL is literal, so `sqlx` verifies it against the
-/// real database schema at compile time.
+/// `delete`. Use the `insert!` macro to create rows. All generated SQL is
+/// literal, so `sqlx` verifies it against the real database schema at
+/// compile time.
 ///
 /// A field `#[orm(relation = fk_column)] name: Option<Target>` is a
 /// Prisma-style relation, not a column: it stays `None` from every ordinary
@@ -100,6 +101,23 @@ pub fn delete(input: TokenStream) -> TokenStream {
 pub fn update(input: TokenStream) -> TokenStream {
     let parsed = syn::parse_macro_input!(input as update::UpdateInput);
     update::expand(&parsed)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// `insert!(Table, executor, col = value, ...)` → `sqlx::Result<Table>`, the
+/// full inserted row via `RETURNING`. Columns you omit that are nullable or
+/// carry `#[orm(default = ...)]` are left out of the INSERT entirely — the
+/// column's own SQL `DEFAULT`/implicit `NULL` fills it in, and the returned
+/// row (converted through the same codegen `find!` uses) reflects the real
+/// value, so a default is never reproduced in Rust. Omitting a NOT NULL
+/// column with no default is a compile error. The recognized
+/// auto-increment surrogate key (a lone `id: i64` primary key) can never be
+/// assigned explicitly.
+#[proc_macro]
+pub fn insert(input: TokenStream) -> TokenStream {
+    let parsed = syn::parse_macro_input!(input as insert::InsertInput);
+    insert::expand(&parsed)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

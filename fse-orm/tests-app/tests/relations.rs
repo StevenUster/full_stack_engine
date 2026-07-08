@@ -2,10 +2,10 @@
 //! JOIN, still passed through a literal `sqlx::query!` so sqlx checks the
 //! joined columns too.
 
-use fse_orm::{find, find_one};
-use tests_app::tables::event::InsertEvent;
-use tests_app::tables::product::{InsertProduct, Product, ProductStatus};
-use tests_app::tables::review::{InsertReview, Review};
+use fse_orm::{find, find_one, insert};
+use tests_app::tables::event::Event;
+use tests_app::tables::product::{Product, ProductStatus};
+use tests_app::tables::review::Review;
 
 async fn setup() -> (sqlx::SqlitePool, i64, i64) {
     let copy = std::env::temp_dir().join(format!(
@@ -22,26 +22,30 @@ async fn setup() -> (sqlx::SqlitePool, i64, i64) {
         .foreign_keys(true);
     let db = sqlx::SqlitePool::connect_with(options).await.unwrap();
 
-    let event = InsertEvent::new("Fair".into()).insert(&db).await.unwrap();
-    let product = InsertProduct {
-        status: ProductStatus::Published,
-        ..InsertProduct::new("mug".into(), "Coffee Mug".into(), event.id)
-    }
-    .insert(&db)
+    let event = insert!(Event, &db, name = "Fair".to_string()).await.unwrap();
+    let product = insert!(
+        Product,
+        &db,
+        slug = "mug".to_string(),
+        name = "Coffee Mug".to_string(),
+        event_id = event.id,
+        status = ProductStatus::Published
+    )
     .await
     .unwrap();
 
-    InsertReview {
-        product_id: Some(product.id),
-        comment: Some("Great!".into()),
-        ..InsertReview::new(5)
-    }
-    .insert(&db)
+    insert!(
+        Review,
+        &db,
+        rating = 5i64,
+        product_id = Some(product.id),
+        comment = Some("Great!".to_string())
+    )
     .await
     .unwrap();
     // No product: exercises the LEFT JOIN "no match" branch directly (rather
     // than relying on ON DELETE SET NULL, which is exercised separately below).
-    InsertReview::new(1).insert(&db).await.unwrap();
+    insert!(Review, &db, rating = 1i64).await.unwrap();
 
     (db, event.id, product.id)
 }

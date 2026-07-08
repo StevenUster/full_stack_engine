@@ -4,8 +4,9 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use tests_app::tables::event::InsertEvent;
-use tests_app::tables::product::{InsertProduct, Product, ProductStatus};
+use fse_orm::insert;
+use tests_app::tables::event::Event;
+use tests_app::tables::product::{Product, ProductStatus};
 
 static NEXT_DB: AtomicU64 = AtomicU64::new(0);
 
@@ -21,19 +22,24 @@ async fn setup() -> sqlx::SqlitePool {
         .foreign_keys(true);
     let db = sqlx::SqlitePool::connect_with(options).await.unwrap();
 
-    let event = InsertEvent::new("Fair".into()).insert(&db).await.unwrap();
+    let event = insert!(Event, &db, name = "Fair".to_string()).await.unwrap();
     for (slug, name, status, price) in [
         ("blue-shirt", "Blue Shirt", ProductStatus::Published, 20.0),
         ("red-shirt", "Red Shirt", ProductStatus::Published, 25.0),
         ("mug", "Coffee Mug", ProductStatus::Published, 8.0),
         ("old-cap", "Old Cap", ProductStatus::Archived, 5.0),
     ] {
-        let insert = InsertProduct {
-            status,
-            price,
-            ..InsertProduct::new(slug.into(), name.into(), event.id)
-        };
-        insert.insert(&db).await.unwrap();
+        insert!(
+            Product,
+            &db,
+            slug = slug.to_string(),
+            name = name.to_string(),
+            event_id = event.id,
+            status = status,
+            price = price
+        )
+        .await
+        .unwrap();
     }
     db
 }

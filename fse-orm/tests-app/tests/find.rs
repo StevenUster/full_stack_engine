@@ -3,9 +3,9 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use fse_orm::{count, delete, find, find_one, find_page, update};
-use tests_app::tables::event::InsertEvent;
-use tests_app::tables::product::{Dimensions, InsertProduct, Product, ProductStatus};
+use fse_orm::{count, delete, find, find_one, find_page, insert, update};
+use tests_app::tables::event::Event;
+use tests_app::tables::product::{Dimensions, Product, ProductStatus};
 
 static NEXT_DB: AtomicU64 = AtomicU64::new(0);
 
@@ -21,7 +21,7 @@ async fn setup() -> (sqlx::SqlitePool, i64) {
         .foreign_keys(true);
     let db = sqlx::SqlitePool::connect_with(options).await.unwrap();
 
-    let event = InsertEvent::new("Fair".into()).insert(&db).await.unwrap();
+    let event = insert!(Event, &db, name = "Fair".to_string()).await.unwrap();
     for (slug, name, status, description) in [
         ("blue-shirt", "Blue Shirt", ProductStatus::Published, Some("cotton")),
         ("red-shirt", "Red Shirt", ProductStatus::Published, None),
@@ -29,12 +29,17 @@ async fn setup() -> (sqlx::SqlitePool, i64) {
         ("old-cap", "Old Cap", ProductStatus::Archived, None),
         ("secret", "Secret Draft", ProductStatus::Draft, None),
     ] {
-        let insert = InsertProduct {
-            status,
-            description: description.map(String::from),
-            ..InsertProduct::new(slug.into(), name.into(), event.id)
-        };
-        insert.insert(&db).await.unwrap();
+        insert!(
+            Product,
+            &db,
+            slug = slug.to_string(),
+            name = name.to_string(),
+            event_id = event.id,
+            status = status,
+            description = description.map(String::from)
+        )
+        .await
+        .unwrap();
     }
     (db, event.id)
 }

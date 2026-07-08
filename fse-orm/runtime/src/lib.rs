@@ -3,7 +3,7 @@
 //! calls; this crate holds the small amount of shared runtime the generated
 //! code leans on.
 
-pub use fse_orm_macros::{DbEnum, Table, count, delete, find, find_one, find_page, update};
+pub use fse_orm_macros::{DbEnum, Table, count, delete, find, find_one, find_page, insert, update};
 
 pub mod builder;
 pub mod column;

@@ -6,7 +6,7 @@
 //! checker. Column reads use typed overrides (`col as "col!: Type"`); json
 //! columns come back as TEXT and go through the serde helpers in `fse_orm`.
 
-use fse_schema::{ColumnDef, DefaultValue};
+use fse_schema::ColumnDef;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
@@ -91,17 +91,9 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
     }
 
     let ident = &item.ident;
-    let vis = &item.vis;
     let table_name = &table.name;
-    let auto = table.auto_id();
     let pk_cols: Vec<&Col> = cols.iter().filter(|c| c.def.primary_key).collect();
     let non_pk_cols: Vec<&Col> = cols.iter().filter(|c| !c.def.primary_key).collect();
-    // The insert companion carries every column except an autoincrement id.
-    let insert_cols: Vec<&Col> = if auto {
-        non_pk_cols.clone()
-    } else {
-        cols.iter().collect()
-    };
 
     let select_list = crate::codegen::select_list(&table.columns);
     let build_fields = crate::codegen::build_fields(&table.columns);
@@ -201,7 +193,6 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
         });
     }
 
-    let insert_companion = insert_companion(ident, vis, &table.name, &select_list, &build_fields, &relation_inits, &insert_cols)?;
     let col_consts = column_consts(&cols)?;
     let from_row_fields: Vec<TokenStream> = cols.iter().map(from_row_field).collect();
 
@@ -237,8 +228,6 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
                 Ok(Self { #(#from_row_fields,)* #(#relation_inits),* })
             }
         }
-
-        #insert_companion
     })
 }
 
@@ -306,97 +295,6 @@ fn from_row_field(c: &Col) -> TokenStream {
         let ty = &c.field_ty;
         quote! { #id: ::sqlx::Row::try_get::<#ty, _>(row, #name)? }
     }
-}
-
-/// The `InsertX` companion: every insertable column as a public field, a
-/// `new(...)` constructor taking the fields without a `#[orm(default)]`, and
-/// an `insert` that returns the full row via `RETURNING`.
-fn insert_companion(
-    ident: &syn::Ident,
-    vis: &syn::Visibility,
-    table_name: &str,
-    select_list: &str,
-    build_fields: &[TokenStream],
-    relation_inits: &[TokenStream],
-    insert_cols: &[&Col],
-) -> syn::Result<TokenStream> {
-    let insert_ident = format_ident!("Insert{}", ident);
-
-    let struct_fields: Vec<TokenStream> = insert_cols
-        .iter()
-        .map(|c| {
-            let id = &c.ident;
-            let ty = &c.field_ty;
-            quote! { pub #id: #ty }
-        })
-        .collect();
-
-    // `new(...)` takes only what has no other source of a value: NOT NULL
-    // columns without a default. Defaulted columns get their default;
-    // nullable columns start as None. Override either with struct-update
-    // syntax: `InsertUser { first_name: Some(n), ..InsertUser::new(...) }`.
-    let required: Vec<&&Col> = insert_cols
-        .iter()
-        .filter(|c| c.def.default.is_none() && !c.def.nullable)
-        .collect();
-    let defaulted: Vec<&&Col> = insert_cols
-        .iter()
-        .filter(|c| c.def.default.is_some() || c.def.nullable)
-        .collect();
-    let new_params: Vec<TokenStream> = required
-        .iter()
-        .map(|c| {
-            let id = &c.ident;
-            let ty = &c.field_ty;
-            quote! { #id: #ty }
-        })
-        .collect();
-    let required_names: Vec<&syn::Ident> = required.iter().map(|c| &c.ident).collect();
-    let default_inits: Vec<TokenStream> = defaulted
-        .iter()
-        .map(|c| {
-            let id = &c.ident;
-            if c.def.default.is_some() {
-                let value = default_tokens(c)?;
-                Ok(quote! { #id: #value })
-            } else {
-                Ok(quote! { #id: None })
-            }
-        })
-        .collect::<syn::Result<_>>()?;
-
-    let sql = if insert_cols.is_empty() {
-        format!("INSERT INTO {table_name} DEFAULT VALUES RETURNING {select_list}")
-    } else {
-        let names = insert_cols.iter().map(|c| c.def.name.as_str()).collect::<Vec<_>>().join(", ");
-        let marks = vec!["?"; insert_cols.len()].join(", ");
-        format!("INSERT INTO {table_name} ({names}) VALUES ({marks}) RETURNING {select_list}")
-    };
-    let locals: Vec<TokenStream> = insert_cols.iter().filter_map(|c| json_local(c)).collect();
-    let (bind_locals, bind_names) =
-        hoist_binds(insert_cols.iter().map(|c| bind_expr(c)).collect());
-
-    Ok(quote! {
-        #vis struct #insert_ident {
-            #(#struct_fields),*
-        }
-
-        impl #insert_ident {
-            pub fn new(#(#new_params),*) -> Self {
-                Self {
-                    #(#required_names,)*
-                    #(#default_inits,)*
-                }
-            }
-
-            pub async fn insert(self, db: impl ::sqlx::SqliteExecutor<'_>) -> ::sqlx::Result<#ident> {
-                #(#locals)*
-                #(#bind_locals)*
-                let r = ::sqlx::query!(#sql #(, #bind_names)*).fetch_one(db).await?;
-                Ok(#ident { #(#build_fields,)* #(#relation_inits),* })
-            }
-        }
-    })
 }
 
 /// json columns are serialized into a local before the query so the bind is
@@ -476,51 +374,3 @@ fn param_bind(c: &Col) -> TokenStream {
     }
 }
 
-/// The Rust expression for a `#[orm(default = ...)]` value, used by
-/// `InsertX::new`. Numeric literals get an `as _` so they adapt to the field
-/// width; text defaults on enum columns become the variant itself.
-fn default_tokens(c: &Col) -> syn::Result<TokenStream> {
-    let span = c.ident.span();
-    let value = match c.def.default.as_ref().expect("defaulted column") {
-        DefaultValue::Now => match c.def.rust_type.as_str() {
-            "NaiveDateTime" => quote! { ::chrono::Utc::now().naive_utc() },
-            t if t.starts_with("DateTime") => quote! { ::chrono::Utc::now() },
-            other => {
-                return Err(syn::Error::new(
-                    span,
-                    format!("default = now needs NaiveDateTime or DateTime<Utc>, not {other}"),
-                ));
-            }
-        },
-        DefaultValue::Int(i) => quote! { (#i as _) },
-        DefaultValue::Float(f) => quote! { (#f as _) },
-        DefaultValue::Bool(b) => quote! { #b },
-        DefaultValue::Text(s) => {
-            if c.def.is_enum {
-                let ty = &c.inner_ty;
-                let variant = format_ident!("{}", upper_camel(s));
-                quote! { #ty::#variant }
-            } else {
-                quote! { #s.to_string() }
-            }
-        }
-    };
-    Ok(if c.def.nullable {
-        quote! { Some(#value) }
-    } else {
-        value
-    })
-}
-
-fn upper_camel(snake: &str) -> String {
-    snake
-        .split('_')
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
-                None => String::new(),
-            }
-        })
-        .collect()
-}
