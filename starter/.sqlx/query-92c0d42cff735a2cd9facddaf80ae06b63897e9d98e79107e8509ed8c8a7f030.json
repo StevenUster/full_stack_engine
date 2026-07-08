@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO orders (product_id, user_id, quantity, note, status, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id as \"id!: i64\", product_id as \"product_id!: i64\", user_id as \"user_id!: i64\", quantity as \"quantity!: i64\", note as \"note: String\", status as \"status!\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\"",
+  "query": "INSERT INTO orders (product_id, user_id, quantity, note) VALUES (?, ?, ?, ?) RETURNING id as \"id!: i64\", product_id as \"product_id!: i64\", user_id as \"user_id!: i64\", quantity as \"quantity!: i64\", note as \"note: String\", status as \"status!\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\"",
   "describe": {
     "columns": [
       {
@@ -40,7 +40,7 @@
       }
     ],
     "parameters": {
-      "Right": 6
+      "Right": 4
     },
     "nullable": [
       false,
@@ -52,5 +52,5 @@
       false
     ]
   },
-  "hash": "14791defbfa4836b6658b0ca85bf4d32f1dad5ab1ba7716dd97d585ade81995b"
+  "hash": "92c0d42cff735a2cd9facddaf80ae06b63897e9d98e79107e8509ed8c8a7f030"
 }

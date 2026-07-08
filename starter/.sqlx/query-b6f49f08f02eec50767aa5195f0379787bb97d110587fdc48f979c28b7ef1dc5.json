@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "INSERT INTO users (email, password, role, first_name, last_name, is_verified, verification_token, verification_token_expires_at, reset_token, reset_token_expires_at, pending_email, email_change_token, email_change_token_expires_at, sessions_valid_after, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id as \"id!: i64\", email as \"email!: String\", password as \"password!: String\", role as \"role!\", first_name as \"first_name: String\", last_name as \"last_name: String\", is_verified as \"is_verified!: bool\", verification_token as \"verification_token: String\", verification_token_expires_at as \"verification_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", reset_token as \"reset_token: String\", reset_token_expires_at as \"reset_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", pending_email as \"pending_email: String\", email_change_token as \"email_change_token: String\", email_change_token_expires_at as \"email_change_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", sessions_valid_after as \"sessions_valid_after!: i64\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\"",
+  "query": "INSERT INTO users (email, password, role, is_verified, first_name, last_name, verification_token, verification_token_expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id as \"id!: i64\", email as \"email!: String\", password as \"password!: String\", role as \"role!\", first_name as \"first_name: String\", last_name as \"last_name: String\", is_verified as \"is_verified!: bool\", verification_token as \"verification_token: String\", verification_token_expires_at as \"verification_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", reset_token as \"reset_token: String\", reset_token_expires_at as \"reset_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", pending_email as \"pending_email: String\", email_change_token as \"email_change_token: String\", email_change_token_expires_at as \"email_change_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", sessions_valid_after as \"sessions_valid_after!: i64\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\"",
   "describe": {
     "columns": [
       {
@@ -85,7 +85,7 @@
       }
     ],
     "parameters": {
-      "Right": 15
+      "Right": 8
     },
     "nullable": [
       false,
@@ -106,5 +106,5 @@
       false
     ]
   },
-  "hash": "59ecdf500c5252cf47b2415dcb8c0f76313e0abd741ecf5bbf9cf19c87b8a6c5"
+  "hash": "b6f49f08f02eec50767aa5195f0379787bb97d110587fdc48f979c28b7ef1dc5"
 }
