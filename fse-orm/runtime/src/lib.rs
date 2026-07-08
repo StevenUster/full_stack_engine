@@ -58,6 +58,24 @@ where
     raw.map(|raw| parse_db_value(column, raw)).transpose()
 }
 
+/// Escapes `\`, `%` and `_` in a user-supplied search value so it matches
+/// literally inside a `LIKE` pattern (always paired with `ESCAPE '\'`).
+/// Untrusted input must not smuggle wildcards into a filter:
+/// `contains("%")` means "values containing a percent sign", never
+/// "every row". Used by the generated `contains`/`starts_with`/
+/// `contains_opt` operators; apps don't call it directly.
+pub fn escape_like(value: impl AsRef<str>) -> String {
+    let value = value.as_ref();
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        if matches!(c, '\\' | '%' | '_') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Encode a `#[orm(json)]` field for storage as TEXT.
 pub fn to_json_string<T: Serialize>(value: &T) -> sqlx::Result<String> {
     serde_json::to_string(value).map_err(|e| sqlx::Error::Encode(Box::new(e)))

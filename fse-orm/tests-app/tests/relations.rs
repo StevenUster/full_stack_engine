@@ -2,19 +2,23 @@
 //! JOIN, still passed through a literal `sqlx::query!` so sqlx checks the
 //! joined columns too.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use fse_orm::{find, find_one, insert};
 use tests_app::tables::event::Event;
 use tests_app::tables::product::{Product, ProductStatus};
 use tests_app::tables::review::Review;
 
+// A per-process counter, not a timestamp: two tests starting in the same
+// clock tick would otherwise share one database file and trip each other's
+// UNIQUE constraints.
+static NEXT_DB: AtomicU64 = AtomicU64::new(0);
+
 async fn setup() -> (sqlx::SqlitePool, i64, i64) {
     let copy = std::env::temp_dir().join(format!(
         "fse-orm-relations-{}-{}.db",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos(),
+        NEXT_DB.fetch_add(1, Ordering::Relaxed),
     ));
     std::fs::copy("db/test.db", &copy).expect("template db from build.rs");
     let options = sqlx::sqlite::SqliteConnectOptions::new()

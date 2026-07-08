@@ -47,13 +47,16 @@ where
         self
     }
 
+    /// Negative values are clamped to 0: SQLite reads a negative LIMIT as
+    /// "unlimited", and an unvalidated value must not turn a bounded query
+    /// into a full-table read.
     pub fn limit(mut self, limit: i64) -> Self {
-        self.limit = Some(limit);
+        self.limit = Some(limit.max(0));
         self
     }
 
     pub fn offset(mut self, offset: i64) -> Self {
-        self.offset = Some(offset);
+        self.offset = Some(offset.max(0));
         self
     }
 
@@ -90,6 +93,9 @@ where
         per_page: i64,
     ) -> sqlx::Result<Page<T>> {
         let page = page.max(1);
+        // SQLite reads a negative LIMIT as "unlimited" — a hostile per_page
+        // must not dump the whole table.
+        let per_page = per_page.max(1);
 
         let mut count_qb = QueryBuilder::new(format!("SELECT COUNT(*) FROM {}", self.table));
         push_where(&self.conds, &mut count_qb);

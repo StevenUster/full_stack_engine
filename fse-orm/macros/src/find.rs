@@ -215,7 +215,10 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
             match (&input.limit, &input.offset) {
                 (Some(limit), offset) => {
                     sql.push_str(" LIMIT ?");
-                    extra_locals.push(quote! { let __limit: i64 = #limit; });
+                    // Clamp: SQLite reads a negative LIMIT as "unlimited", so
+                    // an unvalidated value must not turn a bounded query into
+                    // a full-table read.
+                    extra_locals.push(quote! { let __limit: i64 = <i64>::max(#limit, 0); });
                     extra_args.push(format_ident!("__limit"));
                     if let Some(offset) = offset {
                         sql.push_str(" OFFSET ?");
@@ -273,7 +276,10 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
             );
             (
                 quote! {
-                    let __per_page: i64 = #per_page;
+                    // Clamped like `page`: SQLite reads a negative LIMIT as
+                    // "unlimited", so a hostile per_page must not dump the
+                    // whole table.
+                    let __per_page: i64 = <i64>::max(#per_page, 1);
                     let __page: i64 = <i64>::max(#page, 1);
                     let __offset: i64 = (__page - 1) * __per_page;
                 },

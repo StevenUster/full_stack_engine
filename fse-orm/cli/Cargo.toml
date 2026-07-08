@@ -15,7 +15,7 @@ name = "fse"
 path = "src/main.rs"
 
 [dependencies]
-fse-schema = { version = "0.3.0", path = "../schema" }
+fse-schema = { version = "0.3.1", path = "../schema" }
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "migrate"] }
 tokio = { version = "1", features = ["rt"] }
 serde = { version = "1.0", features = ["derive"] }

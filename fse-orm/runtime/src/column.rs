@@ -110,17 +110,24 @@ impl<T: Bindable> Col<T> {
 }
 
 impl Col<String> {
+    /// Substring match. The value is matched literally: `%`/`_`/`\` in it are
+    /// escaped (see [`crate::escape_like`]), so untrusted search input can't
+    /// smuggle LIKE wildcards into the filter.
     pub fn contains(self, value: impl Into<String>) -> Cond {
         Cond {
-            fragments: vec![format!("{} LIKE '%' || ", self.name), " || '%'".into()],
-            binds: vec![bind_fn(value.into())],
+            fragments: vec![
+                format!("{} LIKE '%' || ", self.name),
+                " || '%' ESCAPE '\\'".into(),
+            ],
+            binds: vec![bind_fn(crate::escape_like(value.into()))],
         }
     }
 
+    /// Prefix match; the value is matched literally, like [`Col::contains`].
     pub fn starts_with(self, value: impl Into<String>) -> Cond {
         Cond {
-            fragments: vec![format!("{} LIKE ", self.name), " || '%'".into()],
-            binds: vec![bind_fn(value.into())],
+            fragments: vec![format!("{} LIKE ", self.name), " || '%' ESCAPE '\\'".into()],
+            binds: vec![bind_fn(crate::escape_like(value.into()))],
         }
     }
 }

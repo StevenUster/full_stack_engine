@@ -128,16 +128,18 @@ fn method(
             })
         }
         "contains" => {
-            let arg = bind(one_arg()?, out);
-            Ok(format!("{name} LIKE '%' || {arg} || '%'"))
+            let arg = bind_like(one_arg()?, false, out);
+            Ok(format!("{name} LIKE '%' || {arg} || '%' ESCAPE '\\'"))
         }
         "starts_with" => {
-            let arg = bind(one_arg()?, out);
-            Ok(format!("{name} LIKE {arg} || '%'"))
+            let arg = bind_like(one_arg()?, false, out);
+            Ok(format!("{name} LIKE {arg} || '%' ESCAPE '\\'"))
         }
         "contains_opt" => {
-            let arg = bind_twice(one_arg()?, out);
-            Ok(format!("({arg} = '' OR {name} LIKE '%' || {arg} || '%')"))
+            // Escaping never adds/removes emptiness, so the `= ''` "no
+            // filter" test still sees the user's empty string.
+            let arg = bind_like(one_arg()?, true, out);
+            Ok(format!("({arg} = '' OR {name} LIKE '%' || {arg} || '%' ESCAPE '\\')"))
         }
         "eq_opt" | "ne_opt" | "lt_opt" | "lte_opt" | "gt_opt" | "gte_opt" => {
             let op = match method.as_str() {
@@ -201,6 +203,20 @@ fn bind_twice(expr: &syn::Expr, out: &mut Filter) -> String {
     let name = format_ident!("__fb{}", out.locals.len());
     out.locals.push(quote! { let #name = #expr; });
     out.args.push(name.clone());
+    out.args.push(name);
+    "?".into()
+}
+
+/// Like [`bind`]/[`bind_twice`], but the value is a user-supplied LIKE search
+/// term: `%`/`_`/`\` are escaped at runtime so they match literally (the SQL
+/// side pairs the pattern with `ESCAPE '\'`). Untrusted input must never
+/// widen a filter.
+fn bind_like(expr: &syn::Expr, twice: bool, out: &mut Filter) -> String {
+    let name = format_ident!("__fb{}", out.locals.len());
+    out.locals.push(quote! { let #name = ::fse_orm::escape_like(#expr); });
+    if twice {
+        out.args.push(name.clone());
+    }
     out.args.push(name);
     "?".into()
 }
