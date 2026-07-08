@@ -138,14 +138,25 @@ pub fn table_from_struct(
     let struct_name = item.ident.to_string();
 
     let mut table_name: Option<String> = None;
+    let mut composite_uniques: Vec<Vec<String>> = Vec::new();
+    let mut composite_indexes: Vec<Vec<String>> = Vec::new();
     for attr in item.attrs.iter().filter(|a| a.path().is_ident("orm")) {
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("table") {
                 let lit: syn::LitStr = meta.value()?.parse()?;
                 table_name = Some(lit.value());
                 Ok(())
+            } else if meta.path.is_ident("unique") {
+                composite_uniques.push(parse_struct_column_list(&meta, "unique")?);
+                Ok(())
+            } else if meta.path.is_ident("index") {
+                composite_indexes.push(parse_struct_column_list(&meta, "index")?);
+                Ok(())
             } else {
-                Err(meta.error("unknown #[orm(...)] key on a struct; expected `table = \"...\"`"))
+                Err(meta.error(
+                    "unknown #[orm(...)] key on a struct; expected `table = \"...\"`, \
+                     `unique(col, ...)` or `index(col, ...)`",
+                ))
             }
         })
         .map_err(|e| Error::new(format!("{struct_name}: {e}")))?;
@@ -184,13 +195,49 @@ pub fn table_from_struct(
         rel.nullable = col.nullable;
     }
 
-    let table = TableDef { name, struct_name: struct_name.clone(), columns, relations };
+    // Composite unique/index column lists must name real columns on this
+    // table — checked here, once every field has been parsed.
+    for cols in composite_uniques.iter().chain(composite_indexes.iter()) {
+        for col in cols {
+            if columns.iter().all(|c| &c.name != col) {
+                return Err(Error::new(format!(
+                    "{struct_name}: unique(...)/index(...) references unknown column `{col}`"
+                )));
+            }
+        }
+    }
+
+    let table = TableDef {
+        name,
+        struct_name: struct_name.clone(),
+        columns,
+        relations,
+        composite_uniques,
+        composite_indexes,
+    };
     if table.primary_key().is_empty() {
         return Err(Error::new(format!(
             "{struct_name}: no primary key — add an `id: i64` field or mark fields with #[orm(primary_key)]"
         )));
     }
     Ok(table)
+}
+
+/// Parses the parenthesized column list following a struct-level `unique`/
+/// `index` key, e.g. the `(user_id, run_id)` in `#[orm(unique(user_id, run_id))]`.
+fn parse_struct_column_list(meta: &syn::meta::ParseNestedMeta, key: &str) -> syn::Result<Vec<String>> {
+    let mut cols = Vec::new();
+    meta.parse_nested_meta(|m| {
+        let Some(ident) = m.path.get_ident() else {
+            return Err(m.error("expected a column name"));
+        };
+        cols.push(ident.to_string());
+        Ok(())
+    })?;
+    if cols.is_empty() {
+        return Err(meta.error(format!("{key}(...) needs at least one column, e.g. {key}(a, b)")));
+    }
+    Ok(cols)
 }
 
 /// Classify a struct field: a relation field (`#[orm(relation = fk)]`) carries

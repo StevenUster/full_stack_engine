@@ -77,3 +77,29 @@ pub fn index_sqls(t: &TableDef) -> Vec<String> {
         })
         .collect()
 }
+
+pub fn composite_index_name(table: &str, columns: &[String]) -> String {
+    format!("idx_{table}_{}", columns.join("_"))
+}
+
+/// `CREATE [UNIQUE] INDEX` statements for every struct-level `#[orm(unique(...))]`
+/// / `#[orm(index(...))]` — composite constraints, enforced as indexes (not
+/// inline table constraints) so they can be added/dropped without a rebuild.
+pub fn composite_index_sqls(t: &TableDef) -> Vec<String> {
+    let mut out: Vec<String> = t
+        .composite_uniques
+        .iter()
+        .map(|cols| composite_index_sql(&t.name, cols, true))
+        .collect();
+    out.extend(t.composite_indexes.iter().map(|cols| composite_index_sql(&t.name, cols, false)));
+    out
+}
+
+fn composite_index_sql(table: &str, columns: &[String], unique: bool) -> String {
+    format!(
+        "CREATE {}INDEX {} ON {table} ({});",
+        if unique { "UNIQUE " } else { "" },
+        composite_index_name(table, columns),
+        columns.join(", "),
+    )
+}

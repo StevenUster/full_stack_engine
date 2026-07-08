@@ -42,6 +42,20 @@ pub struct TableDef {
     /// migration diff entirely — they carry no DDL.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub relations: Vec<RelationDef>,
+    /// `#[orm(unique(col_a, col_b))]` on the struct — a composite UNIQUE
+    /// constraint, each entry an ordered column-name list. Rendered as a
+    /// `CREATE UNIQUE INDEX`, not an inline table constraint, so it can be
+    /// added/dropped without a full table rebuild (same as a plain index).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub composite_uniques: Vec<Vec<String>>,
+    /// `#[orm(index(col_a, col_b))]` on the struct — a multi-column index, or
+    /// a single-column index on a column that's part of a composite primary
+    /// key (where field-level `#[orm(index)]` is rejected as redundant with
+    /// the PK's own index, even though a secondary single-column index there
+    /// is often genuinely useful — SQLite's PK index is ordered and doesn't
+    /// help a lookup on a non-leading PK column alone).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub composite_indexes: Vec<Vec<String>>,
 }
 
 impl TableDef {

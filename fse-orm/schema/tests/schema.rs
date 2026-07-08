@@ -283,6 +283,91 @@ pub struct Account {
 }
 
 #[test]
+fn struct_level_unique_and_index_attributes() {
+    let src = r#"
+#[derive(Table)]
+#[orm(unique(user_id, run_id))]
+pub struct Registration {
+    pub id: i64,
+    pub user_id: i64,
+    pub run_id: i64,
+}
+"#;
+    let schema = schema_of(&[("registration.rs", src)]);
+    let t = schema.table("registrations").unwrap();
+    assert_eq!(t.composite_uniques, vec![vec!["user_id".to_string(), "run_id".to_string()]]);
+
+    // Emitted as a CREATE UNIQUE INDEX at table-creation time, not an inline
+    // table constraint (so it can be added/dropped without a rebuild).
+    let m = diff_schemas(&Schema::default(), &schema).unwrap().unwrap();
+    assert!(
+        m.sql.contains(
+            "CREATE UNIQUE INDEX idx_registrations_user_id_run_id ON registrations (user_id, run_id);"
+        ),
+        "got: {}",
+        m.sql
+    );
+    let create = create_table_sql(t);
+    assert!(!create.contains("UNIQUE (user_id, run_id)"), "should not be inline: {create}");
+
+    // Composite constraints survive a snapshot round-trip too.
+    assert_eq!(schema_from_json(&schema_to_json(&schema)).unwrap(), schema);
+
+    // Removing it later is a plain DROP INDEX, not a rebuild.
+    let without = schema_of(&[("registration.rs", &src.replace("#[orm(unique(user_id, run_id))]\n", ""))]);
+    let m = diff_schemas(&schema, &without).unwrap().unwrap();
+    assert_eq!(m.sql, "DROP INDEX IF EXISTS idx_registrations_user_id_run_id;\n");
+    let back = diff_schemas(&without, &schema).unwrap().unwrap();
+    assert_eq!(
+        back.sql,
+        "CREATE UNIQUE INDEX idx_registrations_user_id_run_id ON registrations (user_id, run_id);\n"
+    );
+}
+
+#[test]
+fn struct_level_index_on_a_composite_primary_key_column() {
+    // A single-column `#[orm(index)]` on a PK field is rejected as redundant
+    // with the PK's own index — but for a *composite* PK, the PK's index is
+    // ordered and doesn't help a lookup on a non-leading column alone, so the
+    // struct-level `index(...)` form (not subject to that check) must still
+    // be allowed here.
+    let src = r#"
+#[derive(Table)]
+#[orm(index(user_id))]
+pub struct EventManager {
+    #[orm(primary_key, references(Event, on_delete = cascade))]
+    pub event_id: i64,
+    #[orm(primary_key)]
+    pub user_id: i64,
+}
+"#;
+    let schema = schema_of(&[("event.rs", EVENT), ("event_manager.rs", src)]);
+    let t = schema.table("event_managers").unwrap();
+    assert_eq!(t.composite_indexes, vec![vec!["user_id".to_string()]]);
+
+    let m = diff_schemas(&Schema::default(), &schema).unwrap().unwrap();
+    assert!(
+        m.sql.contains("CREATE INDEX idx_event_managers_user_id ON event_managers (user_id);"),
+        "got: {}",
+        m.sql
+    );
+}
+
+#[test]
+fn unique_referencing_unknown_column_is_rejected() {
+    let src = r#"
+#[derive(Table)]
+#[orm(unique(user_id, nonexistent))]
+pub struct Registration {
+    pub id: i64,
+    pub user_id: i64,
+}
+"#;
+    let err = parse_sources(&[("r.rs".into(), src.into())]).unwrap_err();
+    assert!(err.message.contains("nonexistent"), "got: {err}");
+}
+
+#[test]
 fn snapshot_roundtrips() {
     let schema = v1();
     assert_eq!(schema_from_json(&schema_to_json(&schema)).unwrap(), schema);

@@ -8,7 +8,7 @@
 
 use crate::error::Error;
 use crate::model::{ColumnDef, DefaultValue, Schema, TableDef};
-use crate::sql::{column_sql, create_table_sql, index_name};
+use crate::sql::{column_sql, composite_index_name, create_table_sql, index_name};
 
 #[derive(Debug, Clone)]
 pub struct Migration {
@@ -50,6 +50,7 @@ pub fn diff_schemas(old: &Schema, new: &Schema) -> Result<Option<Migration>, Err
         if old.table(&t.name).is_none() {
             stmts.push(create_table_sql(t));
             stmts.extend(crate::sql::index_sqls(t));
+            stmts.extend(crate::sql::composite_index_sqls(t));
             summary.push(format!("create {}", t.name));
         }
     }
@@ -139,11 +140,26 @@ fn diff_table(
         })
         .collect();
 
+    // Composite unique/index changes: also plain CREATE/DROP INDEX, never a
+    // rebuild by themselves (same reasoning as single-column `index_changes`).
+    let unique_added: Vec<&Vec<String>> =
+        new.composite_uniques.iter().filter(|c| !old.composite_uniques.contains(c)).collect();
+    let unique_removed: Vec<&Vec<String>> =
+        old.composite_uniques.iter().filter(|c| !new.composite_uniques.contains(c)).collect();
+    let index_added: Vec<&Vec<String>> =
+        new.composite_indexes.iter().filter(|c| !old.composite_indexes.contains(c)).collect();
+    let index_removed: Vec<&Vec<String>> =
+        old.composite_indexes.iter().filter(|c| !new.composite_indexes.contains(c)).collect();
+
     if renames.is_empty()
         && added.is_empty()
         && dropped.is_empty()
         && changed.is_empty()
         && index_changes.is_empty()
+        && unique_added.is_empty()
+        && unique_removed.is_empty()
+        && index_added.is_empty()
+        && index_removed.is_empty()
     {
         return Ok(());
     }
@@ -158,6 +174,10 @@ fn diff_table(
             .iter()
             .map(|(c, on)| format!("{} {}", if *on { "index" } else { "unindex" }, c.name)),
     );
+    bits.extend(unique_added.iter().map(|c| format!("unique({})", c.join(","))));
+    bits.extend(unique_removed.iter().map(|c| format!("drop unique({})", c.join(","))));
+    bits.extend(index_added.iter().map(|c| format!("index({})", c.join(","))));
+    bits.extend(index_removed.iter().map(|c| format!("drop index({})", c.join(","))));
 
     let rebuild = !changed.is_empty()
         || added.iter().any(|c| !can_add_column(c))
@@ -168,6 +188,7 @@ fn diff_table(
         // everything, so index changes need no separate statements.
         stmts.push(rebuild_table_sql(old, new, needs_manual_edit));
         stmts.extend(crate::sql::index_sqls(new));
+        stmts.extend(crate::sql::composite_index_sqls(new));
         summary.push(format!("rebuild {} ({})", new.name, bits.join(", ")));
     } else {
         for (from, to) in &renames {
@@ -200,6 +221,28 @@ fn diff_table(
             } else {
                 format!("DROP INDEX IF EXISTS {};", index_name(&new.name, &c.name))
             });
+        }
+        for cols in &unique_removed {
+            stmts.push(format!("DROP INDEX IF EXISTS {};", composite_index_name(&new.name, cols)));
+        }
+        for cols in &unique_added {
+            stmts.push(format!(
+                "CREATE UNIQUE INDEX {} ON {} ({});",
+                composite_index_name(&new.name, cols),
+                new.name,
+                cols.join(", "),
+            ));
+        }
+        for cols in &index_removed {
+            stmts.push(format!("DROP INDEX IF EXISTS {};", composite_index_name(&new.name, cols)));
+        }
+        for cols in &index_added {
+            stmts.push(format!(
+                "CREATE INDEX {} ON {} ({});",
+                composite_index_name(&new.name, cols),
+                new.name,
+                cols.join(", "),
+            ));
         }
         summary.push(format!("{}: {}", new.name, bits.join(", ")));
     }
