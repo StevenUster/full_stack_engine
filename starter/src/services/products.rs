@@ -7,10 +7,10 @@
 use crate::{
     AppData, AppError, AppResult, AppRole, AuthUser, Deserialize, Serialize,
     actix_web::{HttpResponse, delete, get, post, web},
-    find_one, find_page, update,
+    find_one, find_page, insert, update,
 };
 
-use crate::tables::product::{InsertProduct, Product, ProductStatus};
+use crate::tables::product::{Product, ProductStatus};
 
 const PER_PAGE: i64 = 20;
 
@@ -249,12 +249,14 @@ pub async fn post_product_create(
             .await);
     }
 
-    InsertProduct {
-        description: form.description.clone(),
-        price: form.price,
-        ..InsertProduct::new(form.name.clone(), slug)
-    }
-    .insert(&data.db)
+    insert!(
+        Product,
+        &data.db,
+        name = form.name.clone(),
+        slug = slug,
+        description = form.description.clone(),
+        price = form.price
+    )
     .await?;
 
     Ok(HttpResponse::Found()

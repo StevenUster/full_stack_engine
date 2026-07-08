@@ -3,19 +3,20 @@
 //! of a child resource with its own moderation workflow (`pending` ->
 //! `fulfilled`/`cancelled`).
 //!
-//! The ORM has no joins by design: related rows are fetched with a second
-//! query over the collected ids (`Col::in_` on the dynamic builder) and
-//! stitched in Rust. For a page-sized list this is one extra indexed query.
+//! Related rows here are fetched with a second query over the collected ids
+//! (`Col::in_` on the dynamic builder) and stitched in Rust, rather than
+//! `include:` — a page-sized list only needs one extra indexed query either
+//! way.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::{
     AppData, AppError, AppResult, AppRole, AuthUser, Deserialize, Serialize,
     actix_web::{HttpResponse, delete, get, post, web},
-    delete_rows, find, find_one, update,
+    delete_rows, find, find_one, insert, update,
 };
 
-use crate::tables::order::{InsertOrder, Order, OrderStatus};
+use crate::tables::order::{Order, OrderStatus};
 use crate::tables::product::{Product, ProductStatus};
 use crate::tables::user::User;
 
@@ -43,12 +44,14 @@ pub async fn post_place_order(
     .await?
     .ok_or_else(|| AppError::NotFound("product".to_string()))?;
 
-    InsertOrder {
-        quantity: form.quantity.max(1),
-        note: form.note.clone(),
-        ..InsertOrder::new(product.id, user.claims.sub)
-    }
-    .insert(&data.db)
+    insert!(
+        Order,
+        &data.db,
+        product_id = product.id,
+        user_id = user.claims.sub,
+        quantity = form.quantity.max(1),
+        note = form.note.clone()
+    )
     .await?;
 
     Ok(HttpResponse::Found()

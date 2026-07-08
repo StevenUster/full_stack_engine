@@ -1,11 +1,11 @@
 use crate::{
     AppData, AppError, AppResult, AppRole, HttpResponse, actix_web::get,
-    actix_web::http::header::LOCATION, error, hash_password, send_mail, serde_json::json, update,
-    web,
+    actix_web::http::header::LOCATION, error, hash_password, insert, send_mail,
+    serde_json::json, update, web,
 };
 use actix_multipart::form::{MultipartForm, text::Text};
 
-use crate::tables::user::{InsertUser, User};
+use crate::tables::user::User;
 
 #[derive(MultipartForm)]
 pub struct RegisterForm {
@@ -86,16 +86,18 @@ pub async fn post(
     };
     let verification_token_expires_at = verification_token.as_ref().map(|_| super::token_expiry());
 
-    let insert_result = InsertUser {
-        role: AppRole::User,
-        is_verified,
-        first_name: Some(first_name.clone()),
-        last_name: Some(last_name.clone()),
-        verification_token: verification_token.clone(),
-        verification_token_expires_at,
-        ..InsertUser::new(email.clone(), hashed_password)
-    }
-    .insert(&data.db)
+    let insert_result = insert!(
+        User,
+        &data.db,
+        email = email.clone(),
+        password = hashed_password,
+        role = AppRole::User,
+        is_verified = is_verified,
+        first_name = Some(first_name.clone()),
+        last_name = Some(last_name.clone()),
+        verification_token = verification_token.clone(),
+        verification_token_expires_at = verification_token_expires_at
+    )
     .await;
 
     match insert_result {

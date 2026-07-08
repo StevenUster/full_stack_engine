@@ -9,10 +9,10 @@
 #![allow(dead_code)]
 
 use actix_web::web;
-use starter::tables::product::InsertProduct;
-use starter::tables::user::InsertUser;
+use starter::tables::product::Product;
+use starter::tables::user::User;
 use starter::tera::Tera;
-use starter::{AppData, Env, hash_password};
+use starter::{AppData, Env, hash_password, insert};
 
 pub const JWT_SECRET: &str = "test-secret";
 
@@ -55,11 +55,13 @@ pub async fn test_app_data() -> web::Data<AppData> {
 
 pub async fn seed_user(data: &web::Data<AppData>, email: &str, password: &str, role: &str) -> i64 {
     let hash = hash_password(password).unwrap();
-    let user = InsertUser {
-        role: <starter::AppRole as starter::Role>::from_role_str(role),
-        ..InsertUser::new(email.into(), hash)
-    }
-    .insert(&data.db)
+    let user = insert!(
+        User,
+        &data.db,
+        email = email.to_string(),
+        password = hash,
+        role = <starter::AppRole as starter::Role>::from_role_str(role)
+    )
     .await
     .unwrap();
     user.id
@@ -67,12 +69,14 @@ pub async fn seed_user(data: &web::Data<AppData>, email: &str, password: &str, r
 
 /// Inserts a product with the given slug/status and returns its id.
 pub async fn seed_product(data: &web::Data<AppData>, slug: &str, status: &str) -> i64 {
-    let product = InsertProduct {
-        price: 9.99,
-        status: status.parse().unwrap(),
-        ..InsertProduct::new(format!("Product {slug}"), slug.into())
-    }
-    .insert(&data.db)
+    let product = insert!(
+        Product,
+        &data.db,
+        name = format!("Product {slug}"),
+        slug = slug.to_string(),
+        price = 9.99,
+        status = status.parse::<starter::tables::product::ProductStatus>().unwrap()
+    )
     .await
     .unwrap();
     product.id
