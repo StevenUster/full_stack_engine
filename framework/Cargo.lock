@@ -1298,7 +1298,7 @@ checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "fse-orm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fse-orm-macros",
  "serde",
@@ -1308,7 +1308,7 @@ dependencies = [
 
 [[package]]
 name = "fse-orm-macros"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fse-schema",
  "proc-macro2",
@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "fse-schema"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "quote",
  "serde",
@@ -1329,7 +1329,7 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "3.0.1"
+version = "4.0.0"
 dependencies = [
  "actix-files",
  "actix-governor",

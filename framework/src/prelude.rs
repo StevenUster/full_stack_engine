@@ -16,7 +16,7 @@ pub use crate::{
 // `#[delete]` route attribute below already owns the name.
 pub use fse_orm::{
     self, Col, DbEnum, Page, Table, count, delete as delete_rows, find, find_one, find_page,
-    update,
+    insert, update,
 };
 
 pub use actix_web::{
