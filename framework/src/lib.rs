@@ -263,11 +263,19 @@ type CronjobsFn = Box<
         Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>,
     >,
 >;
+type StartupFn = Box<
+    dyn FnOnce(
+        SqlitePool,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>,
+    >,
+>;
 
 pub struct FrameworkApp {
     dist_dir: &'static Dir<'static>,
     configure_fn: Option<ConfigureFn>,
     cronjobs_fn: Option<CronjobsFn>,
+    startup_fn: Option<StartupFn>,
     context_injector: Option<std::sync::Arc<ContextInjectorFn>>,
     migrator: Option<sqlx::migrate::Migrator>,
     rate_limit_exempt_prefixes: Vec<String>,
@@ -280,6 +288,7 @@ impl FrameworkApp {
             dist_dir,
             configure_fn: None,
             cronjobs_fn: None,
+            startup_fn: None,
             context_injector: None,
             migrator: None,
             rate_limit_exempt_prefixes: Vec::new(),
@@ -351,6 +360,25 @@ impl FrameworkApp {
         self
     }
 
+    /// Runs once at boot, after migrations have applied and before the HTTP
+    /// server starts accepting connections — for one-time setup that needs
+    /// the real database (e.g. seeding a first admin account from an env
+    /// var if none exists yet). Given the same pool the app serves requests
+    /// with, not a separate connection like [`FrameworkApp::cronjobs`].
+    ///
+    /// ```ignore
+    /// FrameworkApp::new(&DIST_DIR).on_startup(bootstrap_admin).run().await
+    /// ```
+    #[must_use]
+    pub fn on_startup<F, Fut>(mut self, f: F) -> Self
+    where
+        F: FnOnce(SqlitePool) -> Fut + 'static,
+        Fut: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> + 'static,
+    {
+        self.startup_fn = Some(Box::new(move |pool| Box::pin(f(pool))));
+        self
+    }
+
     /// Boots the application: connects the database, runs migrations, starts
     /// the cron scheduler and serves HTTP until the process is stopped.
     ///
@@ -363,8 +391,9 @@ impl FrameworkApp {
     ///
     /// Panics at startup if required configuration (`DOMAIN`, `PROTOCOL`,
     /// `JWT_SECRET`, `DATABASE_URL`) is missing, or if the database, its
-    /// migrations, or the cron scheduler fail to initialize — failing loudly
-    /// at boot instead of running half-configured.
+    /// migrations, the [`FrameworkApp::on_startup`] hook, or the cron
+    /// scheduler fail to initialize — failing loudly at boot instead of
+    /// running half-configured.
     pub async fn run(mut self) -> std::io::Result<()> {
         env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
         load_env_file();
@@ -377,6 +406,12 @@ impl FrameworkApp {
         let database_url = env::var("DATABASE_URL").expect("DATABASE_URL not set in .env file");
 
         let db_pool = init_db(&database_url, self.migrator.take()).await?;
+
+        if let Some(startup_fn) = self.startup_fn.take() {
+            startup_fn(db_pool.clone())
+                .await
+                .expect("Failed to run on_startup hook");
+        }
 
         let mut tera = Tera::default();
         // Template names never carry a `.html` suffix (see `add_templates`), so Tera's
