@@ -23,6 +23,12 @@ pub use actix_web::{
     self, HttpResponse, Responder, cookie, delete, get, http, http::header::LOCATION, main, post,
     put, web, web::Data, web::Form,
 };
+// actix-multipart is deliberately not re-exported: `#[derive(MultipartForm)]`
+// hardcodes a bare `actix_multipart` crate-root reference in its generated
+// code (verified — removing the app's own dependency breaks the derive with
+// "cannot find `actix_multipart` in the crate root"), so an app using it
+// needs its own direct dependency regardless.
+pub use actix_files;
 pub use chrono;
 pub use include_dir;
 pub use log::{self, debug, error, info, warn};
@@ -31,5 +37,6 @@ pub use serde::{self, Deserialize, Serialize};
 pub use serde_json::{self, json};
 pub use tera::{self, Context};
 pub use tokio_cron_scheduler;
+pub use uuid;
 
 pub use std::convert::{TryFrom, TryInto};
