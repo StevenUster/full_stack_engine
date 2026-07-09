@@ -46,7 +46,8 @@ pub struct ChangeEmailForm {
     pub new_email: String,
 }
 
-#[post("/settings/change-email")]
+// Registered in `services::configure` behind a strict rate limiter (this
+// sends an email to a caller-chosen address), not via a route attribute.
 pub async fn post_change_email(
     data: Data<AppData>,
     req: actix_web::HttpRequest,
@@ -228,7 +229,8 @@ pub async fn verify_email_change(
         .finish())
 }
 
-#[post("/settings/password-reset")]
+// Registered in `services::configure` behind a strict rate limiter (this
+// sends an email), not via a route attribute.
 pub async fn post_password_reset(
     data: Data<AppData>,
     req: actix_web::HttpRequest,

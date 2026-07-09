@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: i64\", name as \"name!: String\", slug as \"slug!: String\", description as \"description: String\", price as \"price!: f64\", status as \"status!\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\" FROM products WHERE (status = ? AND (? = '' OR name LIKE '%' || ? || '%')) ORDER BY created_at DESC LIMIT ? OFFSET ?",
+  "query": "SELECT id as \"id!: i64\", name as \"name!: String\", slug as \"slug!: String\", description as \"description: String\", price as \"price!: f64\", status as \"status!\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\" FROM products WHERE (status = ? AND (? = '' OR name LIKE '%' || ? || '%' ESCAPE '\\')) ORDER BY created_at DESC LIMIT ? OFFSET ?",
   "describe": {
     "columns": [
       {
@@ -52,5 +52,5 @@
       false
     ]
   },
-  "hash": "5e727a9f7e07932e54805ce5c3ecc58c51f1b0b0b4e9ace9b93b3450412dd060"
+  "hash": "68d0fe66986b5d43f6a87c789a32a9897bc78f54a32ea32acd6d511b391532ee"
 }

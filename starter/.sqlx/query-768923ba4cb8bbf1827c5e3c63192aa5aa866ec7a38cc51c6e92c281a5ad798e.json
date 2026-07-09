@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id as \"id!: i64\", email as \"email!: String\", password as \"password!: String\", role as \"role!\", first_name as \"first_name: String\", last_name as \"last_name: String\", is_verified as \"is_verified!: bool\", verification_token as \"verification_token: String\", verification_token_expires_at as \"verification_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", reset_token as \"reset_token: String\", reset_token_expires_at as \"reset_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", pending_email as \"pending_email: String\", email_change_token as \"email_change_token: String\", email_change_token_expires_at as \"email_change_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", sessions_valid_after as \"sessions_valid_after!: i64\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\" FROM users WHERE ((? = '' OR email LIKE '%' || ? || '%') AND (? IS NULL OR role = ?)) ORDER BY created_at DESC LIMIT ? OFFSET ?",
+  "query": "SELECT id as \"id!: i64\", email as \"email!: String\", password as \"password!: String\", role as \"role!\", first_name as \"first_name: String\", last_name as \"last_name: String\", is_verified as \"is_verified!: bool\", verification_token as \"verification_token: String\", verification_token_expires_at as \"verification_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", reset_token as \"reset_token: String\", reset_token_expires_at as \"reset_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", pending_email as \"pending_email: String\", email_change_token as \"email_change_token: String\", email_change_token_expires_at as \"email_change_token_expires_at: ::sqlx::types::chrono::NaiveDateTime\", sessions_valid_after as \"sessions_valid_after!: i64\", created_at as \"created_at!: ::sqlx::types::chrono::NaiveDateTime\" FROM users WHERE ((? = '' OR email LIKE '%' || ? || '%' ESCAPE '\\') AND (? IS NULL OR role = ?)) ORDER BY created_at DESC LIMIT ? OFFSET ?",
   "describe": {
     "columns": [
       {
@@ -106,5 +106,5 @@
       false
     ]
   },
-  "hash": "e20de83bea8e1814fee47be6d61ee6f8a26f447ed4862023c6bef53000615f41"
+  "hash": "768923ba4cb8bbf1827c5e3c63192aa5aa866ec7a38cc51c6e92c281a5ad798e"
 }

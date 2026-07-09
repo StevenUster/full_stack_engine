@@ -1377,9 +1377,9 @@ checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "fse-orm"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aa319ebe8ecf9c94ce523834c336c986faf58e153974e041d2e609b5c0f2a75"
+checksum = "4c281d225b010c5fd8f9c0c00f8a10f652da97aff959837a6a2f44adf6ecc7ee"
 dependencies = [
  "fse-orm-macros",
  "serde",
@@ -1389,9 +1389,9 @@ dependencies = [
 
 [[package]]
 name = "fse-orm-macros"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a05545642a0ef99afcab7e96a110f7347db1d845f26dc46ef347841e0d5d7a9"
+checksum = "fc7644584a23105b788ac6f9eea65b73c406db5cccfda574f840d2dc1e4876c2"
 dependencies = [
  "fse-schema",
  "proc-macro2",
@@ -1402,9 +1402,9 @@ dependencies = [
 
 [[package]]
 name = "fse-schema"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf7bf677dfc4f42f889549636f163a81cddfba9d3068228fce8e97baba0d5301"
+checksum = "f40c022d20667ea714aa1c404975536408463d955574d7607b6c9e96c366fbeb"
 dependencies = [
  "quote",
  "serde",
@@ -1414,9 +1414,9 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "4.0.0"
+version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb3b6f839042d3001afaf49daeebf853138a482b3416949c6368eb054f8b3502"
+checksum = "026c6a6d2cb03a6356994f7110fa20c3448b1da5ea00e78f571a5f8e3ed0ef00"
 dependencies = [
  "actix-files",
  "actix-governor",

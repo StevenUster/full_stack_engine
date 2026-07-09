@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COUNT(*) as \"count!: i64\" FROM products WHERE (status = ? AND (? = '' OR name LIKE '%' || ? || '%'))",
+  "query": "SELECT COUNT(*) as \"count!: i64\" FROM products WHERE (status = ? AND (? = '' OR name LIKE '%' || ? || '%' ESCAPE '\\'))",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "27dea66254336070f9bb7761837bdfd6cea2a24d7943e25d2fa2e018c261952e"
+  "hash": "d1ad6597eaff8f470f4c84d4f38079dbd20d5a41c2e285c029ba626830ec92f7"
 }

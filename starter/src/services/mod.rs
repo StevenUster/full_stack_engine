@@ -44,9 +44,21 @@ pub(super) fn now_unix() -> i64 {
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(index::index);
     cfg.service(settings::get);
-    cfg.service(settings::post_change_email);
+    cfg.service(
+        // Sends a verification email to a caller-chosen address, so like
+        // /forgot-password it needs a strict per-IP limit (a small burst to
+        // allow correcting a typo, then one per hour).
+        web::resource("/settings/change-email")
+            .route(web::post().to(settings::post_change_email))
+            .wrap(custom_rate_limiter(3600, 3)),
+    );
     cfg.service(settings::verify_email_change);
-    cfg.service(settings::post_password_reset);
+    cfg.service(
+        // Sends a password-reset email (to the caller's own account).
+        web::resource("/settings/password-reset")
+            .route(web::post().to(settings::post_password_reset))
+            .wrap(custom_rate_limiter(3600, 3)),
+    );
     cfg.service(settings::post_delete_account);
     cfg.service(login::get);
     cfg.service(
