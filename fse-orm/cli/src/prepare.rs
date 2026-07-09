@@ -8,8 +8,18 @@
 //! existing directory. So all `cargo sqlx prepare` does — and all this
 //! does — is: clear the old cache, force every query!-family call site to
 //! re-expand (cargo's fingerprinting has no way to know an env var changed,
-//! so source files are touched to force it), and run `cargo check` with
-//! that env var set.
+//! so source files are touched to force it), and run `cargo check --tests`
+//! with that env var set.
+//!
+//! `--tests` (rather than a bare `cargo check`) matters because `cfg(test)`
+//! is only enabled when checking test targets: integration tests under
+//! `tests/` are separate targets that a plain `cargo check` never builds at
+//! all, and `#[cfg(test)]` unit-test modules inside `src/` are compiled out
+//! the same way. Either kind of query!-family call site — a fixture helper
+//! in `tests/common/mod.rs`, or a `#[cfg(test)]` block in `src/` — would
+//! silently never run its capture side effect without it. So both `src/`
+//! and `tests/` need their `.rs` files touched, and `cargo check` needs
+//! `--tests` to actually compile that code.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -35,6 +45,7 @@ pub fn run(root: &Path, cfg: &OrmConfig, database_url: Option<&str>) -> Result<(
     }
 
     touch_rs_files(&root.join("src"))?;
+    touch_rs_files(&root.join("tests"))?;
 
     let cache_dir_abs = cache_dir
         .canonicalize()
@@ -43,6 +54,7 @@ pub fn run(root: &Path, cfg: &OrmConfig, database_url: Option<&str>) -> Result<(
     println!("refreshing query cache ...");
     let status = Command::new("cargo")
         .arg("check")
+        .arg("--tests")
         .current_dir(root)
         .env("DATABASE_URL", &url)
         .env("SQLX_OFFLINE", "false")

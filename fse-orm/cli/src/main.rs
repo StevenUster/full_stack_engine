@@ -18,7 +18,8 @@ USAGE:
 pending to the database from DATABASE_URL (env or .env), then refreshes
 the offline query cache (.sqlx/) — pass --no-prepare to skip that last
 step. `fse prepare` runs just that last step on its own, e.g. after
-editing a query without changing the schema.
+editing a query without changing the schema. Both cover query!-family
+call sites under src/ and tests/, including #[cfg(test)] code.
 
 OPTIONS:
     --dry-run     print the pending schema change, write nothing
