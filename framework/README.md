@@ -41,7 +41,7 @@ These are the core rules the framework is built around. They apply both to chang
 
 6. **Untrusted input stays untrusted.** Parameterize all SQL, validate every upload (size + type), keep public files (`uploads/`) separate from private ones (`data/`), and treat any user-supplied HTML that reaches a renderer as hostile.
 
-7. **Migrations are forward-only.** Schema changes are new, timestamped migrations run automatically at startup; applied migrations are never edited. Apps regenerate the SQLx offline cache (`cargo sqlx prepare`) after query changes.
+7. **Migrations are forward-only.** Schema changes are new, timestamped migrations run automatically at startup; applied migrations are never edited. Apps regenerate the SQLx offline cache (`fse prepare` — no `sqlx-cli` needed, see [Installing the CLI](#installing-the-cli)) after query changes.
 
 ## Using the ORM
 
@@ -72,11 +72,21 @@ Common field attributes: `primary_key`, `references(Target, on_delete = cascade|
 ### 2. Generate migrations — never write them by hand
 
 ```bash
-fse migrate            # diff src/tables against the committed snapshot, generate + apply
-fse migrate --dry-run   # preview the pending change without writing anything
+fse migrate              # diff src/tables against the committed snapshot, generate + apply, refresh .sqlx/
+fse migrate --dry-run     # preview the pending change without writing anything
+fse migrate --no-prepare  # skip the .sqlx/ refresh step
+fse prepare               # just refresh .sqlx/, e.g. after editing a query without touching the schema
 ```
 
-`fse` (from `fse-cli`) parses your structs, diffs them against `.fse/schema.json`, and writes a plain timestamped `sqlx` migration. If a schema shape isn't representable by a struct/field attribute yet, the fix is to extend the ORM — never to hand-author a migration file as a workaround.
+`fse` (from `fse-cli`) parses your structs, diffs them against `.fse/schema.json`, and writes a plain timestamped `sqlx` migration, then refreshes the offline query cache (`.sqlx/`) itself — no `sqlx-cli` install required, `fse` is the only tool you need. If a schema shape isn't representable by a struct/field attribute yet, the fix is to extend the ORM — never to hand-author a migration file as a workaround.
+
+#### Installing the CLI
+
+```bash
+cargo install fse-cli
+```
+
+This installs the `fse` binary. It's the only tool needed for schema/migration/query-cache workflows — there's nothing else to install.
 
 ### 3. Query
 
