@@ -1,6 +1,6 @@
 [package]
 name = "full_stack_engine"
-version = "4.1.0"
+version = "4.1.1"
 edition = "2024"
 description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
 license = "MIT OR Apache-2.0"
@@ -16,7 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 # The fse ORM ships with the framework: schema-driven migrations plus
 # compile-time-checked queries (see the prelude re-exports).
-fse-orm = { version = "0.3.0", path = "../fse-orm/runtime" }
+fse-orm = { version = "0.3.1", path = "../fse-orm/runtime" }
 actix-web = "4.12.1"
 actix-files = "0.6.9"
 actix-governor = "0.10.0"

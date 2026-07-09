@@ -73,9 +73,14 @@ macro_rules! define_roles {
 
             fn has_permission(&self, permission: &str) -> bool {
                 if <Self as $crate::prelude::Role>::is_admin(self) { return true; }
-                match self {
-                    $( Self::$variant => matches!(permission, $( $perm )|* | "") ),+
-                }
+                // Slice lookup instead of `matches!`: it works for roles with
+                // an empty permission list, and grants exactly the declared
+                // permissions — nothing (in particular not the empty string)
+                // passes implicitly.
+                let declared: &[&str] = match self {
+                    $( Self::$variant => &[$($perm),*] ),+
+                };
+                declared.contains(&permission)
             }
         }
 
