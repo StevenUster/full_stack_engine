@@ -104,8 +104,8 @@ pub async fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateOutcome, Erro
 
     apply_pending(root, &cfg, opts, &migrations_dir).await?;
 
-    if !opts.no_prepare && root.join(".sqlx").exists() {
-        prepare(root);
+    if !opts.no_prepare {
+        crate::prepare::run(root, &cfg, opts.database_url.as_deref())?;
     }
     Ok(outcome)
 }
@@ -224,18 +224,7 @@ async fn apply_pending(
     if !migrations_dir.exists() {
         return Ok(());
     }
-    let url = match &opts.database_url {
-        Some(url) => url.clone(),
-        None => {
-            dotenvy::from_path(root.join(".env")).ok();
-            std::env::var(&cfg.database_url_env).map_err(|_| {
-                Error::new(format!(
-                    "{} is not set (env or .env)",
-                    cfg.database_url_env
-                ))
-            })?
-        }
-    };
+    let url = config::resolve_database_url(root, cfg, opts.database_url.as_deref())?;
 
     let options = url
         .parse::<sqlx::sqlite::SqliteConnectOptions>()
@@ -255,20 +244,4 @@ async fn apply_pending(
     pool.close().await;
     println!("database is up to date.");
     Ok(())
-}
-
-/// Refresh the offline query cache so checked builds work without a live
-/// database. Best effort: needs sqlx-cli installed.
-fn prepare(root: &Path) {
-    println!("running `cargo sqlx prepare` ...");
-    let status = std::process::Command::new("cargo")
-        .args(["sqlx", "prepare"])
-        .current_dir(root)
-        .status();
-    match status {
-        Ok(s) if s.success() => {}
-        _ => println!(
-            "warning: `cargo sqlx prepare` failed — is sqlx-cli installed? (cargo install sqlx-cli)"
-        ),
-    }
 }

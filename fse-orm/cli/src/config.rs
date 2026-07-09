@@ -54,3 +54,18 @@ pub fn load(root: &Path) -> Result<OrmConfig, Error> {
         toml::from_str(&raw).map_err(|e| Error::new(format!("fse.toml: {e}")))?;
     Ok(parsed.orm)
 }
+
+/// Reads `cfg.database_url_env` from `.env`/the environment, in that order.
+/// `override_url` (from `--database-url`/test hooks) wins over both.
+pub fn resolve_database_url(
+    root: &Path,
+    cfg: &OrmConfig,
+    override_url: Option<&str>,
+) -> Result<String, Error> {
+    if let Some(url) = override_url {
+        return Ok(url.to_string());
+    }
+    dotenvy::from_path(root.join(".env")).ok();
+    std::env::var(&cfg.database_url_env)
+        .map_err(|_| Error::new(format!("{} is not set (env or .env)", cfg.database_url_env)))
+}
