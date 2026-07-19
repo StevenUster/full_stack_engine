@@ -403,6 +403,10 @@ impl FrameworkApp {
         let domain = env::var("DOMAIN").expect("DOMAIN not set in .env file");
         let protocol = env::var("PROTOCOL").expect("PROTOCOL not set in .env file");
         let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET not set in .env file");
+        if let Err(msg) = validate_jwt_secret(&jwt_secret) {
+            // Fail loudly at boot rather than sign tokens with a weak key.
+            panic!("{msg}");
+        }
         let database_url = env::var("DATABASE_URL").expect("DATABASE_URL not set in .env file");
 
         let db_pool = init_db(&database_url, self.migrator.take()).await?;
@@ -630,6 +634,27 @@ async fn start_cron_scheduler(cronjobs_fn: Option<CronjobsFn>, database_url: &st
     } else {
         info!("No cronjobs. Cron scheduler not started.");
     }
+}
+
+/// The shortest `JWT_SECRET` the app will boot with. HS256 signs and verifies
+/// with this exact byte string as the key, so its entropy is the only thing
+/// standing between an attacker and a forged token; below the 256-bit hash
+/// width a secret is brute-forceable offline. `openssl rand -base64 32`
+/// produces a 44-char value that clears this comfortably.
+const MIN_JWT_SECRET_LEN: usize = 32;
+
+/// Rejects a `JWT_SECRET` too short to be a safe HS256 key. Returns the
+/// human-facing reason on failure so the caller can fail the boot with it.
+fn validate_jwt_secret(secret: &str) -> Result<(), String> {
+    if secret.len() < MIN_JWT_SECRET_LEN {
+        return Err(format!(
+            "JWT_SECRET is too short ({} bytes): use at least {MIN_JWT_SECRET_LEN} \
+             (e.g. `openssl rand -base64 32`). A short secret makes HS256 tokens \
+             brute-forceable.",
+            secret.len(),
+        ));
+    }
+    Ok(())
 }
 
 /// Only an explicit `ENV=dev` opts into dev mode. Anything else — unset,
@@ -906,6 +931,22 @@ mod tests {
 
     static TEST_DIST: Dir<'_> =
         include_dir::include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/templates");
+
+    #[test]
+    fn validate_jwt_secret_enforces_minimum_length() {
+        // Too short: rejected with a message that names the variable.
+        assert!(validate_jwt_secret("short").is_err());
+        assert!(validate_jwt_secret(&"x".repeat(MIN_JWT_SECRET_LEN - 1)).is_err());
+        assert!(
+            validate_jwt_secret("short")
+                .unwrap_err()
+                .contains("JWT_SECRET")
+        );
+        // Exactly the minimum and above: accepted.
+        assert!(validate_jwt_secret(&"x".repeat(MIN_JWT_SECRET_LEN)).is_ok());
+        // A real `openssl rand -base64 32` value clears it.
+        assert!(validate_jwt_secret("YmFzZTY0LWVuY29kZWQtc2VjcmV0LTMyLWJ5dGVzIQ==").is_ok());
+    }
 
     #[test]
     fn parse_env_only_explicit_dev_opts_into_dev_mode() {
