@@ -3,6 +3,7 @@
 
 use fse_cli::config;
 use fse_cli::migrate::{self, MigrateOpts};
+use fse_cli::modules;
 use fse_cli::prepare;
 
 const HELP: &str = "\
@@ -11,6 +12,7 @@ fse — schema-driven sqlx migrations, no sqlx-cli required
 USAGE:
     fse migrate [--dry-run] [--yes] [--no-prepare]
     fse prepare
+    fse sync
 
 `fse migrate` is the one command for everything: it diffs the
 #[derive(Table)] structs in src/tables against the committed snapshot
@@ -20,6 +22,10 @@ the offline query cache (.sqlx/) — pass --no-prepare to skip that last
 step. `fse prepare` runs just that last step on its own, e.g. after
 editing a query without changing the schema. Both cover query!-family
 call sites under src/ and tests/, including #[cfg(test)] code.
+
+Modules ([orm] modules = [...] in fse.toml): their shipped schema
+snapshots merge into `fse migrate` automatically; `fse sync` extracts
+their frontend/ sources into .fse/modules/ for the Astro build.
 
 OPTIONS:
     --dry-run     print the pending schema change, write nothing
@@ -55,6 +61,13 @@ fn main() {
         }
         Some("prepare") => {
             let result = config::load(&root).and_then(|cfg| prepare::run(&root, &cfg, None));
+            if let Err(e) = result {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Some("sync") => {
+            let result = config::load(&root).and_then(|cfg| modules::sync(&root, &cfg));
             if let Err(e) = result {
                 eprintln!("error: {e}");
                 std::process::exit(1);

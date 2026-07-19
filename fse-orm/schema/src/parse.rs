@@ -22,6 +22,17 @@ enum ParsedField {
 /// first so struct fields can resolve them — then foreign keys are resolved
 /// from struct names to table names.
 pub fn parse_sources(sources: &[(String, String)]) -> Result<Schema, Error> {
+    parse_sources_with_external(sources, &[])
+}
+
+/// Like [`parse_sources`], but with additional already-known tables (module
+/// snapshots) available for foreign-key/relation resolution — so an app
+/// table can `references(SomeModuleStruct)` a table it doesn't define. The
+/// external tables are *not* part of the returned schema.
+pub fn parse_sources_with_external(
+    sources: &[(String, String)],
+    external: &[TableDef],
+) -> Result<Schema, Error> {
     let mut files = Vec::new();
     for (name, code) in sources {
         let file = syn::parse_file(code).map_err(|e| Error::new(format!("{name}: {e}")))?;
@@ -61,6 +72,13 @@ pub fn parse_sources(sources: &[(String, String)]) -> Result<Schema, Error> {
                         table.name
                     )));
                 }
+                if external.iter().any(|t| t.name == table.name) {
+                    return Err(Error::new(format!(
+                        "{name}: table {} is already defined by a module — rename the \
+                         struct or set #[orm(table = \"...\")]",
+                        table.name
+                    )));
+                }
                 tables.push(table);
             }
         }
@@ -69,12 +87,18 @@ pub fn parse_sources(sources: &[(String, String)]) -> Result<Schema, Error> {
 
     // Resolve foreign-key targets: `references(Event)` names a struct; turn
     // it into the table name. A name that already matches a table (e.g. from
-    // `fse init` introspection) passes through unchanged.
+    // `fse init` introspection) passes through unchanged. External (module)
+    // tables participate in resolution like local ones.
     let by_struct: Vec<(String, String)> = tables
         .iter()
+        .chain(external)
         .map(|t| (t.struct_name.clone(), t.name.clone()))
         .collect();
-    let table_names: Vec<String> = tables.iter().map(|t| t.name.clone()).collect();
+    let table_names: Vec<String> = tables
+        .iter()
+        .chain(external)
+        .map(|t| t.name.clone())
+        .collect();
     for table in &mut tables {
         for col in &mut table.columns {
             if let Some(fk) = &mut col.references {

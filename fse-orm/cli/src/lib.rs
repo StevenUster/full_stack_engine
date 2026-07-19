@@ -3,4 +3,5 @@
 
 pub mod config;
 pub mod migrate;
+pub mod modules;
 pub mod prepare;

@@ -85,17 +85,21 @@ pub fn merge_locale(base: &mut serde_json::Value, overlay: &serde_json::Value) {
     }
 }
 
-/// The full locale set an app serves: the framework's base translations with
-/// the app's files layered on top (per language, deep-merged, app wins). App
-/// languages the framework doesn't know start from the framework's default
-/// so generated-UI chrome never goes missing entirely.
+/// The full locale set an app serves, layered bottom-up: the framework's
+/// base translations, then each module's files (registration order), then
+/// the app's — per language, deep-merged, later layers win. Languages the
+/// lower layers don't know simply start empty and rely on
+/// [`resolve_locales`]' per-key fallback.
 ///
 /// # Panics
 ///
 /// Never in practice: only if the framework's own embedded locale files were
 /// invalid JSON, which the build would already have caught in tests.
 #[must_use]
-pub fn build_locales(app_dir: Option<&Dir>) -> HashMap<String, serde_json::Value> {
+pub fn build_locales(
+    module_dirs: &[&Dir],
+    app_dir: Option<&Dir>,
+) -> HashMap<String, serde_json::Value> {
     let mut locales: HashMap<String, serde_json::Value> = FRAMEWORK_LOCALES
         .iter()
         .map(|(lang, raw)| {
@@ -106,7 +110,7 @@ pub fn build_locales(app_dir: Option<&Dir>) -> HashMap<String, serde_json::Value
         })
         .collect();
 
-    if let Some(dir) = app_dir {
+    for dir in module_dirs.iter().copied().chain(app_dir) {
         for (lang, overlay) in load_all_locales(dir) {
             let base = locales
                 .entry(lang.clone())

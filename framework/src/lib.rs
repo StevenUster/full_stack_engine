@@ -18,11 +18,13 @@ use tera::{Context, Tera};
 use tokio_cron_scheduler::JobScheduler;
 
 pub mod auth;
+pub mod auth_module;
 pub mod cron;
 pub mod error;
 pub mod i18n;
 pub mod mail;
 pub mod models;
+pub mod modules;
 pub mod prelude;
 pub mod rate_limiter;
 pub mod roles;
@@ -356,6 +358,7 @@ pub struct FrameworkApp {
     rate_limit_exempt_prefixes: Vec<String>,
     locales_dir: Option<&'static Dir<'static>>,
     locale_selector: i18n::LocaleSelector,
+    modules: Vec<modules::ModuleDef>,
 }
 
 impl FrameworkApp {
@@ -372,7 +375,23 @@ impl FrameworkApp {
             rate_limit_exempt_prefixes: Vec::new(),
             locales_dir: None,
             locale_selector: i18n::LocaleSelector::default(),
+            modules: Vec::new(),
         }
+    }
+
+    /// Adds a reusable module (see [`modules::ModuleDef`]): its routes mount
+    /// between the app's and the generated CRUD, its locales layer between
+    /// the framework's and the app's, its cronjobs start with the app's, and
+    /// its `#[model]` structs register simply because the crate is linked.
+    ///
+    /// ```ignore
+    /// FrameworkApp::new(&DIST_DIR)
+    ///     .module(fse_module_erp::module())
+    /// ```
+    #[must_use]
+    pub fn module(mut self, def: modules::ModuleDef) -> Self {
+        self.modules.push(def);
+        self
     }
 
     /// The app's locale files and the one language-switching strategy in
@@ -560,7 +579,9 @@ impl FrameworkApp {
 
         let env = parse_env(env::var("ENV").ok().as_deref());
 
-        start_cron_scheduler(self.cronjobs_fn.take(), &database_url).await;
+        let module_crons: Vec<modules::ModuleCronFn> =
+            self.modules.iter().filter_map(|m| m.cronjobs).collect();
+        start_cron_scheduler(self.cronjobs_fn.take(), module_crons, &database_url).await;
 
         let dist_dir = self.dist_dir;
         let configure_fn = self.configure_fn.map(std::sync::Arc::new);
@@ -568,11 +589,15 @@ impl FrameworkApp {
         let context_injector = self.context_injector.clone();
 
         let locale_selector = self.locale_selector.clone();
+        let module_locale_dirs: Vec<&Dir> =
+            self.modules.iter().filter_map(|m| m.locales).collect();
         let locales = i18n::resolve_locales(
-            i18n::build_locales(self.locales_dir),
+            i18n::build_locales(&module_locale_dirs, self.locales_dir),
             locale_selector.default_lang(),
         );
         let known_langs: Vec<String> = locales.keys().cloned().collect();
+        let module_routes: Vec<fn(&mut web::ServiceConfig)> =
+            self.modules.iter().filter_map(|m| m.routes).collect();
 
         // Built once and shared across all workers (the config holds an Arc to
         // the token buckets), so the site-wide per-IP limit is enforced for the
@@ -627,6 +652,13 @@ impl FrameworkApp {
             if let Some(ref configure_fn) = configure_fn {
                 let cf = configure_fn.clone();
                 app = app.configure(move |cfg| (cf)(cfg));
+            }
+
+            // Module routes mount after the app's (app wins on a path
+            // conflict) and before generated CRUD (a module can override the
+            // generated endpoints of its own models).
+            for module_cfg in &module_routes {
+                app = app.configure(*module_cfg);
             }
 
             // Generated model CRUD (see `FrameworkApp::models`). Mounted
@@ -770,19 +802,32 @@ async fn init_db(
 
 /// Registers the app's cron jobs (on their own DB pool) and starts the
 /// scheduler if any job was added. Panics on failure — see [`FrameworkApp::run`].
-async fn start_cron_scheduler(cronjobs_fn: Option<CronjobsFn>, database_url: &str) {
+async fn start_cron_scheduler(
+    cronjobs_fn: Option<CronjobsFn>,
+    module_crons: Vec<modules::ModuleCronFn>,
+    database_url: &str,
+) {
     let mut sched = JobScheduler::new()
         .await
         .expect("Failed to create job scheduler");
 
-    if let Some(cronjobs_fn) = cronjobs_fn {
+    if cronjobs_fn.is_some() || !module_crons.is_empty() {
         let cron_db_pool = SqlitePool::connect(database_url)
             .await
             .expect("Failed to create cron database pool");
 
-        (cronjobs_fn)(sched.clone(), cron_db_pool)
-            .await
-            .expect("Failed to add cron jobs");
+        // Modules first, app second — purely cosmetic for job ordering; every
+        // job carries its own schedule.
+        for module_cron in module_crons {
+            (module_cron)(sched.clone(), cron_db_pool.clone())
+                .await
+                .expect("Failed to add module cron jobs");
+        }
+        if let Some(cronjobs_fn) = cronjobs_fn {
+            (cronjobs_fn)(sched.clone(), cron_db_pool)
+                .await
+                .expect("Failed to add cron jobs");
+        }
     }
 
     let has_jobs = sched

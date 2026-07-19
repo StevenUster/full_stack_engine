@@ -18,7 +18,7 @@ use std::collections::HashMap;
 static APP_LOCALES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/locales");
 
 fn locales() -> HashMap<String, serde_json::Value> {
-    resolve_locales(build_locales(Some(&APP_LOCALES)), "en")
+    resolve_locales(build_locales(&[], Some(&APP_LOCALES)), "en")
 }
 
 fn app_data(selector: LocaleSelector) -> web::Data<AppData> {

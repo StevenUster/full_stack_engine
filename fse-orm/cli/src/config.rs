@@ -23,6 +23,11 @@ pub struct OrmConfig {
     /// Columns that must exist, per table — e.g. the framework's auth
     /// contract on `users`. Shipped in the starter template, not hardcoded.
     pub required_columns: BTreeMap<String, Vec<String>>,
+    /// Module crate names (cargo package names) whose tables and frontend
+    /// sources this app consumes. Their shipped `.fse/schema.json` snapshots
+    /// merge into `fse migrate`; `fse sync` extracts their `frontend/`
+    /// sources into `.fse/modules/` for the Astro build.
+    pub modules: Vec<String>,
 }
 
 impl Default for OrmConfig {
@@ -33,6 +38,7 @@ impl Default for OrmConfig {
             snapshot_path: ".fse/schema.json".into(),
             database_url_env: "DATABASE_URL".into(),
             required_columns: BTreeMap::new(),
+            modules: Vec::new(),
         }
     }
 }

@@ -18,6 +18,42 @@ impl Schema {
     pub fn table(&self, name: &str) -> Option<&TableDef> {
         self.tables.iter().find(|t| t.name == name)
     }
+
+    /// Adds another schema's tables and enums — how a module's shipped
+    /// snapshot joins the app's schema before diffing. `source` names the
+    /// module for error messages.
+    ///
+    /// # Errors
+    ///
+    /// A table name that already exists, or an enum of the same name with
+    /// different values, is a hard conflict.
+    pub fn merge(&mut self, other: Schema, source: &str) -> Result<(), crate::Error> {
+        for table in other.tables {
+            if self.table(&table.name).is_some() {
+                return Err(crate::Error::new(format!(
+                    "table `{}` from module `{source}` conflicts with an existing table",
+                    table.name
+                )));
+            }
+            self.tables.push(table);
+        }
+        for enum_def in other.enums {
+            match self.enums.iter().find(|e| e.rust_name == enum_def.rust_name) {
+                Some(existing) if existing.values != enum_def.values => {
+                    return Err(crate::Error::new(format!(
+                        "enum `{}` from module `{source}` conflicts with an existing enum \
+                         of the same name but different values",
+                        enum_def.rust_name
+                    )));
+                }
+                Some(_) => {}
+                None => self.enums.push(enum_def),
+            }
+        }
+        self.tables.sort_by(|a, b| a.name.cmp(&b.name));
+        self.enums.sort_by(|a, b| a.rust_name.cmp(&b.rust_name));
+        Ok(())
+    }
 }
 
 /// A `#[derive(DbEnum)]` enum: stored as TEXT, constrained with a CHECK.

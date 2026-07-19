@@ -10,6 +10,7 @@ export default defineConfig({
       locales: "./locales",
       defaultLocale: "en",
       theme: "fse-theme-default",
+      modulesDir: "./.fse/modules",
     }),
   ],
   vite: {

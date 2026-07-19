@@ -295,6 +295,7 @@ dependencies = [
  "dotenvy",
  "fse-schema",
  "serde",
+ "serde_json",
  "sqlx",
  "tokio",
  "toml",

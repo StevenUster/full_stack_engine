@@ -483,3 +483,58 @@ pub struct Article {
     assert_eq!(schema.tables[0].name, "articles");
     assert!(schema.tables[0].column("slug").unwrap().unique);
 }
+
+#[test]
+fn external_tables_resolve_app_foreign_keys() {
+    // An app table referencing a module's struct: the module table arrives
+    // as a shipped snapshot (external), not as source.
+    let module_schema = schema_of(&[(
+        "item.rs",
+        "#[derive(Table)]\npub struct ErpItem { pub id: i64, pub name: String }",
+    )]);
+
+    let app_src = r#"
+#[derive(Table)]
+pub struct Stock {
+    pub id: i64,
+    #[orm(references(ErpItem, on_delete = cascade))]
+    pub erp_item_id: i64,
+}
+"#;
+    // Without the external tables this is an unresolvable reference...
+    assert!(parse_sources(&[("stock.rs".into(), app_src.into())]).is_err());
+
+    // ...with them it resolves to the module's table name.
+    let schema = fse_schema::parse::parse_sources_with_external(
+        &[("stock.rs".into(), app_src.into())],
+        &module_schema.tables,
+    )
+    .unwrap();
+    let fk = schema.tables[0].column("erp_item_id").unwrap().references.clone().unwrap();
+    assert_eq!(fk.table, "erp_items");
+    // External tables are context, not output.
+    assert!(schema.table("erp_items").is_none());
+}
+
+#[test]
+fn schema_merge_adds_module_tables_and_rejects_conflicts() {
+    let mut app = schema_of(&[(
+        "post.rs",
+        "#[derive(Table)]\npub struct Post { pub id: i64 }",
+    )]);
+    let module = schema_of(&[(
+        "item.rs",
+        "#[derive(Table)]\npub struct ErpItem { pub id: i64 }",
+    )]);
+    app.merge(module, "fse-module-erp").unwrap();
+    assert!(app.table("posts").is_some());
+    assert!(app.table("erp_items").is_some());
+
+    // Same table again -> conflict, named after the module.
+    let module_again = schema_of(&[(
+        "item.rs",
+        "#[derive(Table)]\npub struct ErpItem { pub id: i64 }",
+    )]);
+    let err = app.merge(module_again, "fse-module-erp").unwrap_err();
+    assert!(err.message.contains("fse-module-erp"), "{err}");
+}

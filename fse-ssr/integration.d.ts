@@ -13,6 +13,12 @@ export interface FseSsrOptions {
    * importable as `@theme/...`.
    */
   theme?: string;
+  /**
+   * Where `fse sync` extracts module frontends, relative to the project
+   * root. Default: `"../../.fse/modules"` (the starter layout). Each
+   * `<name>/frontend/pages` layers below the app's and the theme's pages.
+   */
+  modulesDir?: string;
 }
 
 export default function fseSsr(options?: FseSsrOptions): AstroIntegration;

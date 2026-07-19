@@ -155,21 +155,38 @@ pages; `api` adds `/api/{table}` JSON endpoints; labels come from locale keys
   and per-key fallback included. Email language (server-side `load_locale` by request
   lang) still TODO for the auth-module phase.
 
-### 5. Modules
+### 5. Modules — CORE DONE (2026-07-19)
 
-- `ModuleDef` (name, `routes: fn(&mut ServiceConfig)`, cronjobs, `locales: &'static Dir`,
-  `frontend: &'static Dir`, `schema_json: &'static str`, contributed permissions) +
-  `FrameworkApp::module(...)`. Model structs in the module crate register themselves via
-  the same derive/inventory path.
-- Frontend/locales: `fse sync` (run automatically by `fse dev`/build) extracts embedded
-  module sources to `.fse/modules/<name>/` where the layered build picks them up.
-- Migrations: module author ships their `schema.json` snapshot in the crate; the app's
-  `fse migrate` merges app-parsed tables + module snapshots (modules discovered via
-  `cargo metadata`), so migrations stay app-local and ordered.
-- **Auth becomes the first module**: login/register/email-verify/forgot/reset/settings/
-  admin-users (~1,200 starter lines) move into a framework-internal auth module with a
-  default `User` model; apps can extend/replace it (existing `[orm.required_columns]`
-  contract stays the enforcement mechanism).
+- `modules::ModuleDef` (builder: `.routes(fn)`, `.locales(&Dir)`, `.cronjobs(fn)`) +
+  `FrameworkApp::module(def)`. `#[model]` structs in the module crate register via the
+  same inventory path (the `.module()` call guarantees linkage). Layering everywhere:
+  routes app > modules > generated CRUD; locales framework < modules < app; frontend
+  pages app > theme > modules. Tested (framework/tests/modules_http.rs).
+- CLI (`fse-cli`): `[orm] modules = ["crate-name"]` in fse.toml; modules discovered via
+  `cargo metadata`. `fse migrate` loads each module's shipped `.fse/schema.json`,
+  resolves app FKs against module tables (`parse_sources_with_external`) and merges
+  them (`Schema::merge`, hard error on table/enum conflicts) — module DDL lands in the
+  app's own timestamped migrations. `fse sync` copies each module's `frontend/` sources
+  to `.fse/modules/<name>/frontend/` (regenerated wholesale).
+- fse-ssr: `modulesDir` option (default "../../.fse/modules"); module pages inject
+  below app + theme with a claimed-pattern set; module pages can import `@theme/...`
+  (verified in the fixture: /blog page from a module builds with the theme Layout).
+- Still open: running `fse sync` automatically before builds, a real end-to-end module
+  crate test (comes free with the auth module in phase 6), `on_startup` for modules.
+- **Auth becomes the first module — CORE DONE (2026-07-19)**:
+  `full_stack_engine::auth_module::module::<AppRole>()` ships login/logout/register/
+  verify-email/forgot-password/reset-password, generalized over the app's role enum,
+  with the starter's security properties preserved (timing-safe login, no account
+  enumeration on register/forgot, single-use expiring tokens, sessions_valid_after
+  bump on reset, per-IP rate limits on the mutating endpoints). Data access is
+  bound-parameter SQL against an expanded `[orm.required_columns]` contract
+  (+ first_name, last_name, verification_token_expires_at, reset_token,
+  reset_token_expires_at — starter fse.toml must be updated in phase 7). Emails render
+  the `emails/verify` / `emails/password-reset` templates in the request's language.
+  Registration posts urlencoded (was multipart) and self-registered accounts get the
+  role named "user". Tested end-to-end in framework/tests/auth_module_http.rs.
+  Still open (6d): settings + admin-users port, theme auth pages
+  (login/register/... .astro + email templates + EmailLayout).
 
 ## Phases
 

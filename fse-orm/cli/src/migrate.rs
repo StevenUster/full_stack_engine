@@ -37,7 +37,21 @@ pub struct MigrateOutcome {
 
 pub async fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateOutcome, Error> {
     let cfg = config::load(root)?;
-    let new_schema = parse_tables(root, &cfg)?;
+
+    // Module tables (shipped snapshots) resolve app foreign keys and merge
+    // into the schema, so their DDL lands in the app's own migrations.
+    let mut external = Vec::new();
+    let mut module_schemas = Vec::new();
+    for module in crate::modules::discover(root, &cfg)? {
+        let schema = crate::modules::load_schema(&module)?;
+        external.extend(schema.tables.iter().cloned());
+        module_schemas.push((module.name, schema));
+    }
+
+    let mut new_schema = parse_tables(root, &cfg, &external)?;
+    for (name, schema) in module_schemas {
+        new_schema.merge(schema, &name)?;
+    }
     validate_required_columns(&new_schema, &cfg)?;
 
     let snapshot_path = root.join(&cfg.snapshot_path);
@@ -113,7 +127,11 @@ pub async fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateOutcome, Erro
     Ok(outcome)
 }
 
-fn parse_tables(root: &Path, cfg: &OrmConfig) -> Result<Schema, Error> {
+fn parse_tables(
+    root: &Path,
+    cfg: &OrmConfig,
+    external: &[fse_schema::TableDef],
+) -> Result<Schema, Error> {
     let dir = root.join(&cfg.tables_dir);
     if !dir.exists() {
         return Err(Error::new(format!(
@@ -136,7 +154,7 @@ fn parse_tables(root: &Path, cfg: &OrmConfig) -> Result<Schema, Error> {
     if sources.is_empty() {
         return Err(Error::new(format!("no .rs files in {}", dir.display())));
     }
-    parse::parse_sources(&sources)
+    parse::parse_sources_with_external(&sources, external)
 }
 
 /// The framework contract from fse.toml: every listed table must exist and

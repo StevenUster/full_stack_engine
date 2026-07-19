@@ -46,8 +46,11 @@ struct Post {
     created_at: NaiveDateTime,
 }
 
-/// The `AuthUser` extractor validates sessions against a `users` table, so
-/// the "app" defines one. `disabled` — auth pages aren't under test.
+/// The framework's auth layer (the `AuthUser` extractor and the auth
+/// module) works against a `users` table with the contract columns, so the
+/// "app" defines one. `disabled` — no generated CRUD for it here. This is
+/// the single definition for the whole test suite (build.rs creates one
+/// table per name across tests/).
 #[model(disabled)]
 #[orm(table = "users")]
 struct AppUser {
@@ -55,8 +58,20 @@ struct AppUser {
     #[orm(unique)]
     email: String,
     password: String,
+    #[orm(default = "none")]
+    role: String,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    #[orm(default = true)]
+    is_verified: bool,
+    verification_token: Option<String>,
+    verification_token_expires_at: Option<NaiveDateTime>,
+    reset_token: Option<String>,
+    reset_token_expires_at: Option<NaiveDateTime>,
     #[orm(default = 0)]
     sessions_valid_after: i64,
+    #[orm(default = now)]
+    created_at: NaiveDateTime,
 }
 
 const SECRET: &str = "0123456789abcdef0123456789abcdef";

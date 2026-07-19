@@ -1,0 +1,12 @@
+---
+// A module-contributed page (as `fse sync` would extract it). Imports the
+// theme's layout through the @theme alias to prove cross-layer resolution.
+import Layout from "@theme/layouts/Layout.astro";
+import { ssr } from "fse-ssr/ssr";
+
+const { t } = ssr<{ blog_title: string }>();
+---
+
+<Layout title="Blog">
+  <h1>MODULE-BLOG-PAGE {t.model_ui.new ?? "New"}</h1>
+</Layout>

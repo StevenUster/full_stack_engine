@@ -274,15 +274,33 @@ function routePattern(relPath) {
 }
 
 /**
- * Layered pages: every theme page the app does not define itself is added
- * to the build via `injectRoute`. Overriding a theme page = creating a file
- * with the same path under `src/pages/`. Theme layouts/components are
- * importable as `@theme/...`.
+ * One pages layer: injects every page under `pagesDir` whose route the app
+ * doesn't define and no higher-priority layer has claimed yet. Overriding =
+ * creating a same-path file under `src/pages/` (or in a higher layer).
  */
-function applyTheme(theme, config, injectRoute, updateConfig, logger) {
+function injectPagesLayer(pagesDir, appPagesDir, claimed, injectRoute) {
+  if (!existsSync(pagesDir)) return;
+  for (const rel of walkPages(pagesDir)) {
+    const pattern = routePattern(rel);
+    if (claimed.has(pattern)) continue;
+    claimed.add(pattern);
+    const overridden = ["astro", "md", "mdx", "html"].some((ext) =>
+      existsSync(join(appPagesDir, rel.replace(/\.[^.]+$/, `.${ext}`))),
+    );
+    if (overridden) continue;
+    injectRoute({
+      pattern,
+      entrypoint: join(pagesDir, rel),
+    });
+  }
+}
+
+/**
+ * Theme layer: pages plus the `@theme/...` import alias.
+ */
+function applyTheme(theme, config, injectRoute, updateConfig, logger, appPagesDir, claimed) {
   const themeDir = resolveThemeDir(theme, config.root);
   const pagesDir = join(themeDir, "pages");
-  const appPagesDir = fileURLToPath(new URL("./pages", config.srcDir));
 
   updateConfig({
     vite: { resolve: { alias: { "@theme": themeDir } } },
@@ -292,28 +310,47 @@ function applyTheme(theme, config, injectRoute, updateConfig, logger) {
     logger.warn(`Theme "${theme}" has no pages/ directory (${pagesDir}).`);
     return;
   }
-  for (const rel of walkPages(pagesDir)) {
-    const overridden = ["astro", "md", "mdx", "html"].some((ext) =>
-      existsSync(join(appPagesDir, rel.replace(/\.[^.]+$/, `.${ext}`))),
+  injectPagesLayer(pagesDir, appPagesDir, claimed, injectRoute);
+}
+
+/**
+ * Module layers: every `<modulesDir>/<name>/frontend/pages` (extracted by
+ * `fse sync`), below the app and theme in priority, ordered by module name.
+ */
+function applyModules(modulesDir, rootUrl, appPagesDir, claimed, injectRoute) {
+  const base = resolve(fileURLToPath(rootUrl), modulesDir);
+  if (!existsSync(base)) return;
+  for (const entry of readdirSync(base, { withFileTypes: true }).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  )) {
+    if (!entry.isDirectory()) continue;
+    injectPagesLayer(
+      join(base, entry.name, "frontend", "pages"),
+      appPagesDir,
+      claimed,
+      injectRoute,
     );
-    if (overridden) continue;
-    injectRoute({
-      pattern: routePattern(rel),
-      entrypoint: join(pagesDir, rel),
-    });
   }
 }
 
 /**
- * @param {{ locales?: string, defaultLocale?: string, theme?: string }} [options]
+ * @param {{ locales?: string, defaultLocale?: string, theme?: string, modulesDir?: string }} [options]
  *   `locales`: path to the locale directory, relative to the Astro project
  *   root (default "../../locales" — the starter layout).
  *   `theme`: an installed theme package name (e.g. "fse-theme-default") or a
  *   local folder ("./themes/custom"). The theme's `pages/` fill in every
  *   route the app doesn't define; its files are importable as `@theme/...`.
+ *   `modulesDir`: where `fse sync` extracts module frontends (default
+ *   "../../.fse/modules" — the starter layout). Module pages layer below the
+ *   app's and the theme's.
  */
 export default function fseSsr(options = {}) {
-  const { locales = "../../locales", defaultLocale = "en", theme } = options;
+  const {
+    locales = "../../locales",
+    defaultLocale = "en",
+    theme,
+    modulesDir = "../../.fse/modules",
+  } = options;
   return {
     name: PKG_NAME,
     hooks: {
@@ -338,9 +375,13 @@ export default function fseSsr(options = {}) {
             },
           },
         });
+        // Page priority: app (file-based routing) > theme > modules.
+        const appPagesDir = fileURLToPath(new URL("./pages", config.srcDir));
+        const claimed = new Set();
         if (theme) {
-          applyTheme(theme, config, injectRoute, updateConfig, logger);
+          applyTheme(theme, config, injectRoute, updateConfig, logger, appPagesDir, claimed);
         }
+        applyModules(modulesDir, config.root, appPagesDir, claimed, injectRoute);
       },
     },
   };
