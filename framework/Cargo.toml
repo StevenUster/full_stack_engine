@@ -8,6 +8,8 @@ repository = "https://github.com/StevenUster/full_stack_engine"
 readme = "README.md"
 keywords = ["web", "framework", "actix-web", "sqlx", "tera"]
 categories = ["web-programming"]
+# The proc-macro crate is a separate nested package, not part of this one.
+exclude = ["macros/"]
 
 [lib]
 name = "full_stack_engine"
@@ -17,6 +19,11 @@ path = "src/lib.rs"
 # The fse ORM ships with the framework: schema-driven migrations plus
 # compile-time-checked queries (see the prelude re-exports).
 fse-orm = { version = "0.3.1", path = "../fse-orm/runtime" }
+# The model registry: derive(Model) re-parses structs with fse-schema and
+# registers them via inventory for boot-time route generation.
+full_stack_engine_macros = { version = "0.1.0", path = "macros" }
+fse-schema = { version = "0.3.1", path = "../fse-orm/schema" }
+inventory = "0.3"
 actix-web = "4.12.1"
 actix-files = "0.6.9"
 actix-governor = "0.10.0"

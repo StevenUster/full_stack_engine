@@ -1,0 +1,17 @@
+[package]
+name = "full_stack_engine_macros"
+version = "0.1.0"
+edition = "2024"
+description = "Proc macros for the full_stack_engine framework: derive(Model) turns a table struct into an app definition."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/StevenUster/full_stack_engine"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+fse-schema = { version = "0.3.1", path = "../../fse-orm/schema" }
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+serde_json = "1.0"

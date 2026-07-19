@@ -22,12 +22,18 @@ pub mod cron;
 pub mod error;
 pub mod i18n;
 pub mod mail;
+pub mod models;
 pub mod prelude;
 pub mod rate_limiter;
 pub mod roles;
 pub mod structs;
 pub mod testing;
 pub mod uploads;
+
+// Re-exported because the code emitted by `#[derive(Model)]` submits its
+// registration through `::full_stack_engine::inventory::submit!` — apps never
+// need their own `inventory` dependency.
+pub use inventory;
 
 pub type ContextInjectorFn =
     Box<dyn Fn(&actix_web::HttpRequest, &mut serde_json::Value) + Send + Sync + 'static>;

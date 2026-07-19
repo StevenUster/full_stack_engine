@@ -14,7 +14,7 @@ modes, themeable frontend, and reusable app modules (think Frappe/ERPNext).
 | Topic | Decision |
 |---|---|
 | Generation mechanism | **Runtime metadata-driven** — derive macro registers `TableDef` + UI config in a runtime registry; framework ships generic handlers + generic templates. No generated files in the app. |
-| App/UI config | **Separate `#[ui]`/`#[crud]` attributes** on the same struct; `#[orm]` stays pure DB. |
+| App/UI config | **Separate `#[ui]`/`#[model]` attributes** on the same struct; `#[orm]` stays pure DB. |
 | Folder rename | `src/tables/` → **`src/models/`** |
 | Auth flows | Move into the framework as a **built-in overridable module** (first consumer of the module system). |
 | Frontend build | **Source-merged layered build**: app > theme > modules > framework defaults, resolved by the fse-ssr integration into one Astro build. |
@@ -38,8 +38,8 @@ starter/
 A model looks like:
 
 ```rust
-#[derive(Table, Crud, Debug, Clone)]
-#[crud(public_read = slug, api)]              // struct-level app config
+#[derive(Table, Model, Debug, Clone)]
+#[model(public_read = slug, api)]              // struct-level app config
 pub struct Product {
     pub id: i64,
     #[ui(list, search)]
@@ -64,14 +64,14 @@ pages; `api` adds `/api/{table}` JSON endpoints; labels come from locale keys
 
 ## Architecture
 
-### 1. Runtime registry + `#[derive(Crud)]`
+### 1. Runtime registry + `#[derive(Model)]`
 
 - New proc-macro crate `framework/macros` (published as part of full_stack_engine).
-- `#[derive(Crud)]` re-parses the struct with the existing `fse_schema::parse` code
-  (same source of truth as the ORM derive — no drift), parses `#[ui]`/`#[crud]` attrs
+- `#[derive(Model)]` re-parses the struct with the existing `fse_schema::parse` code
+  (same source of truth as the ORM derive — no drift), parses `#[ui]`/`#[model]` attrs
   into a new `UiMeta`, and emits:
-  - a `CrudMeta` static (TableDef + UiMeta, serialized or const-constructed),
-  - an impl of a new `CrudResource` trait with **typed** ORM calls generated per table
+  - a `ModelMeta` static (TableDef + UiMeta, serialized or const-constructed),
+  - an impl of a new `ModelResource` trait with **typed** ORM calls generated per table
     (list via `SelectBuilder`, `fetch`, `delete`, and macro-generated
     `insert_from_form`/`update_from_form` that validate + coerce form fields per column —
     keeps sqlx compile-time checking, no stringly runtime SQL),
@@ -87,7 +87,7 @@ pages; `api` adds `/api/{table}` JSON endpoints; labels come from locale keys
   convention strings.
 - **Override story (backend):** app routes are registered *first*; actix matches in
   registration order, so a same-path app route shadows the generic one automatically.
-  Plus attrs to switch endpoints off (`#[crud(no_delete)]`, `#[crud(disabled)]`, …).
+  Plus attrs to switch endpoints off (`#[model(no_delete)]`, `#[model(disabled)]`, …).
   Generic handlers are also exported as plain functions so an override can wrap/extend
   rather than reimplement.
 - **Override story (templates):** generic handler renders `"{table}/index"` if that
@@ -138,7 +138,7 @@ pages; `api` adds `/api/{table}` JSON endpoints; labels come from locale keys
 
 ## Phases
 
-1. **Registry + derive** — `framework/macros`, `CrudResource`, `UiMeta`, inventory
+1. **Registry + derive** — `framework/macros`, `ModelResource`, `UiMeta`, inventory
    registration; unit tests against tests-app-style fixtures.
 2. **Generic backend CRUD** — handlers, route mounting with app-first shadowing,
    permission conventions, template-name fallback logic. Starter keeps its old code;
