@@ -96,5 +96,75 @@
     "password_reset_sent": "Eine E-Mail zum Zurücksetzen des Passworts wurde gesendet.",
     "email_confirmed": "E-Mail erfolgreich bestätigt. Du kannst dich jetzt anmelden.",
     "email_updated": "E-Mail-Adresse erfolgreich aktualisiert."
+  },
+  "verify_email_change": {
+    "subject": "Neue E-Mail-Adresse bestätigen",
+    "header": "Neue E-Mail-Adresse bestätigen",
+    "body": "Du hast eine Änderung deiner E-Mail-Adresse angefragt. Bitte bestätige deine neue E-Mail-Adresse, indem du auf den folgenden Button klickst:",
+    "cta": "Neue E-Mail bestätigen",
+    "fallback": "Falls der Button nicht funktioniert, kopiere bitte den folgenden Link in deinen Browser:",
+    "footer": "Falls du diese Änderung nicht angefragt hast, kannst du diese E-Mail ignorieren. Deine E-Mail-Adresse wird nicht geändert."
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "name": "Name",
+    "email_address": "E-Mail-Adresse",
+    "email_desc": "Die primäre E-Mail-Adresse deines Kontos.",
+    "change_email": "E-Mail ändern",
+    "account_security": "Kontosicherheit",
+    "send_reset": "E-Mail zum Zurücksetzen des Passworts senden",
+    "update_email_title": "E-Mail-Adresse aktualisieren",
+    "new_email": "Neue E-Mail-Adresse",
+    "update_email_btn": "E-Mail aktualisieren",
+    "cancel": "Abbrechen",
+    "delete_account": "Konto löschen",
+    "delete_account_desc": "Lösche dein Konto und alle zugehörigen Daten dauerhaft.",
+    "delete_account_title": "Konto löschen",
+    "delete_account_confirm": "Bist du sicher? Dein Konto und alle zugehörigen Daten werden dauerhaft gelöscht.",
+    "delete_account_btn": "Ja, mein Konto löschen"
+  },
+  "common": {
+    "save": "Speichern",
+    "send": "Senden",
+    "error": "Fehler",
+    "back_home": "Zurück zur Startseite",
+    "no_access": "Kein Zugriff",
+    "no_access_desc": "Du hast keinen Zugriff auf diese Ressource",
+    "close_modal": "Schließen",
+    "arrow_icon": "Pfeil-Symbol",
+    "arrow_icon_desc": "Pfeil-Symbol der Auswahlliste",
+    "na": "N/V"
+  },
+  "filters": {
+    "label": "Filter",
+    "search": "Suchen",
+    "apply": "Anwenden",
+    "clear": "Zurücksetzen",
+    "all_roles": "Alle Rollen",
+    "search_users": "Nach E-Mail suchen..."
+  },
+  "register_success": {
+    "title": "Aktion erforderlich: E-Mail bestätigen",
+    "header": "Prüfe dein Postfach",
+    "success": "Du hast dich erfolgreich registriert!",
+    "desc": "Ein Bestätigungslink wurde an deine E-Mail-Adresse gesendet. Bitte klicke auf den Link, um deine E-Mail-Adresse zu bestätigen, bevor du dich anmeldest.",
+    "return": "Zurück zur Anmeldung"
+  },
+  "users": {
+    "title": "Benutzer",
+    "email": "E-Mail",
+    "role": "Rolle",
+    "created_at": "Erstellt am",
+    "actions": "Aktionen",
+    "edit": "Bearbeiten",
+    "edit_title": "Benutzer bearbeiten",
+    "delete": "Löschen"
+  },
+  "table": {
+    "delete_title": "Löschen?",
+    "delete_confirm": "Bist du sicher, dass du dies löschen möchtest?",
+    "cancel": "Abbrechen",
+    "delete_btn": "Löschen",
+    "delete_error": "Es ist ein Fehler aufgetreten"
   }
 }

@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "fse-cli"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "dotenvy",
@@ -303,7 +303,7 @@ dependencies = [
 
 [[package]]
 name = "fse-orm"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "fse-orm-macros",
  "serde",
@@ -313,7 +313,7 @@ dependencies = [
 
 [[package]]
 name = "fse-orm-macros"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "fse-schema",
  "proc-macro2",
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "fse-schema"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "quote",
  "serde",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "tests-app"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "fse-orm",

@@ -11,85 +11,6 @@
     "dark_mode": "Dunkelmodus",
     "light_mode": "Hellmodus"
   },
-  "login": {
-    "title": "Anmelden",
-    "email": "Deine E-Mail-Adresse",
-    "password": "Dein Passwort",
-    "submit": "Anmelden",
-    "no_account": "Noch kein Konto?",
-    "register": "Registrieren",
-    "forgot_password": "Passwort vergessen?",
-    "invalid_credentials": "Ungültige Zugangsdaten",
-    "confirm_email": "Bitte bestätige zuerst deine E-Mail-Adresse."
-  },
-  "forgot_password": {
-    "title": "Passwort zurücksetzen",
-    "description": "Gib deine E-Mail-Adresse ein und wir senden dir einen Link zum Zurücksetzen deines Passworts.",
-    "email": "Deine E-Mail-Adresse",
-    "submit": "Link senden",
-    "back_to_login": "Zurück zur Anmeldung"
-  },
-  "register": {
-    "title": "Registrieren",
-    "first_name": "Vorname",
-    "last_name": "Nachname",
-    "email": "Deine E-Mail-Adresse",
-    "password": "Dein Passwort",
-    "repeat_password": "Passwort wiederholen",
-    "submit": "Registrieren",
-    "has_account": "Bereits ein Konto?",
-    "login": "Anmelden",
-    "passwords_mismatch": "Die Passwörter stimmen nicht überein!"
-  },
-  "register_success": {
-    "title": "Aktion erforderlich: E-Mail bestätigen",
-    "header": "Prüfe dein Postfach",
-    "success": "Du hast dich erfolgreich registriert!",
-    "desc": "Ein Bestätigungslink wurde an deine E-Mail-Adresse gesendet. Bitte klicke auf den Link, um deine E-Mail-Adresse zu bestätigen, bevor du dich anmeldest.",
-    "return": "Zurück zur Anmeldung"
-  },
-  "password_reset_email": {
-    "subject": "Passwort zurücksetzen",
-    "header": "Passwort zurücksetzen",
-    "body": "Du hast angefragt, dein Passwort zurückzusetzen. Klicke auf den Button unten, um ein neues Passwort zu wählen:",
-    "cta": "Passwort zurücksetzen",
-    "fallback": "Falls der Button nicht funktioniert, kopiere bitte den folgenden Link in deinen Browser:",
-    "footer": "Falls du kein Zurücksetzen deines Passworts angefragt hast, kannst du diese E-Mail ignorieren."
-  },
-  "verify_email": {
-    "subject": "E-Mail-Bestätigung",
-    "header": "Willkommen!",
-    "body": "Danke für deine Registrierung. Bitte bestätige deine E-Mail-Adresse, indem du auf den folgenden Button klickst:",
-    "cta": "E-Mail bestätigen",
-    "fallback": "Falls der Button nicht funktioniert, kopiere bitte den folgenden Link in deinen Browser:",
-    "footer": "Falls du diese Registrierung nicht durchgeführt hast, kannst du diese E-Mail ignorieren."
-  },
-  "verify_email_change": {
-    "subject": "Neue E-Mail-Adresse bestätigen",
-    "header": "Neue E-Mail-Adresse bestätigen",
-    "body": "Du hast eine Änderung deiner E-Mail-Adresse angefragt. Bitte bestätige deine neue E-Mail-Adresse, indem du auf den folgenden Button klickst:",
-    "cta": "Neue E-Mail bestätigen",
-    "fallback": "Falls der Button nicht funktioniert, kopiere bitte den folgenden Link in deinen Browser:",
-    "footer": "Falls du diese Änderung nicht angefragt hast, kannst du diese E-Mail ignorieren. Deine E-Mail-Adresse wird nicht geändert."
-  },
-  "settings": {
-    "title": "Einstellungen",
-    "name": "Name",
-    "email_address": "E-Mail-Adresse",
-    "email_desc": "Die primäre E-Mail-Adresse deines Kontos.",
-    "change_email": "E-Mail ändern",
-    "account_security": "Kontosicherheit",
-    "send_reset": "E-Mail zum Zurücksetzen des Passworts senden",
-    "update_email_title": "E-Mail-Adresse aktualisieren",
-    "new_email": "Neue E-Mail-Adresse",
-    "update_email_btn": "E-Mail aktualisieren",
-    "cancel": "Abbrechen",
-    "delete_account": "Konto löschen",
-    "delete_account_desc": "Lösche dein Konto und alle zugehörigen Daten dauerhaft.",
-    "delete_account_title": "Konto löschen",
-    "delete_account_confirm": "Bist du sicher? Dein Konto und alle zugehörigen Daten werden dauerhaft gelöscht.",
-    "delete_account_btn": "Ja, mein Konto löschen"
-  },
   "products": {
     "title": "Produkte",
     "search_placeholder": "Produkte suchen...",
@@ -112,55 +33,48 @@
     "login_to_order": "Zum Bestellen anmelden",
     "ordered": "Bestellung aufgegeben! Verfolge sie unter Meine Bestellungen."
   },
-  "product_manager": {
-    "title": "Produktverwaltung",
-    "new": "Neues Produkt",
-    "create": "Produkt erstellen",
-    "tab_overview": "Übersicht",
-    "tab_orders": "Bestellungen"
-  },
   "my_orders": {
     "empty": "Noch keine Bestellungen aufgegeben."
   },
-  "users": {
-    "title": "Benutzer",
-    "email": "E-Mail",
-    "role": "Rolle",
-    "created_at": "Erstellt am",
-    "actions": "Aktionen",
-    "edit": "Bearbeiten",
-    "edit_title": "Benutzer bearbeiten",
-    "delete": "Löschen"
+  "roles": {
+    "admin": "Administrator",
+    "manager": "Manager",
+    "user": "Benutzer",
+    "none": "Keine"
   },
-  "table": {
-    "delete_title": "Löschen?",
-    "delete_confirm": "Bist du sicher, dass du dies löschen möchtest?",
-    "cancel": "Abbrechen",
-    "delete_btn": "Löschen",
-    "delete_error": "Es ist ein Fehler aufgetreten"
-  },
-  "errors": {
-    "invalid_credentials": "Ungültige Zugangsdaten",
-    "confirm_email": "Bitte bestätige zuerst deine E-Mail-Adresse.",
-    "wrong_data": "Falsche Daten",
-    "password_too_short": "Das Passwort muss mindestens 8 Zeichen lang sein",
-    "passwords_mismatch": "Die Passwörter stimmen nicht überein",
-    "missing_name": "Bitte gib deinen Vor- und Nachnamen ein.",
-    "missing_fields": "Bitte fülle alle Pflichtfelder aus.",
-    "invalid_email": "Ungültige E-Mail-Adresse",
-    "invalid_token": "Ungültiger oder abgelaufener Link",
-    "email_in_use": "Diese E-Mail-Adresse wird bereits verwendet.",
-    "already_current_email": "Dies ist bereits deine aktuelle E-Mail-Adresse.",
-    "missing_token": "Fehlendes Token",
-    "no_pending_change": "Keine ausstehende E-Mail-Änderung gefunden.",
-    "send_email_failed": "Bestätigungs-E-Mail konnte nicht gesendet werden.",
-    "slug_taken": "Dieser Slug ist bereits vergeben. Bitte wähle einen anderen."
-  },
-  "messages": {
-    "email_verification_sent": "Eine Bestätigungs-E-Mail wurde an deine neue Adresse gesendet.",
-    "password_reset_sent": "Eine E-Mail zum Zurücksetzen des Passworts wurde gesendet.",
-    "email_confirmed": "E-Mail erfolgreich bestätigt. Du kannst dich jetzt anmelden.",
-    "email_updated": "E-Mail-Adresse erfolgreich aktualisiert."
+  "models": {
+    "products": {
+      "title": "Produkte",
+      "fields": {
+        "name": "Name",
+        "slug": "Slug",
+        "description": "Beschreibung",
+        "price": "Preis",
+        "status": "Status",
+        "created_at": "Erstellt"
+      },
+      "options": {
+        "draft": "Entwurf",
+        "published": "Veröffentlicht",
+        "archived": "Archiviert"
+      }
+    },
+    "orders": {
+      "title": "Bestellungen",
+      "fields": {
+        "product_id": "Produkt",
+        "user_id": "Benutzer",
+        "quantity": "Menge",
+        "note": "Notiz",
+        "status": "Status",
+        "created_at": "Erstellt"
+      },
+      "options": {
+        "pending": "Offen",
+        "fulfilled": "Erfüllt",
+        "cancelled": "Storniert"
+      }
+    }
   },
   "common": {
     "save": "Speichern",
@@ -174,12 +88,6 @@
     "arrow_icon_desc": "Pfeil-Symbol der Auswahlliste",
     "na": "N/V"
   },
-  "reset_password": {
-    "title": "Passwort zurücksetzen",
-    "new_password": "Neues Passwort",
-    "repeat_new_password": "Neues Passwort wiederholen",
-    "submit": "Passwort ändern"
-  },
   "filters": {
     "label": "Filter",
     "search": "Suchen",
@@ -188,10 +96,11 @@
     "all_roles": "Alle Rollen",
     "search_users": "Nach E-Mail suchen..."
   },
-  "roles": {
-    "admin": "Administrator",
-    "manager": "Manager",
-    "user": "Benutzer",
-    "none": "Keine"
+  "table": {
+    "delete_title": "Löschen?",
+    "delete_confirm": "Bist du sicher, dass du dies löschen möchtest?",
+    "cancel": "Abbrechen",
+    "delete_btn": "Löschen",
+    "delete_error": "Es ist ein Fehler aufgetreten"
   }
 }

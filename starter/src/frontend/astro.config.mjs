@@ -9,7 +9,7 @@ import fseSsr from 'fse-ssr';
 
 // https://astro.build/config
 export default defineConfig({
-  integrations: [react(), fseSsr({ defaultLocale: 'en' })],
+  integrations: [react(), fseSsr({ defaultLocale: 'en', theme: 'fse-theme-default' })],
   // Self-hosted, build-time optimized fonts (no runtime Google Fonts request).
   // The Fonts API graduated to stable in Astro 6, so it now lives at top level.
   fonts: [

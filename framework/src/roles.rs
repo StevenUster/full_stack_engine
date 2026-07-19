@@ -49,6 +49,10 @@ macro_rules! define_roles {
                 }
             }
 
+            fn all() -> &'static [Self] {
+                &[ $( Self::$variant ),+ ]
+            }
+
             fn from_role_str(s: &str) -> Self {
                 match s.to_lowercase().as_str() {
                     $( $str => Self::$variant, )+

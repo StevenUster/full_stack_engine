@@ -371,6 +371,13 @@ export default function fseSsr(options = {}) {
                 [`${PKG_NAME}/client`]: fileURLToPath(
                   new URL("./dist/client.js", import.meta.url),
                 ),
+                // The app owns the single Tailwind CSS root; theme layouts
+                // import it through this alias so bare `tailwindcss` imports
+                // always resolve from the app, never from a symlinked
+                // package's real path.
+                "@app-styles": fileURLToPath(
+                  new URL("./styles/global.css", config.srcDir),
+                ),
               },
             },
           },

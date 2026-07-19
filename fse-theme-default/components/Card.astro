@@ -1,0 +1,31 @@
+---
+interface Props {
+  padding?: boolean;
+  tailwind?: string;
+  /** Top accent bar colour. Omit for none. */
+  accent?: "primary" | "secondary";
+  /** Enables a hover lift + primary border (for clickable cards). */
+  hover?: boolean;
+}
+
+const { padding = true, tailwind = "", accent, hover = false } = Astro.props;
+
+const accentBar: Record<string, string> = {
+  primary: "bg-linear-to-r from-primary-500 to-primary-300",
+  secondary: "bg-linear-to-r from-secondary-500 to-secondary-300",
+};
+
+const base =
+  "relative w-full flex flex-col bg-white border-[1.5px] border-secondary-200 rounded-xl shadow-xs transition-all duration-300";
+const hoverCls = hover
+  ? "hover:-translate-y-1 hover:border-primary-500 hover:shadow-[0_18px_48px_rgba(40,41,37,0.12)]"
+  : "";
+// Accent bar bleeds to the rounded edge, so clip overflow when present.
+const clip = accent ? "overflow-hidden" : padding ? "" : "overflow-hidden";
+const pad = padding ? "p-6 gap-6" : "";
+---
+
+<div class={`${base} ${hoverCls} ${clip} ${pad} ${tailwind}`}>
+  {accent && <div class={`absolute inset-x-0 top-0 h-1 ${accentBar[accent]}`} />}
+  <slot />
+</div>

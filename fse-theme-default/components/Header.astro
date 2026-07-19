@@ -1,0 +1,55 @@
+---
+import type { SsrValue } from "fse-ssr/ssr";
+
+interface Props {
+  backlink?: string;
+  action?: string;
+  actionLabel?: string | SsrValue<string>;
+  /** Server-side condition gating the action button (pass an SSR value). */
+  actionWhen?: unknown;
+}
+
+const { backlink, action, actionLabel, actionWhen = true } = Astro.props;
+---
+
+<header
+  class="flex flex-col sm:flex-row w-full justify-between items-start sm:items-center mb-8 gap-3"
+>
+  <div class="flex items-center gap-2.5">
+    {
+      backlink && (
+        <a
+          href={backlink}
+          class="p-1.5 text-secondary-500 hover:text-secondary-900 hover:bg-secondary-100 transition-colors rounded-lg"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+          >
+            <path
+              fill="none"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M21 12H3m0 0l8.5-8.5M3 12l8.5 8.5"
+            />
+          </svg>
+        </a>
+      )
+    }
+    <h1 class="section-title text-secondary-900">
+      <slot />
+    </h1>
+  </div>
+  {
+    action &&
+      actionWhen && (
+        <a href={action} class="btn-primary w-full sm:w-auto">
+          {actionLabel ?? "Send"}
+        </a>
+      )
+  }
+</header>

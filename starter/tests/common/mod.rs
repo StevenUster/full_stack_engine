@@ -9,8 +9,8 @@
 #![allow(dead_code)]
 
 use actix_web::web;
-use starter::tables::product::Product;
-use starter::tables::user::User;
+use starter::models::product::Product;
+use starter::models::user::User;
 use starter::tera::Tera;
 use starter::{AppData, Env, hash_password, insert};
 
@@ -45,11 +45,13 @@ pub async fn test_app_data() -> web::Data<AppData> {
         jwt_secret: JWT_SECRET.to_string(),
         smtp_from: String::new(),
         email_verification_enabled: false,
-        // Same locale injection as production (`lib.rs`), since templates
-        // reference `t.*`.
-        context_injector: Some(std::sync::Arc::new(Box::new(|_req, value| {
-            full_stack_engine::i18n::inject_locale_context(value, &starter::LOCALES_DIR, "en");
-        }))),
+        context_injector: None,
+        // Same layering as production: framework base translations < app files.
+        locales: full_stack_engine::i18n::resolve_locales(
+            full_stack_engine::i18n::build_locales(&[], Some(&starter::LOCALES_DIR)),
+            "en",
+        ),
+        locale_selector: full_stack_engine::i18n::LocaleSelector::Hardcoded("en".into()),
     })
 }
 
@@ -75,11 +77,40 @@ pub async fn seed_product(data: &web::Data<AppData>, slug: &str, status: &str) -
         name = format!("Product {slug}"),
         slug = slug.to_string(),
         price = 9.99,
-        status = status.parse::<starter::tables::product::ProductStatus>().unwrap()
+        status = status.parse::<starter::models::product::ProductStatus>().unwrap()
     )
     .await
     .unwrap();
     product.id
+}
+
+/// A fresh IP per request — the auth module's routes carry real per-IP rate
+/// limiters.
+pub fn next_peer() -> std::net::SocketAddr {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static N: AtomicU32 = AtomicU32::new(1);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    format!("192.0.{}.{}:9999", n / 200, n % 200 + 1).parse().unwrap()
+}
+
+/// The full production route stack, in production order: hand-written
+/// overrides first, then the auth module, then generated model CRUD.
+#[macro_export]
+macro_rules! test_app {
+    ($data:expr) => {
+        actix_web::test::init_service(
+            actix_web::App::new()
+                .app_data($data.clone())
+                .configure(starter::services::configure)
+                .configure(
+                    full_stack_engine::auth_module::module::<starter::AppRole>()
+                        .routes
+                        .expect("auth module has routes"),
+                )
+                .configure(full_stack_engine::models::mount_all::<starter::AppRole>),
+        )
+        .await
+    };
 }
 
 #[macro_export]
@@ -87,6 +118,7 @@ macro_rules! login_cookie {
     ($app:expr, $email:expr, $password:expr) => {{
         let req = actix_web::test::TestRequest::post()
             .uri("/login")
+            .peer_addr(common::next_peer())
             .set_form([("email", $email), ("password", $password)])
             .to_request();
         let res = actix_web::test::call_service($app, req).await;

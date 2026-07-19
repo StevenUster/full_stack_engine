@@ -1,0 +1,137 @@
+---
+import { ssr } from "fse-ssr/ssr";
+
+interface Props {
+  searchPlaceholder?: string;
+  card?: boolean;
+}
+
+const { t, search } = ssr<{ search?: string }>();
+
+const { searchPlaceholder = "Search...", card = false } = Astro.props;
+const hasExtraFilters = Astro.slots.has("default");
+---
+
+<div
+  class={card
+    ? "bg-white rounded-xl border border-secondary-200 overflow-hidden mb-6"
+    : ""}
+>
+  <form method="GET">
+    <!-- Main row -->
+    <div class="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-secondary-200 bg-white">
+      <div class="relative flex-1 min-w-48">
+        <input
+          type="text"
+          name="search"
+          value={search ?? ""}
+          placeholder={searchPlaceholder}
+          class="w-full h-9 px-3.5 pr-9 text-sm border border-secondary-200 rounded-lg outline-hidden focus:border-primary-500 focus:ring-1 focus:ring-primary-500 bg-white text-secondary-900"
+        />
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="absolute right-3 top-1/2 -translate-y-1/2 text-secondary-400 pointer-events-none">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.35-4.35"></path>
+        </svg>
+      </div>
+
+      <button type="submit" class="btn-primary h-9 py-0">
+        {t.filters.search ?? "Suchen"}
+      </button>
+
+      {
+        hasExtraFilters && (
+          <button
+            type="button"
+            id="filters-toggle"
+            class="flex items-center gap-1.5 h-9 px-3 text-sm border border-secondary-200 rounded-lg hover:bg-secondary-100 transition-colors text-secondary-700 whitespace-nowrap"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="6" x2="20" y2="6" />
+              <line x1="8" y1="12" x2="16" y2="12" />
+              <line x1="11" y1="18" x2="13" y2="18" />
+            </svg>
+            {t.filters.label ?? "Filter"}
+            <span
+              id="filters-badge"
+              class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-primary-600 text-white text-[10px] font-bold items-center justify-center leading-none"
+            />
+          </button>
+        )
+      }
+
+      <a
+        href="?"
+        id="filters-clear"
+        class="h-9 px-4 hidden items-center text-sm text-secondary-600 border border-secondary-200 rounded-lg hover:bg-secondary-100 bg-white transition-colors whitespace-nowrap"
+      >
+        {t.filters.clear ?? "Zurücksetzen"}
+      </a>
+    </div>
+
+    <!-- Collapsible extra-filters panel -->
+    {
+      hasExtraFilters && (
+        <div
+          id="filters-panel"
+          class="hidden flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 px-4 py-3 border-b border-secondary-200"
+        >
+          <slot />
+          <button type="submit" class="btn-primary w-full sm:w-auto h-9 py-0">
+            {t.filters.apply ?? "Anwenden"}
+          </button>
+        </div>
+      )
+    }
+  </form>
+</div>
+
+<script>
+  function setupFilters() {
+    const toggle = document.getElementById("filters-toggle");
+    const panel = document.getElementById("filters-panel");
+    const badge = document.getElementById("filters-badge");
+    const clearBtn = document.getElementById("filters-clear");
+
+    const params = new URLSearchParams(window.location.search);
+    params.delete("page");
+
+    const extraParams = new URLSearchParams(params);
+    extraParams.delete("search");
+    const extraActive = Array.from(extraParams.values()).filter((v) => v !== "").length;
+    const anyActive = Array.from(params.values()).filter((v) => v !== "").length > 0;
+
+    if (badge && extraActive > 0) {
+      badge.textContent = String(extraActive);
+      badge.classList.remove("hidden");
+      badge.classList.add("flex");
+    }
+
+    if (panel && extraActive > 0) {
+      panel.classList.remove("hidden");
+      panel.classList.add("flex");
+    }
+
+    if (clearBtn && anyActive) {
+      clearBtn.classList.remove("hidden");
+      clearBtn.classList.add("flex");
+      (clearBtn as HTMLAnchorElement).href = window.location.pathname;
+    }
+
+    if (toggle && panel) {
+      toggle.addEventListener("click", () => {
+        const isOpen = panel.classList.contains("flex");
+        if (isOpen) {
+          panel.classList.remove("flex");
+          panel.classList.add("hidden");
+        } else {
+          panel.classList.remove("hidden");
+          panel.classList.add("flex");
+        }
+      });
+    }
+  }
+
+  // `astro:page-load` fires on the initial load too; calling setupFilters()
+  // directly as well would double-bind the toggle button.
+  document.addEventListener("astro:page-load", setupFilters);
+</script>

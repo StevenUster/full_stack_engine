@@ -1,0 +1,78 @@
+---
+import { ssr } from "fse-ssr/ssr";
+import type { SsrValue } from "fse-ssr/ssr";
+
+interface Props {
+  id: string;
+  title: string | SsrValue<string>;
+}
+
+const { id, title } = Astro.props;
+const { t } = ssr();
+---
+
+<dialog
+  id={id}
+  class="m-auto backdrop:bg-black/50 backdrop:backdrop-blur-xs bg-white rounded-xl shadow-lg p-0 w-[95%] max-w-md max-h-[calc(100dvh-2rem)] open:flex flex-col overflow-hidden border border-secondary-200"
+>
+  <div class="flex items-center justify-between px-6 py-4 border-b border-secondary-100 shrink-0">
+    <h3 class="text-base font-semibold text-secondary-900">{title}</h3>
+    <button
+      type="button"
+      class="p-1.5 text-secondary-400 hover:text-secondary-700 hover:bg-secondary-100 transition-colors rounded-lg modal-close-btn"
+      data-modal-id={id}
+      aria-label={t.common.close_modal}
+    >
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+  <div class="p-6 overflow-y-auto min-h-0">
+    <slot />
+  </div>
+</dialog>
+
+<script>
+  document.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    const closeBtn = target.closest('.modal-close-btn');
+    if (closeBtn) {
+      const modalId = closeBtn.getAttribute('data-modal-id');
+      if (modalId) {
+        const modal = document.getElementById(modalId) as HTMLDialogElement;
+        if (modal) modal.close();
+      }
+    }
+
+    if (target.tagName === 'DIALOG') {
+      const modal = target as HTMLDialogElement;
+      const rect = modal.getBoundingClientRect();
+      const clickedOutside =
+        e.clientX < rect.left || e.clientX > rect.right ||
+        e.clientY < rect.top  || e.clientY > rect.bottom;
+      if (clickedOutside) modal.close();
+    }
+  });
+</script>
+
+<style>
+  dialog::backdrop {
+    animation: fadeIn 0.25s ease;
+  }
+  dialog[open] {
+    animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slideUp {
+    from { transform: translateY(8px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+  :global(body:has(dialog[open])) {
+    overflow: hidden;
+  }
+</style>

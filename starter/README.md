@@ -1,6 +1,6 @@
 # Starter
 
-A starter app for the `full_stack_engine` framework: Rust/Actix-web backend + Astro/React frontend, showcasing auth (login/register/email verification/password reset/settings), role-based permissions, a public JSON API with self-hosted Swagger docs, and a generic **Products / Orders** manager UI (tabs, tables with search/filter/pagination, modals) meant to be copied and renamed for your own domain.
+A starter app for the `full_stack_engine` framework: **the app is defined by the `#[model]` structs in `src/models/`** — each struct generates its table + migrations, its compile-time-checked ORM queries, and its admin CRUD endpoints and pages (list with search/filter/pagination, create/edit forms, delete), permission-gated and translated. Auth (login/register/email verification/password reset/settings/user admin) comes from the framework's built-in auth module, the design from the `fse-theme-default` theme. What's left in `services/` and `src/frontend/src/pages/` are **override examples**: a published-only public catalog, user-facing order flows, and a public JSON API with self-hosted Swagger docs.
 
 ---
 
@@ -29,18 +29,17 @@ See [`CLAUDE.md`](./CLAUDE.md) for the detailed rationale behind each rule.
 - Password reset via email.
 - Email address changes with re-verification.
 - Admin user management UI (`/users`) with role assignment.
+- All of the above comes from the framework's built-in auth module — zero auth code in this app; override any route or page by defining your own.
 
 ### Products (example manageable resource)
 
-- Public catalog (`/products`) and detail pages — only `published` products are visible.
-- Admin CRUD (`/product-manager`) with search, filters, and pagination.
-- A tabbed detail view (Overview / Orders) — copy `ProductTabs.astro` for any resource with more than one sub-view.
+- One `#[model]` struct (`src/models/product.rs`) generates the entire admin CRUD at `/admin/products` — list with search + status filter + pagination, create/edit forms with validation, delete — gated by `products.read`/`products.write`.
+- Public catalog (`/products`) and detail pages are the hand-written **override example** — only `published` products are visible, a business rule generation can't know.
 
 ### Orders (example child resource)
 
-- Signed-in users place orders against a product.
-- Managers view and fulfil orders from the product's Orders tab.
-- Users can cancel their own pending orders from `/my-orders`.
+- `src/models/order.rs` generates moderation CRUD at `/admin/orders`.
+- The user-facing flows are custom (`services/orders.rs`): signed-in users place orders against published products and cancel their own pending orders from `/my-orders` (ownership checks live in the query filters).
 
 ### Public API
 

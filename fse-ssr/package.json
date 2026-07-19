@@ -1,6 +1,6 @@
 {
   "name": "fse-ssr",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Compile-to-Tera SSR bindings for full_stack_engine's Astro starter: author native TypeScript in .astro files, get Tera output at build time.",
   "type": "module",
   "license": "MIT OR Apache-2.0",

@@ -1,6 +1,9 @@
-/* Scan this package for Tailwind utilities regardless of who imports it. */
+/*
+  The theme's design layer. Import it from the APP's own Tailwind root
+  (src/styles/global.css), after `@import "tailwindcss";` — the app owns the
+  single CSS entry point, the theme contributes tokens/utilities/components.
+*/
 @source "../";
-@import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
 

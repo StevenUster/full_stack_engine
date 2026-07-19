@@ -1,0 +1,45 @@
+---
+import { ssr } from "fse-ssr/ssr";
+import type { SsrValue } from "fse-ssr/ssr";
+
+interface Props {
+  title: string | SsrValue<string>;
+}
+
+const { title } = Astro.props;
+const { base_url } = ssr<{ base_url: string }>();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #f8f5f4; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+    <div style="background-color: #f8f5f4; padding: 40px 20px; text-align: center;">
+      <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #ddd5d0; text-align: left;">
+        <!-- Header -->
+        <div style="background-color: #6a9b3c; padding: 32px 40px; text-align: center;">
+          <a href={base_url} target="_blank" style="display: inline-block; margin-bottom: 10px; color: rgba(255,255,255,0.75); font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; text-decoration: none;">Starter</a>
+          <slot name="header" />
+        </div>
+        <!-- Body -->
+        <div style="padding: 40px;">
+          <slot />
+        </div>
+        <!-- Wide slot: full-width sections between body and footer (optional) -->
+        <slot name="wide" />
+        <!-- Footer -->
+        <div style="padding: 24px 40px; background-color: #f4f9ee; border-top: 1px solid #e6f2d6; text-align: center;">
+          <slot name="footer">
+            <p style="margin: 0; color: #655650; font-size: 12px; line-height: 1.625;">
+               If you did not request this email, you can safely ignore it.
+            </p>
+          </slot>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

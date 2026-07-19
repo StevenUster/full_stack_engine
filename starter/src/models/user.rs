@@ -1,10 +1,12 @@
-//! The `users` table. The framework's auth layer depends on the columns
-//! listed under `[orm.required_columns]` in `fse.toml` — add columns freely,
-//! but don't remove those.
+//! The `users` table. The framework's auth layer and the built-in auth
+//! module depend on the columns listed under `[orm.required_columns]` in
+//! `fse.toml` — add columns freely, but don't remove those. `disabled`:
+//! user administration comes from the auth module (`/users`), not from
+//! generated CRUD.
 
-use crate::{AppRole, Table, chrono::NaiveDateTime};
+use crate::{AppRole, chrono::NaiveDateTime, model};
 
-#[derive(Table, Debug, Clone)]
+#[model(disabled)]
 pub struct User {
     pub id: i64,
     #[orm(unique)]

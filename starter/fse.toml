@@ -2,22 +2,30 @@
 # the file exists mainly to declare the framework's schema contract below.
 
 [orm]
-tables_dir = "src/tables"
+tables_dir = "src/models"
 migrations_dir = "migrations"
 snapshot_path = ".fse/schema.json"
 database_url_env = "DATABASE_URL"
 
-# Columns the framework's auth layer queries at runtime. `fse migrate`
-# refuses to generate a schema that breaks this contract — add columns to
-# `users` freely, but keep these.
+# Columns the framework's auth layer and auth module query at runtime.
+# `fse migrate` refuses to generate a schema that breaks this contract —
+# add columns to `users` freely, but keep these.
 [orm.required_columns]
 users = [
     "id",
     "email",
     "password",
     "role",
+    "first_name",
+    "last_name",
     "is_verified",
     "verification_token",
+    "verification_token_expires_at",
+    "reset_token",
+    "reset_token_expires_at",
+    "pending_email",
+    "email_change_token",
+    "email_change_token_expires_at",
     "sessions_valid_after",
     "created_at",
 ]

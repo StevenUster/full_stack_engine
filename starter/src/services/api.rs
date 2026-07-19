@@ -9,7 +9,7 @@ use crate::{
 };
 
 use super::RenderTplExt;
-use crate::tables::product::{Product, ProductStatus};
+use crate::models::product::{Product, ProductStatus};
 
 const PER_PAGE: i64 = 50;
 

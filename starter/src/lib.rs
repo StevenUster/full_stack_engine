@@ -19,7 +19,7 @@ pub use full_stack_engine::prelude::*;
 
 pub mod cronjobs;
 pub mod services;
-pub mod tables;
+pub mod models;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Set html template directory
@@ -36,7 +36,7 @@ pub static LOCALES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/locales");
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 define_roles! {
     (Admin,   "admin",   ["all"]),
-    (Manager, "manager", ["users.read", "users.write", "products.read", "products.write"]),
+    (Manager, "manager", ["users.read", "users.write", "products.read", "products.write", "orders.read", "orders.write"]),
     (User,    "user",    []),
     (None,    "none",    ["none"]),
 }
@@ -45,7 +45,17 @@ define_roles! {
 /// this.
 pub async fn run() -> std::io::Result<()> {
     FrameworkApp::new(&DIST_DIR)
+        // Hand-written overrides/custom flows — registered first, so they
+        // beat module and generated routes on a path conflict.
         .configure(services::configure)
+        // Login/registration/password-reset/settings/user-admin, complete
+        // with pages and emails from the theme.
+        .module(full_stack_engine::auth_module::module::<AppRole>())
+        // Generated admin CRUD for every #[model] struct in src/models/.
+        .models::<AppRole>()
+        // App locale files layer over the framework's built-in translations;
+        // pick ONE language strategy: Hardcoded, Domain or Path.
+        .locales(&LOCALES_DIR, full_stack_engine::i18n::LocaleSelector::Hardcoded("en".into()))
         .cronjobs(cronjobs::add_cronjobs)
         // Migrations are embedded in the binary at compile time.
         .migrator(sqlx::migrate!())
@@ -53,10 +63,8 @@ pub async fn run() -> std::io::Result<()> {
         // so it must not be caught by the site-wide per-IP limiter.
         .rate_limit_exempt_prefixes(["/api"])
         .global_context_injector(|req, value| {
-            // Expose t/lang/i18n to every template from the embedded locales.
-            full_stack_engine::i18n::inject_locale_context(value, &LOCALES_DIR, "en");
-
-            // Automatically inject user claims if a valid JWT token is present
+            // t/lang/i18n are injected automatically by the framework; this
+            // only adds the app's own conveniences on top.
             if let Ok(claims) = read_jwt::<AppRole>(req)
                 && let Some(obj) = value.as_object_mut()
             {

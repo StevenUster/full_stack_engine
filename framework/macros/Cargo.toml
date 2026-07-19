@@ -10,7 +10,7 @@ repository = "https://github.com/StevenUster/full_stack_engine"
 proc-macro = true
 
 [dependencies]
-fse-schema = { version = "0.3.1", path = "../../fse-orm/schema" }
+fse-schema = { version = "0.4.0", path = "../../fse-orm/schema" }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"

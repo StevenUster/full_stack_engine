@@ -1377,9 +1377,7 @@ checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "fse-orm"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c281d225b010c5fd8f9c0c00f8a10f652da97aff959837a6a2f44adf6ecc7ee"
+version = "0.4.0"
 dependencies = [
  "fse-orm-macros",
  "serde",
@@ -1389,9 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "fse-orm-macros"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc7644584a23105b788ac6f9eea65b73c406db5cccfda574f840d2dc1e4876c2"
+version = "0.4.0"
 dependencies = [
  "fse-schema",
  "proc-macro2",
@@ -1402,9 +1398,7 @@ dependencies = [
 
 [[package]]
 name = "fse-schema"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f40c022d20667ea714aa1c404975536408463d955574d7607b6c9e96c366fbeb"
+version = "0.4.0"
 dependencies = [
  "quote",
  "serde",
@@ -1414,9 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "4.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "026c6a6d2cb03a6356994f7110fa20c3448b1da5ea00e78f571a5f8e3ed0ef00"
+version = "5.0.0"
 dependencies = [
  "actix-files",
  "actix-governor",
@@ -1426,8 +1418,11 @@ dependencies = [
  "dotenv",
  "env_logger",
  "fse-orm",
+ "fse-schema",
+ "full_stack_engine_macros",
  "futures",
  "include_dir",
+ "inventory",
  "jsonwebtoken",
  "lettre",
  "log",
@@ -1440,8 +1435,20 @@ dependencies = [
  "sqlx",
  "tera",
  "thiserror",
+ "tokio",
  "tokio-cron-scheduler",
  "uuid",
+]
+
+[[package]]
+name = "full_stack_engine_macros"
+version = "0.1.0"
+dependencies = [
+ "fse-schema",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn",
 ]
 
 [[package]]
@@ -2113,6 +2120,15 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "inventory"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4f0c30c76f2f4ccee3fe55a2435f691ca00c0e4bd87abe4f4a851b1d4dac39b"
+dependencies = [
+ "rustversion",
 ]
 
 [[package]]

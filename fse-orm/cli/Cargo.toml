@@ -1,10 +1,8 @@
 [package]
 name = "fse-cli"
 description = "The fse binary: generates and applies sqlx migrations from #[derive(Table)] structs and refreshes the offline query cache — no sqlx-cli needed."
-# Independent of workspace.package.version: this release only changes
-# fse-cli's own behavior (native `prepare`), not schema/macros/runtime, so
-# only this crate needs a new version published.
-version = "0.4.1"
+# Independent of workspace.package.version.
+version = "0.5.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -18,7 +16,7 @@ name = "fse"
 path = "src/main.rs"
 
 [dependencies]
-fse-schema = { version = "0.3.1", path = "../schema" }
+fse-schema = { version = "0.4.0", path = "../schema" }
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "migrate"] }
 tokio = { version = "1", features = ["rt"] }
 serde = { version = "1.0", features = ["derive"] }

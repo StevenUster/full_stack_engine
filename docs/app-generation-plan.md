@@ -185,8 +185,45 @@ pages; `api` adds `/api/{table}` JSON endpoints; labels come from locale keys
   the `emails/verify` / `emails/password-reset` templates in the request's language.
   Registration posts urlencoded (was multipart) and self-registered accounts get the
   role named "user". Tested end-to-end in framework/tests/auth_module_http.rs.
-  Still open (6d): settings + admin-users port, theme auth pages
-  (login/register/... .astro + email templates + EmailLayout).
+- **6d DONE (2026-07-19)**: settings (change-email with verified pending flow,
+  password-reset mail, delete-account) and user admin (/users list+detail+role
+  update+delete with users.read/write gates and admin-only escalation guards —
+  `Role` trait gained `fn all()` for the role dropdown) ported into the module and
+  tested. The theme now ships all auth pages (login/register/register-success/
+  forgot-password/reset-password/settings/users/user + emails/verify,
+  password-reset, verify-email-change + EmailLayout) plus the shared components
+  (Card/Header/Input/Modal/Pagination/Table/TableFilters) and types/pages.ts —
+  ported from the starter, logo/astro:assets stripped. All render-verified through
+  real Tera with the framework locale tree (which now carries every section the
+  pages use: table/filters/common/users/settings/...).
+
+### 7. Starter rewrite — DONE (2026-07-19)
+
+- Path deps on framework/fse-orm; `src/tables/` → `src/models/` (`#[model]` structs,
+  ~120 lines define the whole app); fse.toml: `tables_dir = "src/models"` + full auth
+  contract in required_columns. `fse migrate --dry-run`: schema up to date (the
+  conversion is schema-identical).
+- lib.rs builder: `.configure(services) .module(auth_module) .models::<AppRole>()
+  .locales(&LOCALES_DIR, Hardcoded("en"))`; Manager role gained orders.read/write.
+- services/ = overrides only (482 lines, was 1,973): products_public.rs (published-only
+  catalog — the canonical override example), orders.rs (place/my-orders/cancel-own),
+  api.rs (public JSON API + OpenAPI), index.rs. Deleted: products.rs, login, logout,
+  register, forgot/reset password, settings, users.
+- Frontend: theme wired (`fseSsr({theme})`); deleted all auth/admin pages + emails +
+  product-manager UI + ProductTabs; app css root = `@import tailwindcss` + theme layer
+  + `@source` (NEW ARCHITECTURE: the app owns the single Tailwind root, theme Layout
+  imports it via the integration's `@app-styles` alias — fixes symlinked-theme
+  resolution under Astro 7/rolldown). Locales 394 → 158 lines (app-specific +
+  `models.*` labels + the sections its own pages use).
+- Tests rewritten over the full production stack (overrides > auth module > generated):
+  published-only invariants, generated /admin/products CRUD with permissions +
+  duplicate-slug re-render, order flows, auth smoke, full-dist template load — all
+  green; starter clippy clean.
+- Net: hand-written app code ≈6,200 → ≈3,000 lines, while GAINING de translations
+  everywhere, three locale modes, theming, modules, and generated admin UIs.
+- Still open: starter CLAUDE.md/README rewrite; types/pages.ts trim; Sidebar nav is
+  app-owned (generated pages use the bare theme layout — nav-from-registry is future
+  polish); Dockerfile check (bun needs the theme/fse-ssr paths at build).
 
 ## Phases
 

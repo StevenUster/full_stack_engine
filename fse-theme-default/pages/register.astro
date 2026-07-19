@@ -2,8 +2,6 @@
 import { ssr } from "fse-ssr/ssr";
 import Input from "../components/Input.astro";
 import Layout from "../layouts/Layout.astro";
-import { Image } from "astro:assets";
-import logo from "../assets/logo.svg";
 
 const { t, error } = ssr<{ error?: string }>();
 const errors = t.errors as Record<string, string>;
@@ -15,7 +13,7 @@ const errors = t.errors as Record<string, string>;
       <!-- Logo -->
       <div class="flex justify-center mb-8">
         <a href="/">
-          <Image src={logo} alt="Logo" class="h-16 w-auto" />
+          <span class="text-2xl font-extrabold">⌂</span>
         </a>
       </div>
 

@@ -68,6 +68,9 @@ struct AppUser {
     verification_token_expires_at: Option<NaiveDateTime>,
     reset_token: Option<String>,
     reset_token_expires_at: Option<NaiveDateTime>,
+    pending_email: Option<String>,
+    email_change_token: Option<String>,
+    email_change_token_expires_at: Option<NaiveDateTime>,
     #[orm(default = 0)]
     sessions_valid_after: i64,
     #[orm(default = now)]

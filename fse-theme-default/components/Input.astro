@@ -1,0 +1,56 @@
+---
+import type { SsrValue } from "fse-ssr/ssr";
+
+interface Props {
+  id: string;
+  type:
+    | "text"
+    | "email"
+    | "password"
+    | "date"
+    | "tel"
+    | "datetime-local"
+    | "number"
+    | "hidden";
+  placeholder?: string | SsrValue<string>;
+  required?: boolean;
+  /**
+   * Appends a literal "*" after the placeholder label. Kept as a separate
+   * prop/child rather than having callers write `` `${value}*` `` themselves:
+   * a template literal forces the SSR proxy to flatten to a plain string via
+   * its own toString() (emitting e.g. `{{ t.x | default(value='y') }}*`),
+   * and a plain string reaching this label's JSX children isn't tagged raw
+   * HTML, so Astro HTML-escapes it — turning the embedded `'` into `&#39;`
+   * and breaking Tera's parser. Rendering the proxy and the "*" as separate
+   * children avoids the flattening entirely.
+   */
+  requiredMark?: boolean;
+  step?: string | number;
+  min?: string | number;
+  max?: string | number;
+  name?: string;
+  /** Prefill; pass an SSR value (e.g. `email ?? ""`) for server data. */
+  value?: string | SsrValue<string>;
+}
+
+const { id, type, placeholder = " ", requiredMark, required, step, min, max, name, value } = Astro.props;
+---
+
+<div class="relative w-full">
+  <input
+    id={id}
+    type={type}
+    name={name ?? id}
+    placeholder={placeholder}
+    required={required}
+    step={step}
+    min={min}
+    max={max}
+    value={value}
+    class="relative w-full h-10 px-3.5 text-sm placeholder-transparent transition-all border rounded-lg outline-hidden peer border-secondary-300 text-secondary-900 bg-white autofill:bg-white focus:border-primary-500 focus:ring-1 focus:ring-primary-500 focus:outline-hidden"
+  />
+  <label
+    for={id}
+    class="absolute left-2 -top-2 z-1 px-1.5 text-xs text-secondary-500 transition-all before:absolute before:top-0 before:left-0 before:z-[-1] before:block before:h-full before:w-full before:bg-white before:transition-all peer-placeholder-shown:top-2.5 peer-placeholder-shown:text-sm peer-focus:-top-2 peer-focus:text-xs peer-focus:text-primary-600 peer-disabled:cursor-not-allowed peer-disabled:text-secondary-400 peer-disabled:before:bg-transparent"
+  >{placeholder}{requiredMark && "*"}</label>
+</div>

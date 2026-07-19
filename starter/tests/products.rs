@@ -1,37 +1,18 @@
-//! Integration tests for the product catalog: public endpoints must only
-//! ever expose `published` products, and product-manager writes require the
-//! `products.write` permission.
+//! The starter's own invariants, over the full production route stack
+//! (overrides > auth module > generated CRUD):
+//! - the hand-written public catalog only ever exposes `published` products
+//!   even though the admin CRUD is generated,
+//! - the generated /admin/products endpoints honor the conventional
+//!   permissions,
+//! - the custom order flows keep their ownership checks.
 
 mod common;
 
 use actix_web::http::StatusCode;
-use actix_web::{App, test, web};
-use common::{seed_product, seed_user, test_app_data};
+use actix_web::test;
+use common::{next_peer, seed_product, seed_user, test_app_data};
 use starter::count;
-use starter::services::{api, login, orders, products};
-use starter::tables::product::Product;
-
-macro_rules! test_service {
-    ($data:expr) => {
-        test::init_service(
-            App::new()
-                .app_data($data.clone())
-                .route("/login", web::post().to(login::post))
-                .service(api::get_products)
-                .service(api::get_product_detail)
-                .service(products::get_public_products)
-                .service(products::get_public_product_detail)
-                .service(products::get_products)
-                .service(products::post_product_create)
-                .service(products::get_product)
-                .service(products::post_product)
-                .service(products::delete_product)
-                .service(orders::post_place_order)
-                .service(orders::get_my_orders),
-        )
-        .await
-    };
-}
+use starter::models::product::Product;
 
 #[actix_web::test]
 async fn public_endpoints_never_expose_unpublished_products() {
@@ -39,13 +20,13 @@ async fn public_endpoints_never_expose_unpublished_products() {
     seed_product(&data, "draft-product", "draft").await;
     seed_product(&data, "archived-product", "archived").await;
     seed_product(&data, "live-product", "published").await;
-    let app = test_service!(data);
+    let app = test_app!(data);
 
-    // Astro-rendered public catalog.
+    // Astro-rendered public catalog (hand-written override route).
     let req = test::TestRequest::get().uri("/products").to_request();
     let body = test::call_and_read_body(&app, req).await;
     let body = String::from_utf8_lossy(&body);
-    assert!(body.contains("live-product") || body.contains("Product live-product"));
+    assert!(body.contains("live-product"));
     assert!(!body.contains("draft-product"));
     assert!(!body.contains("archived-product"));
 
@@ -58,102 +39,139 @@ async fn public_endpoints_never_expose_unpublished_products() {
         .iter()
         .map(|p| p["slug"].as_str().unwrap())
         .collect();
-    assert!(slugs.contains(&"live-product"));
-    assert!(!slugs.contains(&"draft-product"));
-    assert!(!slugs.contains(&"archived-product"));
+    assert_eq!(slugs, ["live-product"]);
 
-    // Direct detail lookup of a non-public product is a 404, not a leak.
-    let req = test::TestRequest::get()
-        .uri("/products/draft-product")
-        .to_request();
-    assert_eq!(
-        test::call_service(&app, req).await.status(),
-        StatusCode::NOT_FOUND
-    );
+    // Unpublished detail pages are 404s, on the page and the API.
+    for uri in ["/products/draft-product", "/api/products/draft-product"] {
+        let req = test::TestRequest::get().uri(uri).to_request();
+        let res = test::call_service(&app, req).await;
+        assert_eq!(res.status(), StatusCode::NOT_FOUND, "{uri}");
+    }
 }
 
 #[actix_web::test]
-async fn only_products_write_permission_can_manage_the_catalog() {
+async fn generated_admin_crud_honors_permissions() {
     let data = test_app_data().await;
-    seed_user(&data, "user@test.io", "correct-password", "user").await;
-    seed_user(&data, "mgr@test.io", "correct-password", "manager").await;
-    let app = test_service!(data);
+    seed_user(&data, "manager@test.dev", "password123", "manager").await;
+    seed_user(&data, "user@test.dev", "password123", "user").await;
+    let app = test_app!(data);
 
-    // A plain `user` role has neither `products.read` nor `products.write`.
-    let cookie = login_cookie!(&app, "user@test.io", "correct-password");
-    let req = test::TestRequest::post()
-        .uri("/product-manager/create")
-        .cookie(cookie)
-        .set_form([("name", "Widget"), ("price", "9.99")])
+    let manager = login_cookie!(&app, "manager@test.dev", "password123");
+    let user = login_cookie!(&app, "user@test.dev", "password123");
+
+    // Plain users lack products.read.
+    let req = test::TestRequest::get()
+        .uri("/admin/products")
+        .cookie(user.clone())
         .to_request();
-    assert_eq!(
-        test::call_service(&app, req).await.status(),
-        StatusCode::UNAUTHORIZED
-    );
+    let res = test::call_service(&app, req).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 
-    // `manager` has `products.write` and can create one.
-    let cookie = login_cookie!(&app, "mgr@test.io", "correct-password");
-    let req = test::TestRequest::post()
-        .uri("/product-manager/create")
-        .cookie(cookie)
-        .set_form([("name", "Widget"), ("price", "9.99")])
+    // Managers get the generated list page (theme template, real render).
+    let req = test::TestRequest::get()
+        .uri("/admin/products")
+        .cookie(manager.clone())
         .to_request();
-    assert_eq!(
-        test::call_service(&app, req).await.status(),
-        StatusCode::FOUND
-    );
+    let res = test::call_service(&app, req).await;
+    assert_eq!(res.status(), StatusCode::OK);
 
-    let count = count!(Product, &data.db, name == "Widget").await.unwrap();
-    assert_eq!(count, 1);
+    // Create through the generated form endpoint...
+    let req = test::TestRequest::post()
+        .uri("/admin/products/create")
+        .cookie(manager.clone())
+        .set_form([
+            ("name", "Generated Product"),
+            ("slug", "generated-product"),
+            ("description", ""),
+            ("price", "19.99"),
+            ("status", "published"),
+        ])
+        .to_request();
+    let res = test::call_service(&app, req).await;
+    assert_eq!(res.status(), StatusCode::FOUND);
+    let location = res
+        .headers()
+        .get("location")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    let id: i64 = location.rsplit('/').next().unwrap().parse().unwrap();
+    assert_eq!(count!(Product, &data.db, slug == "generated-product").await.unwrap(), 1);
+
+    // ...validation errors re-render instead of writing (duplicate slug)...
+    let req = test::TestRequest::post()
+        .uri("/admin/products/create")
+        .cookie(manager.clone())
+        .set_form([
+            ("name", "Copycat"),
+            ("slug", "generated-product"),
+            ("description", ""),
+            ("price", "1"),
+            ("status", "draft"),
+        ])
+        .to_request();
+    let res = test::call_service(&app, req).await;
+    assert_eq!(res.status(), StatusCode::OK); // form re-render, no redirect
+    assert_eq!(count!(Product, &data.db, all).await.unwrap(), 1);
+
+    // ...and plain users can't delete.
+    let req = test::TestRequest::delete()
+        .uri(&format!("/admin/products/{id}"))
+        .cookie(user)
+        .to_request();
+    let res = test::call_service(&app, req).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let req = test::TestRequest::delete()
+        .uri(&format!("/admin/products/{id}"))
+        .cookie(manager)
+        .to_request();
+    let res = test::call_service(&app, req).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(count!(Product, &data.db, all).await.unwrap(), 0);
 }
 
 #[actix_web::test]
 async fn placing_an_order_requires_a_published_product_and_login() {
     let data = test_app_data().await;
-    seed_product(&data, "draft-product", "draft").await;
-    seed_product(&data, "live-product", "published").await;
-    seed_user(&data, "user@test.io", "correct-password", "user").await;
-    let app = test_service!(data);
+    seed_product(&data, "draft-thing", "draft").await;
+    seed_product(&data, "live-thing", "published").await;
+    seed_user(&data, "buyer@test.dev", "password123", "user").await;
+    let app = test_app!(data);
 
-    // Anonymous order attempts never reach the handler: the `AuthUser`
-    // extractor redirects straight to `/login`.
+    // Anonymous order attempts bounce to login.
     let req = test::TestRequest::post()
-        .uri("/products/live-product/order")
+        .uri("/products/live-thing/order")
+        .peer_addr(next_peer())
         .set_form([("quantity", "1")])
         .to_request();
     let res = test::call_service(&app, req).await;
     assert_eq!(res.status(), StatusCode::FOUND);
-    assert_eq!(res.headers().get("location").unwrap(), "/login");
 
-    let cookie = login_cookie!(&app, "user@test.io", "correct-password");
+    let buyer = login_cookie!(&app, "buyer@test.dev", "password123");
 
-    // Ordering a draft (unpublished) product 404s.
+    // Draft products cannot be ordered even by a signed-in user.
     let req = test::TestRequest::post()
-        .uri("/products/draft-product/order")
-        .cookie(cookie.clone())
+        .uri("/products/draft-thing/order")
+        .cookie(buyer.clone())
         .set_form([("quantity", "1")])
         .to_request();
-    assert_eq!(
-        test::call_service(&app, req).await.status(),
-        StatusCode::NOT_FOUND
-    );
+    let res = test::call_service(&app, req).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
-    // Ordering the published product succeeds and shows up in "my orders".
+    // Published ones can; the order shows up under /my-orders.
     let req = test::TestRequest::post()
-        .uri("/products/live-product/order")
-        .cookie(cookie.clone())
+        .uri("/products/live-thing/order")
+        .cookie(buyer.clone())
         .set_form([("quantity", "2")])
         .to_request();
-    assert_eq!(
-        test::call_service(&app, req).await.status(),
-        StatusCode::FOUND
-    );
+    let res = test::call_service(&app, req).await;
+    assert_eq!(res.status(), StatusCode::FOUND);
 
     let req = test::TestRequest::get()
         .uri("/my-orders")
-        .cookie(cookie)
+        .cookie(buyer)
         .to_request();
     let body = test::call_and_read_body(&app, req).await;
-    let body = String::from_utf8_lossy(&body);
-    assert!(body.contains("live-product") || body.contains("Product live-product"));
+    assert!(String::from_utf8_lossy(&body).contains("live-thing"));
 }

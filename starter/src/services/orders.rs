@@ -1,7 +1,8 @@
-//! Orders: a signed-in user places an order against a product; managers view
-//! and fulfil orders from the product-manager "Orders" tab. A minimal example
-//! of a child resource with its own moderation workflow (`pending` ->
-//! `fulfilled`/`cancelled`).
+//! Override example #2: user-facing order flows next to a generated model.
+//! Moderation (list/filter/fulfil/cancel/delete) is the generated CRUD at
+//! `/admin/orders`; what lives here is what generation can't know — placing
+//! an order against a *published* product, "my orders", and cancelling only
+//! your *own pending* order (the ownership check is in the update filter).
 //!
 //! Related rows here are fetched with a second query over the collected ids
 //! (`Col::in_` on the dynamic builder) and stitched in Rust, rather than
@@ -12,13 +13,12 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     AppData, AppError, AppResult, AppRole, AuthUser, Deserialize, Serialize,
-    actix_web::{HttpResponse, delete, get, post, web},
-    delete_rows, find, find_one, insert, update,
+    actix_web::{HttpResponse, get, post, web},
+    find, find_one, insert, update,
 };
 
-use crate::tables::order::{Order, OrderStatus};
-use crate::tables::product::{Product, ProductStatus};
-use crate::tables::user::User;
+use crate::models::order::{Order, OrderStatus};
+use crate::models::product::{Product, ProductStatus};
 
 #[derive(Deserialize)]
 pub struct PlaceOrderForm {
@@ -145,131 +145,4 @@ pub async fn post_cancel_my_order(
     Ok(HttpResponse::Found()
         .append_header(("Location", "/my-orders"))
         .finish())
-}
-
-#[derive(Deserialize, Default)]
-pub struct OrderSearchParams {
-    pub search: Option<String>,
-    pub page: Option<i64>,
-}
-
-#[derive(Serialize)]
-struct ProductOrderRow {
-    id: i64,
-    quantity: i64,
-    note: String,
-    status: &'static str,
-    created_at: String,
-    user_email: String,
-    fulfill_url: String,
-    delete_url: String,
-}
-
-/// `GET /product-manager/{id}/orders` — orders tab: every order placed
-/// against this product, filterable by customer email.
-#[get("/product-manager/{id}/orders")]
-pub async fn get_product_orders(
-    data: web::Data<AppData>,
-    req: actix_web::HttpRequest,
-    user: AuthUser<AppRole>,
-    path: web::Path<i64>,
-    query: web::Query<OrderSearchParams>,
-) -> AppResult {
-    use super::RenderTplExt;
-    user.require_permission("products.read")?;
-
-    let product_id = path.into_inner();
-    let product = Product::fetch(&data.db, product_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("product".to_string()))?;
-
-    let search = query.search.as_deref().unwrap_or("").trim().to_lowercase();
-
-    let orders = find!(
-        Order,
-        &data.db,
-        product_id == product_id,
-        order_by: created_at.desc()
-    )
-    .await?;
-
-    // Resolve customer emails, then apply the email search in Rust — one
-    // product's orders are a bounded set.
-    let user_ids: HashSet<i64> = orders.iter().map(|o| o.user_id).collect();
-    let emails: HashMap<i64, String> = User::find()
-        .filter(User::ID.in_(user_ids))
-        .fetch_all(&data.db)
-        .await?
-        .into_iter()
-        .map(|u| (u.id, u.email))
-        .collect();
-
-    let rows: Vec<ProductOrderRow> = orders
-        .into_iter()
-        .filter_map(|o| {
-            let email = emails.get(&o.user_id)?;
-            if !search.is_empty() && !email.to_lowercase().contains(&search) {
-                return None;
-            }
-            Some(ProductOrderRow {
-                id: o.id,
-                quantity: o.quantity,
-                note: o.note.unwrap_or_default(),
-                status: o.status.as_str(),
-                created_at: o.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-                user_email: email.clone(),
-                fulfill_url: format!("/product-manager/{product_id}/orders/{}", o.id),
-                delete_url: format!("/product-manager/{product_id}/orders/{}", o.id),
-            })
-        })
-        .collect();
-
-    Ok(req
-        .render_tpl(
-            "product-manager/orders",
-            &crate::json!({
-                "product": { "id": product.id, "name": product.name },
-                "rows": rows,
-                "search": search,
-            }),
-        )
-        .await)
-}
-
-/// `POST /product-manager/{id}/orders/{order_id}` — mark an order fulfilled.
-#[post("/product-manager/{id}/orders/{order_id}")]
-pub async fn post_fulfill_order(
-    data: web::Data<AppData>,
-    user: AuthUser<AppRole>,
-    path: web::Path<(i64, i64)>,
-) -> AppResult {
-    user.require_permission("products.write")?;
-    let (product_id, order_id) = path.into_inner();
-
-    update!(
-        Order,
-        &data.db,
-        id == order_id && product_id == product_id;
-        status = OrderStatus::Fulfilled
-    )
-    .await?;
-
-    Ok(HttpResponse::Found()
-        .append_header(("Location", format!("/product-manager/{product_id}/orders")))
-        .finish())
-}
-
-/// `DELETE /product-manager/{id}/orders/{order_id}` — remove an order.
-#[delete("/product-manager/{id}/orders/{order_id}")]
-pub async fn delete_order(
-    data: web::Data<AppData>,
-    user: AuthUser<AppRole>,
-    path: web::Path<(i64, i64)>,
-) -> AppResult {
-    user.require_permission("products.write")?;
-    let (product_id, order_id) = path.into_inner();
-
-    delete_rows!(Order, &data.db, id == order_id && product_id == product_id).await?;
-
-    Ok(HttpResponse::Ok().finish())
 }

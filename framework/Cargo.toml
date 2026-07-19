@@ -1,6 +1,6 @@
 [package]
 name = "full_stack_engine"
-version = "4.1.2"
+version = "5.0.0"
 edition = "2024"
 description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
 license = "MIT OR Apache-2.0"
@@ -18,11 +18,11 @@ path = "src/lib.rs"
 [dependencies]
 # The fse ORM ships with the framework: schema-driven migrations plus
 # compile-time-checked queries (see the prelude re-exports).
-fse-orm = { version = "0.3.1", path = "../fse-orm/runtime" }
+fse-orm = { version = "0.4.0", path = "../fse-orm/runtime" }
 # The model registry: derive(Model) re-parses structs with fse-schema and
 # registers them via inventory for boot-time route generation.
 full_stack_engine_macros = { version = "0.1.0", path = "macros" }
-fse-schema = { version = "0.3.1", path = "../fse-orm/schema" }
+fse-schema = { version = "0.4.0", path = "../fse-orm/schema" }
 inventory = "0.3"
 actix-web = "4.12.1"
 actix-files = "0.6.9"
@@ -60,7 +60,7 @@ uuid = { version = "1.23.3", features = ["v4"] }
 [build-dependencies]
 # The build script creates the integration tests' scratch database from the
 # #[model] structs in tests/ (see build.rs).
-fse-schema = { version = "0.3.1", path = "../fse-orm/schema" }
+fse-schema = { version = "0.4.0", path = "../fse-orm/schema" }
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
 tokio = { version = "1", features = ["rt"] }
 

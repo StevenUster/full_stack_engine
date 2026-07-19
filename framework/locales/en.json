@@ -96,5 +96,75 @@
     "password_reset_sent": "A password reset email has been sent.",
     "email_confirmed": "Email successfully confirmed. You can now log in.",
     "email_updated": "Email address updated successfully."
+  },
+  "verify_email_change": {
+    "subject": "Confirm Your New Email",
+    "header": "Confirm Your New Email",
+    "body": "You requested to change your email address. Please confirm your new email address by clicking the following button:",
+    "cta": "Confirm New Email",
+    "fallback": "If the button doesn't work, please copy the following link into your browser:",
+    "footer": "If you did not request this change, you can safely ignore this email. Your email address will not be changed."
+  },
+  "settings": {
+    "title": "Settings",
+    "name": "Name",
+    "email_address": "Email Address",
+    "email_desc": "The primary email address associated with your account.",
+    "change_email": "Change Email",
+    "account_security": "Account Security",
+    "send_reset": "Send reset password email",
+    "update_email_title": "Update Email Address",
+    "new_email": "New Email Address",
+    "update_email_btn": "Update Email",
+    "cancel": "Cancel",
+    "delete_account": "Delete Account",
+    "delete_account_desc": "Permanently delete your account and all associated data.",
+    "delete_account_title": "Delete Account",
+    "delete_account_confirm": "Are you sure? Your account and all associated data will be permanently deleted.",
+    "delete_account_btn": "Yes, delete my account"
+  },
+  "common": {
+    "save": "Save",
+    "send": "Send",
+    "error": "Error",
+    "back_home": "Back to home",
+    "no_access": "No Access",
+    "no_access_desc": "You don't have access to this resource",
+    "close_modal": "Close modal",
+    "arrow_icon": "Arrow Icon",
+    "arrow_icon_desc": "Arrow icon of the select list",
+    "na": "N/A"
+  },
+  "filters": {
+    "label": "Filters",
+    "search": "Search",
+    "apply": "Apply",
+    "clear": "Clear",
+    "all_roles": "All roles",
+    "search_users": "Search by email..."
+  },
+  "register_success": {
+    "title": "Action Required: Verify Email",
+    "header": "Check Your Inbox",
+    "success": "You have successfully registered!",
+    "desc": "A confirmation link has been sent to your email address. Please click the link to verify your email before logging in.",
+    "return": "Return to Login"
+  },
+  "users": {
+    "title": "Users",
+    "email": "Email",
+    "role": "Role",
+    "created_at": "Created At",
+    "actions": "Actions",
+    "edit": "Edit",
+    "edit_title": "Edit User",
+    "delete": "Delete"
+  },
+  "table": {
+    "delete_title": "Delete?",
+    "delete_confirm": "Are you sure you want to delete this?",
+    "cancel": "Cancel",
+    "delete_btn": "Delete",
+    "delete_error": "Error occurred"
   }
 }

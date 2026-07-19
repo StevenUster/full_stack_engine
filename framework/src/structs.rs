@@ -9,6 +9,11 @@ pub trait Role:
     fn is_admin(&self) -> bool;
     fn is_none(&self) -> bool;
     fn has_permission(&self, permission: &str) -> bool;
+    /// Every role, in declaration order — lets generic code (e.g. the auth
+    /// module's user admin) offer a role dropdown without knowing the enum.
+    fn all() -> &'static [Self]
+    where
+        Self: Sized;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
@@ -47,6 +52,10 @@ impl Role for DefaultRole {
 
     fn has_permission(&self, _permission: &str) -> bool {
         self.is_admin()
+    }
+
+    fn all() -> &'static [Self] {
+        &[Self::Admin, Self::User, Self::None]
     }
 }
 
