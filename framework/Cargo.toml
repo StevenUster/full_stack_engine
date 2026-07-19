@@ -57,9 +57,17 @@ lettre = { version = "0.11.19", features = [
 actix-multipart = "0.7.2"
 uuid = { version = "1.23.3", features = ["v4"] }
 
+[build-dependencies]
+# The build script creates the integration tests' scratch database from the
+# #[model] structs in tests/ (see build.rs).
+fse-schema = { version = "0.3.1", path = "../fse-orm/schema" }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
+tokio = { version = "1", features = ["rt"] }
+
 [dev-dependencies]
 # Integration tests are separate crates, so shared deps are repeated here.
 actix-multipart = "0.7.2"
+tokio = { version = "1", features = ["macros", "rt"] }
 tempfile = "3"
 serde_json = "1.0"
 include_dir = "0.7.4"

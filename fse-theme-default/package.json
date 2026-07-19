@@ -1,0 +1,23 @@
+{
+  "name": "fse-theme-default",
+  "version": "0.1.0",
+  "description": "Default theme for full_stack_engine apps: layout, design system, and the generic metadata-driven CRUD pages (_model/*) rendered for every #[model] struct.",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StevenUster/full_stack_engine.git",
+    "directory": "fse-theme-default"
+  },
+  "files": [
+    "layouts",
+    "components",
+    "pages",
+    "styles",
+    "types.ts"
+  ],
+  "peerDependencies": {
+    "astro": ">=5.0.0",
+    "fse-ssr": ">=0.2.0"
+  }
+}

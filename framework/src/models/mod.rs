@@ -14,15 +14,30 @@
 //! conventions (permission names, paths, default column sets) that need the
 //! whole picture at runtime.
 
-use fse_schema::{ColumnDef, DefaultValue, SqlType, TableDef};
+use fse_schema::{ColumnDef, SqlType, TableDef};
 use std::sync::LazyLock;
 
-/// One `#[derive(Model)]` struct as submitted by the macro: the fse-schema
-/// `TableDef` serialized to JSON at macro-expansion time, plus the
-/// const-constructed UI metadata.
+pub mod form;
+mod resource;
+mod routes;
+
+pub use routes::mount_all;
+
+pub use resource::{
+    Db, DbResult, FieldError, FormData, FormErrors, ListQuery, ListResult, ModelResource, and_opt,
+};
+
+// Re-exported under stable framework paths for the code `#[model]` emits.
+pub use futures::future::BoxFuture;
+pub use serde_json;
+
+/// One `#[model]` struct as submitted by the macro: the fse-schema
+/// `TableDef` serialized to JSON at macro-expansion time, the
+/// const-constructed UI metadata, and the generated typed data access.
 pub struct ModelRegistration {
     pub table_json: &'static str,
     pub ui: &'static UiModel,
+    pub resource: &'static dyn ModelResource,
 }
 
 inventory::collect!(ModelRegistration);
@@ -54,6 +69,11 @@ pub struct UiModel {
     /// One entry per database column, in declaration order (relations have
     /// no generated UI yet).
     pub fields: &'static [UiField],
+    /// The columns generated create/edit forms expose, in order — computed
+    /// by the macro (visible, editable, not the pk, not `default = now`,
+    /// not json) and the exact set the generated `create`/`update` code
+    /// binds, so the two can never drift.
+    pub form_fields: &'static [&'static str],
 }
 
 /// Per-column UI configuration from `#[ui(...)]`, with widget defaults
@@ -94,19 +114,38 @@ pub enum UiWidget {
     Json,
 }
 
+impl UiWidget {
+    /// The lowercase name templates switch on.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UiWidget::Text => "text",
+            UiWidget::Textarea => "textarea",
+            UiWidget::Number => "number",
+            UiWidget::Checkbox => "checkbox",
+            UiWidget::DateTime => "datetime",
+            UiWidget::Select => "select",
+            UiWidget::Json => "json",
+        }
+    }
+}
+
 /// A registered model with its parsed table definition — what generic
 /// handlers and templates work from.
 pub struct ModelMeta {
     pub table: TableDef,
     pub ui: &'static UiModel,
+    /// The generated typed data access for this model.
+    pub resource: &'static dyn ModelResource,
 }
 
 static MODELS: LazyLock<Vec<ModelMeta>> = LazyLock::new(|| {
     let mut models: Vec<ModelMeta> = inventory::iter::<ModelRegistration>()
         .map(|reg| ModelMeta {
             table: serde_json::from_str(reg.table_json)
-                .expect("table_json is written by the Model derive and always valid"),
+                .expect("table_json is written by the #[model] macro and always valid"),
             ui: reg.ui,
+            resource: reg.resource,
         })
         .collect();
     models.sort_by(|a, b| a.table.name.cmp(&b.table.name));
@@ -159,11 +198,16 @@ impl ModelMeta {
         format!("{}.write", self.permission_base())
     }
 
-    /// The base URL path of the generated admin UI, with a leading slash:
-    /// `path = "..."` or the table name.
+    /// The base URL path of the generated admin UI, with a leading slash.
+    /// An explicit `path = "product-manager"` mounts verbatim at
+    /// `/product-manager`; the default is `/admin/{table}` so `public_read`
+    /// pages can own the bare `/{table}` paths.
     #[must_use]
     pub fn base_path(&self) -> String {
-        format!("/{}", self.ui.path.unwrap_or(&self.table.name))
+        match self.ui.path {
+            Some(p) => format!("/{p}"),
+            None => format!("/admin/{}", self.table.name),
+        }
     }
 
     #[must_use]
@@ -223,17 +267,25 @@ impl ModelMeta {
             .collect()
     }
 
-    /// Columns generated create/edit forms expose: everything except the
-    /// primary key, hidden/readonly columns, and `default = now` timestamps
-    /// (which the database fills in).
+    /// Columns generated create/edit forms expose — the macro-computed
+    /// `form_fields` set (visible, editable, no pk, no `default = now`, no
+    /// json), which is also exactly what the generated `create`/`update`
+    /// code binds.
+    ///
+    /// # Panics
+    ///
+    /// Never in practice: `form_fields` is derived from the same struct's
+    /// columns by the macro.
     #[must_use]
     pub fn form_columns(&self) -> Vec<&ColumnDef> {
         self.ui
-            .fields
+            .form_fields
             .iter()
-            .filter(|f| !f.hidden && !f.readonly)
-            .map(|f| self.column_of(f))
-            .filter(|c| !c.primary_key && c.default != Some(DefaultValue::Now))
+            .map(|name| {
+                self.table
+                    .column(name)
+                    .expect("form_fields come from the same struct's columns")
+            })
             .collect()
     }
 
@@ -295,11 +347,62 @@ mod tests {
         no_delete: false,
         title_field: None,
         fields: &[],
+        form_fields: &[],
     };
 
+    /// A resource that must never be called — meta-resolution tests only.
+    struct NoResource;
+
+    impl ModelResource for NoResource {
+        fn list<'a>(&'a self, _: &'a Db, _: &'a ListQuery) -> BoxFuture<'a, DbResult<ListResult>> {
+            unreachable!()
+        }
+        fn get<'a>(
+            &'a self,
+            _: &'a Db,
+            _: i64,
+        ) -> BoxFuture<'a, DbResult<Option<serde_json::Value>>> {
+            unreachable!()
+        }
+        fn get_by_public<'a>(
+            &'a self,
+            _: &'a Db,
+            _: &'a str,
+        ) -> BoxFuture<'a, DbResult<Option<serde_json::Value>>> {
+            unreachable!()
+        }
+        fn create<'a>(
+            &'a self,
+            _: &'a Db,
+            _: &'a FormData,
+        ) -> BoxFuture<'a, DbResult<Result<i64, FormErrors>>> {
+            unreachable!()
+        }
+        fn update<'a>(
+            &'a self,
+            _: &'a Db,
+            _: i64,
+            _: &'a FormData,
+        ) -> BoxFuture<'a, DbResult<Result<(), FormErrors>>> {
+            unreachable!()
+        }
+        fn delete<'a>(&'a self, _: &'a Db, _: i64) -> BoxFuture<'a, DbResult<u64>> {
+            unreachable!()
+        }
+    }
+
     fn meta(columns: Vec<ColumnDef>, fields: &'static [UiField]) -> ModelMeta {
+        meta_with(columns, fields, &[])
+    }
+
+    fn meta_with(
+        columns: Vec<ColumnDef>,
+        fields: &'static [UiField],
+        form_fields: &'static [&'static str],
+    ) -> ModelMeta {
         let ui: &'static UiModel = Box::leak(Box::new(UiModel {
             fields,
+            form_fields,
             ..PLAIN_UI
         }));
         ModelMeta {
@@ -312,6 +415,7 @@ mod tests {
                 composite_indexes: Vec::new(),
             },
             ui,
+            resource: &NoResource,
         }
     }
 
@@ -325,7 +429,7 @@ mod tests {
         assert_eq!(m.permission_base(), "notes");
         assert_eq!(m.read_permission(), "notes.read");
         assert_eq!(m.write_permission(), "notes.write");
-        assert_eq!(m.base_path(), "/notes");
+        assert_eq!(m.base_path(), "/admin/notes");
         assert_eq!(m.title_column().name, "title");
     }
 
@@ -352,21 +456,20 @@ mod tests {
     }
 
     #[test]
-    fn form_skips_pk_and_now_defaults() {
+    fn form_columns_map_the_macro_computed_set() {
         static FIELDS: [UiField; 3] = [
             ui_field_const("id"),
             ui_field_const("title"),
             ui_field_const("created_at"),
         ];
-        let mut created = column("created_at", SqlType::Timestamp);
-        created.default = Some(DefaultValue::Now);
-        let m = meta(
+        let m = meta_with(
             vec![
                 column("id", SqlType::Integer),
                 column("title", SqlType::Text),
-                created,
+                column("created_at", SqlType::Timestamp),
             ],
             &FIELDS,
+            &["title"],
         );
         let names: Vec<&str> = m.form_columns().iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["title"]);

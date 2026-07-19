@@ -1,0 +1,25 @@
+{
+  "model_ui": {
+    "new": "New",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "back": "Back",
+    "search": "Search...",
+    "filter": "Filter",
+    "prev": "Previous",
+    "next": "Next",
+    "entries": "entries",
+    "confirm_delete": "Delete this entry?"
+  },
+  "form_errors": {
+    "required": "This field is required.",
+    "invalid_number": "Enter a valid number.",
+    "invalid_option": "Choose a valid option.",
+    "invalid_value": "Enter a valid value.",
+    "invalid_datetime": "Enter a valid date and time.",
+    "not_unique": "This value is already taken.",
+    "not_supported": "This form has no editable fields."
+  }
+}

@@ -1,0 +1,4 @@
+# The framework has no app tables of its own; the #[model] structs the
+# Table derive must resolve live in the integration tests.
+[orm]
+tables_dir = "tests"

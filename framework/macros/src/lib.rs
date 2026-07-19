@@ -1,23 +1,24 @@
 //! Proc macros for the full_stack_engine framework.
 //!
-//! `#[derive(Model)]` turns a `#[derive(Table)]` struct into an app
-//! definition: the struct is re-parsed with the same fse-schema code the ORM
-//! derive uses (so the database meaning can never drift), the framework-owned
-//! `#[model(...)]` and `#[ui(...)]` attributes are parsed on top, and the
-//! combined metadata is registered in the framework's runtime model registry
-//! (`full_stack_engine::models`). At boot the framework mounts generic CRUD
-//! routes for every registered model; the generic templates render lists and
-//! forms from the same metadata.
+//! `#[model(...)]` turns a plain struct into a complete app definition. It
+//! expands to the struct itself with `#[derive(Table, Debug, Clone)]`
+//! attached (any derive the struct already has is not duplicated), so the
+//! fse ORM generates the schema-checked data layer, plus a registration in
+//! the framework's runtime model registry (`full_stack_engine::models`) from
+//! which the framework generates admin CRUD endpoints and pages at boot.
+//! One annotation defines database, endpoints and UI.
 
 use proc_macro::TokenStream;
 
 mod model;
+mod resource;
 
-/// Marks a `#[derive(Table)]` struct as an app model: its metadata is
-/// registered in `full_stack_engine::models` and the framework generates
-/// admin CRUD endpoints and pages for it at boot.
+/// Marks a struct as an app model: the ORM `Table` derive is applied for the
+/// data layer, and the struct's metadata is registered in
+/// `full_stack_engine::models` so the framework generates admin CRUD
+/// endpoints and pages for it at boot.
 ///
-/// Struct-level `#[model(...)]` keys:
+/// Arguments (all optional):
 /// - `permission = "products"` — base permission name (default: table name);
 ///   generated routes check `<base>.read` / `<base>.write`.
 /// - `path = "product-manager"` — base URL path segment (default: table name).
@@ -40,13 +41,17 @@ mod model;
 /// - `hidden` — never show the column in generated UI.
 /// - `readonly` — show the column but never edit it in generated forms.
 ///
+/// `#[orm(...)]` attributes work exactly as with a hand-written
+/// `#[derive(Table)]` struct — `#[model]` structs are what `fse migrate`
+/// generates migrations from.
+///
 /// Everything expressible here is validated at compile time; mistakes such as
 /// naming a column that does not exist are build errors, not runtime
 /// surprises.
-#[proc_macro_derive(Model, attributes(model, ui, orm))]
-pub fn derive_model(input: TokenStream) -> TokenStream {
+#[proc_macro_attribute]
+pub fn model(args: TokenStream, input: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(input as syn::ItemStruct);
-    model::expand(&item)
+    model::expand(args.into(), &item)
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

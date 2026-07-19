@@ -1,0 +1,121 @@
+---
+/**
+ * Generic admin list page — rendered for every #[model] struct that doesn't
+ * bring its own list template. Columns, search, filters and pagination all
+ * come from the model metadata the framework injects; labels resolve from
+ * the app's locales (models.{table}.fields.{column}) with the raw name as
+ * fallback.
+ */
+import { ssr } from "fse-ssr/ssr";
+import Layout from "../../layouts/Layout.astro";
+import type { ModelListPage } from "../../types";
+
+const { t, lang_prefix, meta, rows, page, total_pages, total, has_prev, has_next, prev_page, next_page, search, filters } =
+  ssr<ModelListPage>();
+const title = t.models[meta.table].title ?? meta.table;
+---
+
+<Layout title={title}>
+  <main>
+    <div class="mb-6 flex items-center justify-between gap-4">
+      <h1 class="section-title">{title}</h1>
+      {meta.can_write && !meta.no_create && (
+        <a class="btn-primary" href={`${lang_prefix}${meta.base_path}/create`}>
+          {t.model_ui.new ?? "New"}
+        </a>
+      )}
+    </div>
+
+    <div class="bg-white border border-secondary-200 rounded-xl overflow-hidden">
+      <form method="get" class="flex flex-wrap items-center gap-3 p-4 border-b border-secondary-200">
+        <input
+          type="search"
+          name="search"
+          value={search ?? ""}
+          placeholder={t.model_ui.search ?? "Search..."}
+          class="flex-1 min-w-40 px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
+        />
+        {meta.filter_columns.map((col) => (
+          <select
+            name={col.name}
+            class="px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white"
+          >
+            <option value="">{t.models[meta.table].fields[col.name] ?? col.name}</option>
+            {col.options && col.options.map((option) => (
+              <option value={option} selected={filters[col.name] === option}>
+                {t.models[meta.table].options[option] ?? option}
+              </option>
+            ))}
+          </select>
+        ))}
+        <button class="btn-secondary" type="submit">{t.model_ui.filter ?? "Filter"}</button>
+      </form>
+
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-secondary-500 border-b border-secondary-200">
+            {meta.list_columns.map((col) => (
+              <th class="px-4 py-3 font-medium">
+                <a href={`?sort=${col.name}&search=${search ?? ""}`}>
+                  {t.models[meta.table].fields[col.name] ?? col.name}
+                </a>
+              </th>
+            ))}
+            <th class="px-4 py-3"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr class="border-b border-secondary-100 last:border-b-0 hover:bg-secondary-50">
+              {meta.list_columns.map((col) => (
+                <td class="px-4 py-3">{row[col.name]}</td>
+              ))}
+              <td class="px-4 py-3 text-right whitespace-nowrap">
+                <a class="btn-ghost" href={`${lang_prefix}${meta.base_path}/${row.id}`}>
+                  {t.model_ui.edit ?? "Edit"}
+                </a>
+                {meta.can_write && !meta.no_delete && (
+                  <button
+                    type="button"
+                    class="btn-danger"
+                    data-fse-delete={`${lang_prefix}${meta.base_path}/${row.id}`}
+                    data-confirm={t.model_ui.confirm_delete ?? "Delete this entry?"}
+                  >
+                    {t.model_ui.delete ?? "Delete"}
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div class="flex items-center justify-between gap-4 p-4 border-t border-secondary-200 text-sm text-secondary-500">
+        <span>{total} {t.model_ui.entries ?? "entries"}</span>
+        <div class="flex items-center gap-2">
+          {has_prev && (
+            <a class="btn-ghost" href={`?page=${prev_page}&search=${search ?? ""}`}>
+              {t.model_ui.prev ?? "Previous"}
+            </a>
+          )}
+          <span>{page} / {total_pages}</span>
+          {has_next && (
+            <a class="btn-ghost" href={`?page=${next_page}&search=${search ?? ""}`}>
+              {t.model_ui.next ?? "Next"}
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-fse-delete]")) {
+      btn.addEventListener("click", async () => {
+        if (!confirm(btn.getAttribute("data-confirm") ?? "Delete?")) return;
+        const res = await fetch(btn.getAttribute("data-fse-delete") ?? "", { method: "DELETE" });
+        if (res.ok) location.reload();
+      });
+    }
+  </script>
+</Layout>

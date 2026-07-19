@@ -1,0 +1,29 @@
+---
+/**
+ * Generic public detail page for models with `public_read`: the row's title
+ * plus a definition list of its visible columns.
+ */
+import { ssr } from "fse-ssr/ssr";
+import Layout from "../../layouts/Layout.astro";
+import type { ModelDetailPage } from "../../types";
+
+const { t, lang_prefix, meta, row } = ssr<ModelDetailPage>();
+---
+
+<Layout title={row[meta.title_field] ?? meta.table}>
+  <main class="max-w-2xl">
+    <a class="btn-ghost mb-4" href={`${lang_prefix}/${meta.table}`}>{t.model_ui.back ?? "Back"}</a>
+    <h1 class="section-title mb-6">{row[meta.title_field]}</h1>
+
+    <dl class="bg-white border border-secondary-200 rounded-xl p-6 grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm">
+      {meta.list_columns.map((col) => (
+        <>
+          <dt class="font-medium text-secondary-500">
+            {t.models[meta.table].fields[col.name] ?? col.name}
+          </dt>
+          <dd>{row[col.name]}</dd>
+        </>
+      ))}
+    </dl>
+  </main>
+</Layout>

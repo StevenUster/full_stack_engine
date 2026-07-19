@@ -1,0 +1,16 @@
+---
+// Deliberate app override of a theme page: the built output must contain
+// this marker and the theme's public-detail must NOT be injected.
+import { ssr } from "fse-ssr/ssr";
+
+const { meta, row } = ssr<{
+  meta: { table: string; title_field: string };
+  row: Record<string, string>;
+}>();
+---
+
+<html lang="en">
+  <body>
+    <h1>APP-OVERRIDE-DETAIL {row[meta.title_field]}</h1>
+  </body>
+</html>

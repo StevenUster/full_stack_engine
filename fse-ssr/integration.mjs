@@ -11,8 +11,9 @@
  * It also generates a `Translations` declaration-merge file from the app's
  * locale JSON so `t.*` accesses are type-checked per app.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import _generate from "@babel/generator";
@@ -237,20 +238,109 @@ function generateTranslationTypes(rootUrl, localesPath, defaultLocale, logger) {
 }
 
 /**
- * @param {{ locales?: string, defaultLocale?: string }} [options]
+ * Locates the theme's source directory. A `theme` starting with "." or "/"
+ * is a local folder relative to the Astro project root; anything else is an
+ * installed package name, resolved from the project.
+ */
+function resolveThemeDir(theme, rootUrl) {
+  const root = fileURLToPath(rootUrl);
+  if (theme.startsWith(".") || theme.startsWith("/")) {
+    return resolve(root, theme);
+  }
+  const require = createRequire(join(root, "package.json"));
+  return dirname(require.resolve(`${theme}/package.json`));
+}
+
+/** All page files under `dir`, as root-relative paths ("_model/list.astro"). */
+function walkPages(dir, prefix = "") {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      out.push(...walkPages(join(dir, entry.name), rel));
+    } else if (/\.(astro|md|mdx|html)$/.test(entry.name)) {
+      out.push(rel);
+    }
+  }
+  return out;
+}
+
+/** "foo/index.astro" → "/foo", "_model/list.astro" → "/_model/list". */
+function routePattern(relPath) {
+  let route = relPath.replace(/\.[^.]+$/, "");
+  if (route === "index") return "/";
+  route = route.replace(/\/index$/, "");
+  return `/${route}`;
+}
+
+/**
+ * Layered pages: every theme page the app does not define itself is added
+ * to the build via `injectRoute`. Overriding a theme page = creating a file
+ * with the same path under `src/pages/`. Theme layouts/components are
+ * importable as `@theme/...`.
+ */
+function applyTheme(theme, config, injectRoute, updateConfig, logger) {
+  const themeDir = resolveThemeDir(theme, config.root);
+  const pagesDir = join(themeDir, "pages");
+  const appPagesDir = fileURLToPath(new URL("./pages", config.srcDir));
+
+  updateConfig({
+    vite: { resolve: { alias: { "@theme": themeDir } } },
+  });
+
+  if (!existsSync(pagesDir)) {
+    logger.warn(`Theme "${theme}" has no pages/ directory (${pagesDir}).`);
+    return;
+  }
+  for (const rel of walkPages(pagesDir)) {
+    const overridden = ["astro", "md", "mdx", "html"].some((ext) =>
+      existsSync(join(appPagesDir, rel.replace(/\.[^.]+$/, `.${ext}`))),
+    );
+    if (overridden) continue;
+    injectRoute({
+      pattern: routePattern(rel),
+      entrypoint: join(pagesDir, rel),
+    });
+  }
+}
+
+/**
+ * @param {{ locales?: string, defaultLocale?: string, theme?: string }} [options]
  *   `locales`: path to the locale directory, relative to the Astro project
  *   root (default "../../locales" — the starter layout).
+ *   `theme`: an installed theme package name (e.g. "fse-theme-default") or a
+ *   local folder ("./themes/custom"). The theme's `pages/` fill in every
+ *   route the app doesn't define; its files are importable as `@theme/...`.
  */
 export default function fseSsr(options = {}) {
-  const { locales = "../../locales", defaultLocale = "en" } = options;
+  const { locales = "../../locales", defaultLocale = "en", theme } = options;
   return {
     name: PKG_NAME,
     hooks: {
-      "astro:config:setup": ({ config, updateConfig, logger }) => {
+      "astro:config:setup": ({ config, updateConfig, injectRoute, logger }) => {
         generateTranslationTypes(config.root, locales, defaultLocale, logger);
         updateConfig({
-          vite: { plugins: [vitePlugin()] },
+          vite: {
+            plugins: [vitePlugin()],
+            resolve: {
+              // Pin this package's own entries to absolute paths so imports
+              // resolve from *anywhere* — theme/module sources typically live
+              // outside the app tree (symlinked packages, extracted module
+              // frontends) where node_modules lookup would fail.
+              alias: {
+                [`${PKG_NAME}/ssr`]: fileURLToPath(
+                  new URL("./dist/runtime.js", import.meta.url),
+                ),
+                [`${PKG_NAME}/client`]: fileURLToPath(
+                  new URL("./dist/client.js", import.meta.url),
+                ),
+              },
+            },
+          },
         });
+        if (theme) {
+          applyTheme(theme, config, injectRoute, updateConfig, logger);
+        }
       },
     },
   };

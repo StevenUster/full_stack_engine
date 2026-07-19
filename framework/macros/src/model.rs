@@ -1,23 +1,40 @@
-//! Expansion of `#[derive(Model)]`.
+//! Expansion of the `#[model(...)]` attribute macro.
 //!
 //! The struct is parsed into a [`fse_schema::TableDef`] (the exact code path
-//! the ORM derive and the fse CLI use), then the `#[model(...)]` /
-//! `#[ui(...)]` attributes are parsed and validated against it. The emitted
-//! code is only a registration: the `TableDef` as a JSON literal plus a
-//! const-constructed `UiModel`, submitted to the framework's `inventory`
-//! registry. All validation happens here, at compile time.
+//! the ORM derive and the fse CLI use), then the macro arguments and the
+//! field-level `#[ui(...)]` attributes are parsed and validated against it.
+//! The emitted code is: the struct itself with `#[derive(Table, Debug,
+//! Clone)]` attached (missing ones only, `#[ui]` stripped), the registration
+//! (`TableDef` as JSON + const-constructed `UiModel`), and a typed
+//! [`ModelResource`] implementation (see `resource.rs`) — all submitted to
+//! the framework's `inventory` registry. All validation happens here, at
+//! compile time.
 
-use fse_schema::{ColumnDef, SqlType, TableDef};
+use fse_schema::{ColumnDef, DefaultValue, SqlType, TableDef};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::spanned::Spanned;
 
-pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
+use crate::resource;
+
+pub fn expand(args: TokenStream, item: &syn::ItemStruct) -> syn::Result<TokenStream> {
     let table = fse_schema::parse::table_from_struct(item, None)
         .map_err(|e| syn::Error::new(item.ident.span(), e.to_string()))?;
+    if !table.auto_id() {
+        return Err(syn::Error::new(
+            item.ident.span(),
+            "#[model] currently requires the conventional `id: i64` primary key — \
+             custom and composite keys are planned",
+        ));
+    }
 
-    let opts = model_opts(item, &table)?;
-    let fields = ui_fields(item, &table)?;
+    let opts = model_opts(args, &table)?;
+    let cols = collect_cols(item, &table)?;
+    validate_form_coverage(item, &cols)?;
+    validate_public_read(item, &opts, &cols)?;
+
+    let emitted_struct = struct_with_derives(item);
+    let resource_impl = resource::emit(&item.ident, &table, &opts, &cols);
 
     let table_json = serde_json::to_string(&table).map_err(|e| {
         syn::Error::new(
@@ -33,8 +50,17 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
     let (api, disabled) = (opts.api, opts.disabled);
     let (no_create, no_edit, no_delete) = (opts.no_create, opts.no_edit, opts.no_delete);
 
+    let fields: Vec<TokenStream> = cols.iter().map(ui_field_tokens).collect();
     let n = fields.len();
+    let form_fields: Vec<&str> = cols
+        .iter()
+        .filter(|c| c.in_form)
+        .map(|c| c.def.name.as_str())
+        .collect();
+
     Ok(quote! {
+        #emitted_struct
+
         const _: () = {
             static __FSE_MODEL_UI_FIELDS: [::full_stack_engine::models::UiField; #n] =
                 [#(#fields),*];
@@ -50,36 +76,75 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
                     no_delete: #no_delete,
                     title_field: #title_field,
                     fields: &__FSE_MODEL_UI_FIELDS,
+                    form_fields: &[#(#form_fields),*],
                 };
+
+            #resource_impl
+
             ::full_stack_engine::inventory::submit! {
                 ::full_stack_engine::models::ModelRegistration {
                     table_json: #table_json,
                     ui: &__FSE_MODEL_UI,
+                    resource: &__FSE_MODEL_RESOURCE,
                 }
             }
         };
     })
 }
 
-#[derive(Default)]
-struct ModelOpts {
-    permission: Option<String>,
-    path: Option<String>,
-    public_read: Option<String>,
-    api: bool,
-    disabled: bool,
-    no_create: bool,
-    no_edit: bool,
-    no_delete: bool,
-    title_field: Option<String>,
+/// The struct as it will be emitted: `#[ui(...)]` attributes stripped (no
+/// derive declares them once we're done expanding) and the standard derives
+/// attached — `Table` for the ORM data layer, plus `Debug`/`Clone` for
+/// convenience — skipping any the dev already wrote.
+fn struct_with_derives(item: &syn::ItemStruct) -> TokenStream {
+    let mut item = item.clone();
+    for field in &mut item.fields {
+        field.attrs.retain(|a| !a.path().is_ident("ui"));
+    }
+
+    let mut derives: Vec<TokenStream> = Vec::new();
+    if !fse_schema::parse::has_derive(&item.attrs, "Table") {
+        derives.push(quote!(::full_stack_engine::prelude::Table));
+    }
+    if !fse_schema::parse::has_derive(&item.attrs, "Debug") {
+        derives.push(quote!(::core::fmt::Debug));
+    }
+    if !fse_schema::parse::has_derive(&item.attrs, "Clone") {
+        derives.push(quote!(::core::clone::Clone));
+    }
+
+    if derives.is_empty() {
+        quote!(#item)
+    } else {
+        quote! {
+            #[derive(#(#derives),*)]
+            #item
+        }
+    }
 }
 
-/// Parse and validate the struct-level `#[model(...)]` attributes.
-fn model_opts(item: &syn::ItemStruct, table: &TableDef) -> syn::Result<ModelOpts> {
-    let mut opts = ModelOpts::default();
+#[derive(Default)]
+pub(crate) struct ModelOpts {
+    pub(crate) permission: Option<String>,
+    pub(crate) path: Option<String>,
+    pub(crate) public_read: Option<String>,
+    pub(crate) api: bool,
+    pub(crate) disabled: bool,
+    pub(crate) no_create: bool,
+    pub(crate) no_edit: bool,
+    pub(crate) no_delete: bool,
+    pub(crate) title_field: Option<String>,
+}
 
-    for attr in item.attrs.iter().filter(|a| a.path().is_ident("model")) {
-        attr.parse_nested_meta(|meta| {
+/// Parse and validate the `#[model(...)]` arguments.
+fn model_opts(args: TokenStream, table: &TableDef) -> syn::Result<ModelOpts> {
+    let mut opts = ModelOpts::default();
+    if args.is_empty() {
+        return Ok(opts);
+    }
+
+    {
+        let parser = syn::meta::parser(|meta| {
             if meta.path.is_ident("permission") {
                 let lit: syn::LitStr = meta.value()?.parse()?;
                 if lit.value().is_empty() {
@@ -146,26 +211,44 @@ fn model_opts(item: &syn::ItemStruct, table: &TableDef) -> syn::Result<ModelOpts
                 ));
             }
             Ok(())
-        })?;
+        });
+        syn::parse::Parser::parse2(parser, args)?;
     }
 
     Ok(opts)
 }
 
 #[derive(Default)]
-struct FieldUi {
-    list: bool,
-    search: bool,
-    filter: bool,
-    textarea: bool,
-    readonly: bool,
-    hidden: Option<bool>,
+pub(crate) struct FieldUi {
+    pub(crate) list: bool,
+    pub(crate) search: bool,
+    pub(crate) filter: bool,
+    pub(crate) textarea: bool,
+    pub(crate) readonly: bool,
+    pub(crate) hidden: Option<bool>,
 }
 
-/// Parse and validate the field-level `#[ui(...)]` attributes and produce one
-/// `UiField` construction expression per database column (relations carry no
-/// generated UI yet and reject `#[ui]`).
-fn ui_fields(item: &syn::ItemStruct, table: &TableDef) -> syn::Result<Vec<TokenStream>> {
+/// Everything the emission passes know about one database column: its
+/// schema definition, the field's Rust type with `Option` stripped, and the
+/// resolved UI configuration.
+pub(crate) struct ColInfo<'a> {
+    pub(crate) def: &'a ColumnDef,
+    pub(crate) inner_ty: syn::Type,
+    pub(crate) orm_text: bool,
+    pub(crate) ui: FieldUi,
+    pub(crate) hidden: bool,
+    /// In the generated create/edit forms — and therefore bound by the
+    /// generated `create`/`update` code.
+    pub(crate) in_form: bool,
+}
+
+/// Parse and validate the field-level `#[ui(...)]` attributes into one
+/// [`ColInfo`] per database column (relations carry no generated UI yet and
+/// reject `#[ui]`).
+fn collect_cols<'a>(
+    item: &'a syn::ItemStruct,
+    table: &'a TableDef,
+) -> syn::Result<Vec<ColInfo<'a>>> {
     let syn::Fields::Named(struct_fields) = &item.fields else {
         unreachable!("table_from_struct already rejected non-named fields");
     };
@@ -191,49 +274,110 @@ fn ui_fields(item: &syn::ItemStruct, table: &TableDef) -> syn::Result<Vec<TokenS
     let mut out = Vec::new();
     for col in &table.columns {
         let field = field_by_name(&col.name);
-        let ui = field_ui(field, col)?;
-
-        let name = &col.name;
-        let (list, search, filter) = (ui.list, ui.search, ui.filter);
-        let readonly = ui.readonly;
+        let orm_text = has_orm_text_flag(field)?;
+        let ui = field_ui(field, col, orm_text)?;
         // json/blob columns have no sensible generated rendering, so they
         // default to hidden unless the dev explicitly opts them in.
-        let hidden = ui
-            .hidden
-            .unwrap_or(col.json || col.ty == SqlType::Blob);
-
-        let is_select = col.is_enum && !has_orm_text_flag(field)?;
-        let widget = widget_variant(col, ui.textarea, is_select);
-        let options = if is_select {
-            let inner = option_inner(&field.ty);
-            quote! {
-                ::core::option::Option::Some(|| {
-                    <#inner>::VARIANTS.iter().map(|v| v.as_str()).collect()
-                })
-            }
-        } else {
-            quote!(::core::option::Option::None)
-        };
-
-        out.push(quote! {
-            ::full_stack_engine::models::UiField {
-                name: #name,
-                list: #list,
-                search: #search,
-                filter: #filter,
-                readonly: #readonly,
-                hidden: #hidden,
-                widget: ::full_stack_engine::models::UiWidget::#widget,
-                options: #options,
-            }
+        let hidden = ui.hidden.unwrap_or(col.json || col.ty == SqlType::Blob);
+        let in_form = !col.primary_key
+            && !hidden
+            && !ui.readonly
+            && !col.json
+            && col.ty != SqlType::Blob
+            && col.default != Some(DefaultValue::Now);
+        out.push(ColInfo {
+            def: col,
+            inner_ty: option_inner(&field.ty).clone(),
+            orm_text,
+            ui,
+            hidden,
+            in_form,
         });
     }
     Ok(out)
 }
 
+/// Every NOT NULL column without a default must be fillable by the generated
+/// create form, or inserts could never succeed — catch it at compile time.
+fn validate_form_coverage(item: &syn::ItemStruct, cols: &[ColInfo]) -> syn::Result<()> {
+    for c in cols {
+        if !c.in_form && !c.def.primary_key && !c.def.nullable && c.def.default.is_none() {
+            return Err(syn::Error::new(
+                item.ident.span(),
+                format!(
+                    "column `{}` is NOT NULL without a default but excluded from generated \
+                     forms (hidden/readonly/json/blob) — add #[orm(default = ...)], make it \
+                     Option, or make it editable",
+                    c.def.name
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The `public_read` column must be usable as a URL key.
+fn validate_public_read(
+    item: &syn::ItemStruct,
+    opts: &ModelOpts,
+    cols: &[ColInfo],
+) -> syn::Result<()> {
+    let Some(name) = &opts.public_read else {
+        return Ok(());
+    };
+    let col = cols
+        .iter()
+        .find(|c| &c.def.name == name)
+        .expect("validated against the table in model_opts");
+    if col.def.json || col.orm_text || col.def.ty == SqlType::Blob {
+        return Err(syn::Error::new(
+            item.ident.span(),
+            format!(
+                "public_read column `{name}` cannot be used as a URL key — use a plain \
+                 unique column (text, number, uuid)"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// One `UiField` construction expression.
+fn ui_field_tokens(c: &ColInfo) -> TokenStream {
+    let name = &c.def.name;
+    let (list, search, filter) = (c.ui.list, c.ui.search, c.ui.filter);
+    let readonly = c.ui.readonly;
+    let hidden = c.hidden;
+
+    let is_select = c.def.is_enum && !c.orm_text;
+    let widget = widget_variant(c.def, c.ui.textarea, is_select);
+    let options = if is_select {
+        let inner = &c.inner_ty;
+        quote! {
+            ::core::option::Option::Some(|| {
+                <#inner>::VARIANTS.iter().map(|v| v.as_str()).collect()
+            })
+        }
+    } else {
+        quote!(::core::option::Option::None)
+    };
+
+    quote! {
+        ::full_stack_engine::models::UiField {
+            name: #name,
+            list: #list,
+            search: #search,
+            filter: #filter,
+            readonly: #readonly,
+            hidden: #hidden,
+            widget: ::full_stack_engine::models::UiWidget::#widget,
+            options: #options,
+        }
+    }
+}
+
 /// Parse one field's `#[ui(...)]` attributes and validate every flag against
 /// the column's type.
-fn field_ui(field: &syn::Field, col: &ColumnDef) -> syn::Result<FieldUi> {
+fn field_ui(field: &syn::Field, col: &ColumnDef, orm_text: bool) -> syn::Result<FieldUi> {
     let mut ui = FieldUi::default();
     let plain_text = col.ty == SqlType::Text && !col.is_enum && !col.json;
 
@@ -242,19 +386,19 @@ fn field_ui(field: &syn::Field, col: &ColumnDef) -> syn::Result<FieldUi> {
             if meta.path.is_ident("list") {
                 ui.list = true;
             } else if meta.path.is_ident("search") {
-                if !plain_text {
+                if !plain_text || col.rust_type != "String" {
                     return Err(meta.error("search needs a plain text column (String)"));
                 }
                 ui.search = true;
             } else if meta.path.is_ident("filter") {
-                if !col.is_enum && col.ty != SqlType::Boolean {
+                if !((col.is_enum && !orm_text) || col.ty == SqlType::Boolean) {
                     return Err(
                         meta.error("filter needs a DbEnum or bool column to enumerate")
                     );
                 }
                 ui.filter = true;
             } else if meta.path.is_ident("textarea") {
-                if !plain_text {
+                if !plain_text || col.rust_type != "String" {
                     return Err(meta.error("textarea needs a plain text column (String)"));
                 }
                 ui.textarea = true;
@@ -276,7 +420,7 @@ fn field_ui(field: &syn::Field, col: &ColumnDef) -> syn::Result<FieldUi> {
 
 /// Whether the field carries `#[orm(text)]` — stored as TEXT via
 /// `as_str()`/`FromStr` but *not* a `DbEnum`, so it has no `VARIANTS` to
-/// offer as select options.
+/// offer as select options and no `sqlx` binding for dynamic conditions.
 fn has_orm_text_flag(field: &syn::Field) -> syn::Result<bool> {
     for attr in field.attrs.iter().filter(|a| a.path().is_ident("orm")) {
         let metas = attr.parse_args_with(

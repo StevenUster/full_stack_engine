@@ -51,6 +51,9 @@ export type Ssr<T> = 0 extends 1 & T // `any` stays `any`
 export interface GlobalSsrContext {
   t: Translations;
   lang: string;
+  /** URL prefix links must carry to stay in this language ("/de" in path
+   *  mode on a non-default language, otherwise ""). */
+  lang_prefix: string;
   /** Every locale keyed by language code, for client-side use. */
   i18n: Record<string, unknown>;
   /** JWT claims when a valid token cookie is present. */

@@ -1,0 +1,54 @@
+---
+/**
+ * Generic public catalog page for models with `public_read` — a card grid
+ * linking each row to its public detail page by the public-read column.
+ */
+import { ssr } from "fse-ssr/ssr";
+import Layout from "../../layouts/Layout.astro";
+import type { ModelListPage } from "../../types";
+
+const { t, lang_prefix, meta, rows, page, total_pages, has_prev, has_next, prev_page, next_page, search } =
+  ssr<ModelListPage>();
+const title = t.models[meta.table].title ?? meta.table;
+---
+
+<Layout title={title}>
+  <main>
+    <h1 class="section-title mb-6">{title}</h1>
+
+    <form method="get" class="mb-6">
+      <input
+        type="search"
+        name="search"
+        value={search ?? ""}
+        placeholder={t.model_ui.search ?? "Search..."}
+        class="w-full max-w-md px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
+      />
+    </form>
+
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {rows.map((row) => (
+        <a
+          href={`${lang_prefix}/${meta.table}/${row[meta.public_read]}`}
+          class="block bg-white border border-secondary-200 rounded-xl p-5 hover:border-primary-400 transition-colors"
+        >
+          <h2 class="font-semibold text-secondary-900">{row[meta.title_field]}</h2>
+        </a>
+      ))}
+    </div>
+
+    <div class="mt-8 flex items-center justify-center gap-3 text-sm text-secondary-500">
+      {has_prev && (
+        <a class="btn-ghost" href={`?page=${prev_page}&search=${search ?? ""}`}>
+          {t.model_ui.prev ?? "Previous"}
+        </a>
+      )}
+      <span>{page} / {total_pages}</span>
+      {has_next && (
+        <a class="btn-ghost" href={`?page=${next_page}&search=${search ?? ""}`}>
+          {t.model_ui.next ?? "Next"}
+        </a>
+      )}
+    </div>
+  </main>
+</Layout>

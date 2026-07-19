@@ -1,0 +1,15 @@
+{
+  "name": "fse-ssr-theme-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "astro build"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "astro": "5.17.1",
+    "fse-ssr": "file:../..",
+    "fse-theme-default": "file:../../../fse-theme-default",
+    "tailwindcss": "^4.3.1"
+  }
+}

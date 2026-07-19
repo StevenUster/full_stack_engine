@@ -1,0 +1,44 @@
+---
+/**
+ * The theme's base page shell. Apps typically override this per project (or
+ * bring their own layout in overriding pages); the generic _model pages use
+ * it so a fresh app renders decently with zero frontend code.
+ */
+import "../styles/global.css";
+import { ssr } from "fse-ssr/ssr";
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+const { lang } = ssr();
+---
+
+<!doctype html>
+<html lang={lang ?? "en"}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="generator" content={Astro.generator} />
+    <title set:html={title} />
+    <!-- Filled by the server with the page's render context as JSON; read it
+         client-side via pageProps() from fse-ssr/client. -->
+    <script is:inline type="application/json" id="__fse-props__"></script>
+    <script is:inline>
+      // Apply the saved (or system) theme before first paint to avoid a flash.
+      (function () {
+        const saved = localStorage.getItem("theme");
+        const dark =
+          saved === "dark" ||
+          (!saved && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+      })();
+    </script>
+  </head>
+  <body class="bg-secondary-50 text-secondary-900">
+    <div class="min-h-screen w-full max-w-5xl mx-auto py-6 px-4 lg:py-10 lg:px-8">
+      <slot />
+    </div>
+  </body>
+</html>

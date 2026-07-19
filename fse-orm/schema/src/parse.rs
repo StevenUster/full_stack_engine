@@ -51,7 +51,7 @@ pub fn parse_sources(sources: &[(String, String)]) -> Result<Schema, Error> {
     for (name, file) in &files {
         for item in &file.items {
             if let syn::Item::Struct(s) = item
-                && has_derive(&s.attrs, "Table")
+                && (has_derive(&s.attrs, "Table") || has_model_attr(&s.attrs))
             {
                 let table = table_from_struct(s, Some(&enums))
                     .map_err(|e| Error::new(format!("{name}: {e}")))?;
@@ -608,6 +608,20 @@ fn last_segment(ty: &syn::Type) -> Option<&syn::PathSegment> {
 
 fn last_segment_ident(ty: &syn::Type) -> Option<String> {
     last_segment(ty).map(|s| s.ident.to_string())
+}
+
+/// Does the item carry the framework's `#[model(...)]` attribute macro? Such
+/// a struct expands to `#[derive(Table)]` plus app metadata, so the schema
+/// layer treats it exactly like a hand-derived table. (The framework crates
+/// are not a dependency here — this is a purely syntactic check, in the same
+/// spirit as [`has_derive`].)
+pub fn has_model_attr(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|a| {
+        a.path()
+            .segments
+            .last()
+            .is_some_and(|s| s.ident == "model")
+    })
 }
 
 /// Does `#[derive(...)]` on this item mention `name` (by last path segment,

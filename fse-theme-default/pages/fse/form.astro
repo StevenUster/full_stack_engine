@@ -1,0 +1,146 @@
+---
+/**
+ * Generic create/edit form — one page serves both (the server passes
+ * `is_new`). Widgets come from the column metadata; validation errors are
+ * re-rendered per field with codes translated through the app's locales.
+ */
+import { ssr } from "fse-ssr/ssr";
+import Layout from "../../layouts/Layout.astro";
+import type { ModelFormPage } from "../../types";
+
+const { t, lang_prefix, meta, row, errors, is_new } = ssr<ModelFormPage>();
+const title = t.models[meta.table].title ?? meta.table;
+---
+
+<Layout title={title}>
+  <main class="max-w-2xl">
+    <div class="mb-6 flex items-center justify-between gap-4">
+      <h1 class="section-title">{title}</h1>
+      <a class="btn-ghost" href={`${lang_prefix}${meta.base_path}`}>{t.model_ui.back ?? "Back"}</a>
+    </div>
+
+    <form
+      method="post"
+      action={is_new ? `${lang_prefix}${meta.base_path}/create` : `${lang_prefix}${meta.base_path}/${row.id}`}
+      class="bg-white border border-secondary-200 rounded-xl p-6 flex flex-col gap-5"
+    >
+      {meta.form_columns.map((col) => (
+        <div>
+          <label for={col.name} class="block text-sm font-medium mb-1.5">
+            {t.models[meta.table].fields[col.name] ?? col.name}
+          </label>
+
+          {col.widget === "textarea" && (
+            <textarea
+              id={col.name}
+              name={col.name}
+              rows="5"
+              required={col.required}
+              readonly={col.readonly}
+              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
+            >{row[col.name] ?? ""}</textarea>
+          )}
+          {col.widget === "json" && (
+            <textarea
+              id={col.name}
+              name={col.name}
+              rows="5"
+              class="w-full px-3 py-2 text-sm font-mono border border-secondary-200 rounded-lg bg-white"
+            >{row[col.name] ?? ""}</textarea>
+          )}
+          {col.widget === "select" && (
+            <select
+              id={col.name}
+              name={col.name}
+              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white"
+            >
+              {col.options && col.options.map((option) => (
+                <option value={option} selected={row[col.name] === option}>
+                  {t.models[meta.table].options[option] ?? option}
+                </option>
+              ))}
+            </select>
+          )}
+          {col.widget === "checkbox" && (
+            <input
+              id={col.name}
+              type="checkbox"
+              name={col.name}
+              value="true"
+              checked={row[col.name]}
+              class="h-4 w-4 rounded border-secondary-300 accent-primary-600"
+            />
+          )}
+          {col.widget === "number" && (
+            <input
+              id={col.name}
+              type="number"
+              step="any"
+              name={col.name}
+              value={row[col.name] ?? ""}
+              required={col.required}
+              readonly={col.readonly}
+              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
+            />
+          )}
+          {col.widget === "datetime" && (
+            <input
+              id={col.name}
+              type="datetime-local"
+              name={col.name}
+              value={row[col.name] ?? ""}
+              required={col.required}
+              readonly={col.readonly}
+              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white"
+            />
+          )}
+          {col.widget === "text" && (
+            <input
+              id={col.name}
+              type="text"
+              name={col.name}
+              value={row[col.name] ?? ""}
+              required={col.required}
+              readonly={col.readonly}
+              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
+            />
+          )}
+
+          {errors.map((error) => error.field === col.name && (
+            <p class="mt-1.5 text-sm text-red-600">
+              {t.form_errors[error.code] ?? error.code}
+            </p>
+          ))}
+        </div>
+      ))}
+
+      <div class="flex items-center gap-3 pt-2">
+        <button type="submit" class="btn-primary">
+          {t.model_ui.save ?? "Save"}
+        </button>
+        <a class="btn-secondary" href={`${lang_prefix}${meta.base_path}`}>{t.model_ui.cancel ?? "Cancel"}</a>
+        {!is_new && !meta.no_delete && (
+          <button
+            type="button"
+            class="btn-danger ml-auto"
+            data-fse-delete={`${lang_prefix}${meta.base_path}/${row.id}`}
+            data-back={`${lang_prefix}${meta.base_path}`}
+            data-confirm={t.model_ui.confirm_delete ?? "Delete this entry?"}
+          >
+            {t.model_ui.delete ?? "Delete"}
+          </button>
+        )}
+      </div>
+    </form>
+  </main>
+
+  <script>
+    for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-fse-delete]")) {
+      btn.addEventListener("click", async () => {
+        if (!confirm(btn.getAttribute("data-confirm") ?? "Delete?")) return;
+        const res = await fetch(btn.getAttribute("data-fse-delete") ?? "", { method: "DELETE" });
+        if (res.ok) location.href = btn.getAttribute("data-back") ?? "/";
+      });
+    }
+  </script>
+</Layout>

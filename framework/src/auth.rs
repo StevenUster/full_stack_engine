@@ -255,6 +255,8 @@ mod tests {
             smtp_from: String::new(),
             email_verification_enabled: false,
             context_injector: None,
+            locales: std::collections::HashMap::new(),
+            locale_selector: crate::i18n::LocaleSelector::default(),
         })
     }
 

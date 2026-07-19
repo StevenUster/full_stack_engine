@@ -4,7 +4,7 @@ use actix_governor::Governor;
 use actix_web::{
     App, HttpMessage, HttpResponse, HttpServer,
     body::MessageBody,
-    dev::ServiceResponse,
+    dev::{Service as _, ServiceResponse},
     http::StatusCode,
     middleware::{DefaultHeaders, ErrorHandlerResponse, ErrorHandlers, NormalizePath},
     web,
@@ -54,6 +54,67 @@ pub struct AppData {
     pub smtp_from: String,
     pub email_verification_enabled: bool,
     pub context_injector: Option<std::sync::Arc<ContextInjectorFn>>,
+    /// Every language the app serves, already resolved: framework base
+    /// translations < app files, and each non-default language deep-merged
+    /// over the default (see [`i18n::build_locales`]/[`i18n::resolve_locales`]).
+    pub locales: std::collections::HashMap<String, serde_json::Value>,
+    /// How a request's language is decided (see [`FrameworkApp::locales`]).
+    pub locale_selector: i18n::LocaleSelector,
+}
+
+impl AppData {
+    /// The language resolved for this request (set by the framework's locale
+    /// middleware), falling back to the selector's default.
+    #[must_use]
+    pub fn request_lang(&self, req: &actix_web::HttpRequest) -> String {
+        req.extensions()
+            .get::<i18n::RequestLang>()
+            .map_or_else(|| self.locale_selector.default_lang().to_string(), |l| l.0.clone())
+    }
+
+    /// The URL prefix links must carry to stay in the request's language:
+    /// `"/de"` in `Path` mode on a non-default language, otherwise `""`.
+    #[must_use]
+    pub fn lang_prefix(&self, req: &actix_web::HttpRequest) -> String {
+        if let i18n::LocaleSelector::Path { default } = &self.locale_selector {
+            let lang = self.request_lang(req);
+            if lang != *default {
+                return format!("/{lang}");
+            }
+        }
+        String::new()
+    }
+
+    /// One language's full translation tree (already fallback-resolved).
+    /// Unknown languages get the default language's tree.
+    #[must_use]
+    pub fn locale(&self, lang: &str) -> serde_json::Value {
+        self.locales
+            .get(lang)
+            .or_else(|| self.locales.get(self.locale_selector.default_lang()))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}))
+    }
+
+    /// Inserts `t`, `lang`, `lang_prefix` and `i18n` for the request's
+    /// resolved language — runs automatically before every `render_tpl`.
+    pub fn inject_request_locale(
+        &self,
+        req: &actix_web::HttpRequest,
+        value: &mut serde_json::Value,
+    ) {
+        let Some(obj) = value.as_object_mut() else {
+            return;
+        };
+        let lang = self.request_lang(req);
+        obj.insert("t".to_string(), self.locale(&lang));
+        obj.insert("lang_prefix".to_string(), serde_json::json!(self.lang_prefix(req)));
+        obj.insert("lang".to_string(), serde_json::json!(lang));
+        obj.insert(
+            "i18n".to_string(),
+            serde_json::json!(self.locales.clone()),
+        );
+    }
 }
 
 pub trait RenderTplExt {
@@ -76,6 +137,9 @@ impl RenderTplExt for actix_web::HttpRequest {
             .clone();
         let mut value = serde_json::to_value(context).unwrap_or_else(|_| serde_json::json!({}));
 
+        // Locale context first, app injector second — an app that wants to
+        // override `t`/`lang` for a request simply wins.
+        app_data.inject_request_locale(self, &mut value);
         if let Some(injector) = &app_data.context_injector {
             injector(self, &mut value);
         }
@@ -114,7 +178,7 @@ impl AppData {
             let path = if template_name == "index" {
                 String::new()
             } else {
-                template_name.replace('_', "/")
+                template_name.to_string()
             };
             let url = format!("http://localhost:4321/{path}");
 
@@ -178,8 +242,10 @@ impl AppData {
                 }
             };
 
-            let template_name = template_name.replace('_', "/");
-            match self.tera.render(&template_name, &context) {
+            // Names are used verbatim: template names can legitimately
+            // contain underscores (e.g. a `sort_items` table's pages, the
+            // generic `_model/*` templates).
+            match self.tera.render(template_name, &context) {
                 Ok(html) => HttpResponse::Ok()
                     .content_type("text/html")
                     .body(inject_page_props(html, &value)),
@@ -204,8 +270,7 @@ impl AppData {
         context_data: &T,
     ) -> Result<String, String> {
         if self.env == Env::Dev {
-            let path = template_name.replace('_', "/");
-            let url = format!("http://localhost:4321/{path}");
+            let url = format!("http://localhost:4321/{template_name}");
 
             let astro_html = reqwest::get(&url)
                 .await
@@ -230,9 +295,8 @@ impl AppData {
             let context = Context::from_serialize(context_data)
                 .map_err(|e| format!("Context serialization error: {e}"))?;
 
-            let template_name = template_name.replace('_', "/");
             self.tera
-                .render(&template_name, &context)
+                .render(template_name, &context)
                 .map_err(|e| format!("Email template rendering error ({template_name}): {e}"))
         }
     }
@@ -277,14 +341,21 @@ type StartupFn = Box<
     >,
 >;
 
+/// The generated-CRUD mounter installed by [`FrameworkApp::models`] —
+/// shared (`Arc`) because every worker's `App` applies it.
+type ModelRoutesFn = std::sync::Arc<dyn Fn(&mut web::ServiceConfig) + Send + Sync>;
+
 pub struct FrameworkApp {
     dist_dir: &'static Dir<'static>,
     configure_fn: Option<ConfigureFn>,
+    model_routes: Option<ModelRoutesFn>,
     cronjobs_fn: Option<CronjobsFn>,
     startup_fn: Option<StartupFn>,
     context_injector: Option<std::sync::Arc<ContextInjectorFn>>,
     migrator: Option<sqlx::migrate::Migrator>,
     rate_limit_exempt_prefixes: Vec<String>,
+    locales_dir: Option<&'static Dir<'static>>,
+    locale_selector: i18n::LocaleSelector,
 }
 
 impl FrameworkApp {
@@ -293,12 +364,65 @@ impl FrameworkApp {
         Self {
             dist_dir,
             configure_fn: None,
+            model_routes: None,
             cronjobs_fn: None,
             startup_fn: None,
             context_injector: None,
             migrator: None,
             rate_limit_exempt_prefixes: Vec::new(),
+            locales_dir: None,
+            locale_selector: i18n::LocaleSelector::default(),
         }
+    }
+
+    /// The app's locale files and the one language-switching strategy in
+    /// effect. Every rendered template automatically receives `t` (the
+    /// request's language, framework base translations < app files, missing
+    /// keys falling back to the default language), `lang`, `lang_prefix`
+    /// and `i18n`.
+    ///
+    /// ```ignore
+    /// static LOCALES: Dir = include_dir!("$CARGO_MANIFEST_DIR/locales");
+    ///
+    /// // one fixed language:
+    /// .locales(&LOCALES, LocaleSelector::Hardcoded("en".into()))
+    /// // by domain:
+    /// .locales(&LOCALES, LocaleSelector::Domain {
+    ///     map: vec![("example.de".into(), "de".into())],
+    ///     default: "en".into(),
+    /// })
+    /// // by path prefix (default language unprefixed, /de/... for German):
+    /// .locales(&LOCALES, LocaleSelector::Path { default: "en".into() })
+    /// ```
+    #[must_use]
+    pub fn locales(
+        mut self,
+        dir: &'static Dir<'static>,
+        selector: i18n::LocaleSelector,
+    ) -> Self {
+        self.locales_dir = Some(dir);
+        self.locale_selector = selector;
+        self
+    }
+
+    /// Mounts generated CRUD routes for every `#[model]` struct linked into
+    /// the binary (including ones from module crates). `R` is the app's role
+    /// enum from `define_roles!` — generated endpoints check the model's
+    /// conventional `<base>.read`/`<base>.write` permissions against it.
+    ///
+    /// Generated routes register *after* [`FrameworkApp::configure`] routes,
+    /// so a same-path route in the app simply overrides the generated one.
+    ///
+    /// ```ignore
+    /// FrameworkApp::new(&DIST_DIR)
+    ///     .configure(services::configure)
+    ///     .models::<AppRole>()
+    ///     .run().await
+    /// ```
+    #[must_use]
+    pub fn models<R: structs::Role>(mut self) -> Self {
+        self.model_routes = Some(std::sync::Arc::new(models::mount_all::<R>));
+        self
     }
 
     /// Path prefixes exempt from the site-wide rate limiter (see
@@ -400,6 +524,9 @@ impl FrameworkApp {
     /// migrations, the [`FrameworkApp::on_startup`] hook, or the cron
     /// scheduler fail to initialize — failing loudly at boot instead of
     /// running half-configured.
+    // The boot sequence reads top-to-bottom on purpose; splitting it into
+    // helpers would only scatter the order things happen in.
+    #[allow(clippy::too_many_lines)]
     pub async fn run(mut self) -> std::io::Result<()> {
         env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
         load_env_file();
@@ -437,7 +564,15 @@ impl FrameworkApp {
 
         let dist_dir = self.dist_dir;
         let configure_fn = self.configure_fn.map(std::sync::Arc::new);
+        let model_routes = self.model_routes.clone();
         let context_injector = self.context_injector.clone();
+
+        let locale_selector = self.locale_selector.clone();
+        let locales = i18n::resolve_locales(
+            i18n::build_locales(self.locales_dir),
+            locale_selector.default_lang(),
+        );
+        let known_langs: Vec<String> = locales.keys().cloned().collect();
 
         // Built once and shared across all workers (the config holds an Arc to
         // the token buckets), so the site-wide per-IP limit is enforced for the
@@ -447,6 +582,8 @@ impl FrameworkApp {
             rate_limiter::global_rate_limiter(&self.rate_limit_exempt_prefixes);
 
         HttpServer::new(move || {
+            let request_selector = locale_selector.clone();
+            let request_known_langs = known_langs.clone();
             let mut app = App::new()
                 .app_data(web::Data::new(AppData {
                     tera: tera.clone(),
@@ -460,7 +597,19 @@ impl FrameworkApp {
                         .unwrap_or_else(|_| "false".to_string())
                         == "true",
                     context_injector: context_injector.clone(),
+                    locales: locales.clone(),
+                    locale_selector: locale_selector.clone(),
                 }))
+                // Resolve the request language (and in Path mode strip a
+                // /{lang} prefix) before any routing happens.
+                .wrap_fn(move |mut req, srv| {
+                    i18n::apply_request_locale(
+                        &request_selector,
+                        &request_known_langs,
+                        &mut req,
+                    );
+                    srv.call(req)
+                })
                 .wrap(NormalizePath::trim())
                 .wrap(
                     ErrorHandlers::new()
@@ -478,6 +627,14 @@ impl FrameworkApp {
             if let Some(ref configure_fn) = configure_fn {
                 let cf = configure_fn.clone();
                 app = app.configure(move |cfg| (cf)(cfg));
+            }
+
+            // Generated model CRUD (see `FrameworkApp::models`). Mounted
+            // after the app's own routes, so on a path conflict the
+            // hand-written route wins — that's the override mechanism.
+            if let Some(ref model_routes) = model_routes {
+                let mr = model_routes.clone();
+                app = app.configure(move |cfg| (mr)(cfg));
             }
 
             // Public uploaded files (see `uploads::save_upload`, which returns

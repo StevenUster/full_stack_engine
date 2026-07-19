@@ -464,3 +464,22 @@ fn table_naming_convention() {
     let schema = schema_of(&[("person.rs", src)]);
     assert_eq!(schema.tables[0].name, "people");
 }
+
+#[test]
+fn model_attribute_marks_a_table() {
+    // The framework's `#[model(...)]` attribute macro expands to
+    // `#[derive(Table)]`, so the schema layer must pick such structs up from
+    // source exactly like hand-derived tables.
+    let src = r#"
+#[model(permission = "content", api)]
+pub struct Article {
+    pub id: i64,
+    #[orm(unique)]
+    #[ui(list)]
+    pub slug: String,
+}
+"#;
+    let schema = schema_of(&[("article.rs", src)]);
+    assert_eq!(schema.tables[0].name, "articles");
+    assert!(schema.tables[0].column("slug").unwrap().unique);
+}

@@ -1,0 +1,25 @@
+{
+  "model_ui": {
+    "new": "Neu",
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "back": "Zurück",
+    "search": "Suchen...",
+    "filter": "Filtern",
+    "prev": "Zurück",
+    "next": "Weiter",
+    "entries": "Einträge",
+    "confirm_delete": "Diesen Eintrag löschen?"
+  },
+  "form_errors": {
+    "required": "Dieses Feld ist erforderlich.",
+    "invalid_number": "Bitte eine gültige Zahl eingeben.",
+    "invalid_option": "Bitte eine gültige Option wählen.",
+    "invalid_value": "Bitte einen gültigen Wert eingeben.",
+    "invalid_datetime": "Bitte gültiges Datum und Uhrzeit eingeben.",
+    "not_unique": "Dieser Wert ist bereits vergeben.",
+    "not_supported": "Dieses Formular hat keine bearbeitbaren Felder."
+  }
+}
