@@ -478,7 +478,7 @@ impl FrameworkApp {
             // checkout/container without any uploads yet doesn't log an
             // `actix_files` error on every worker at boot.
             let _ = std::fs::create_dir_all("./uploads");
-            app.service(actix_files::Files::new("/uploads", "./uploads"))
+            app.service(uploads_service())
                 .service(web::scope("/_astro").route(
                     "/{path:.*}",
                     web::get().to(move |req: actix_web::HttpRequest| async move {
@@ -683,6 +683,21 @@ fn security_headers(env: Env) -> DefaultHeaders {
              form-action 'self';",
         ))
     }
+}
+
+/// The `/uploads` static mount. Every response carries a `sandbox` CSP: the
+/// site-wide policy allows `'unsafe-inline'` scripts (Astro needs it), so an
+/// uploaded document that can carry script (SVG, HTML — extensions an app may
+/// legitimately allow in `save_upload`) must never execute in the site's
+/// origin when opened directly — that would be stored XSS. `sandbox` applies
+/// when the file is the navigated document; embedded uses (`<img src=...>`)
+/// are unaffected, since a subresource has no script context of its own.
+#[doc(hidden)]
+#[must_use]
+pub fn uploads_service() -> impl actix_web::dev::HttpServiceFactory {
+    web::scope("/uploads")
+        .wrap(DefaultHeaders::new().add(("Content-Security-Policy", "sandbox")))
+        .service(actix_files::Files::new("", "./uploads"))
 }
 
 fn template_name(path: &str) -> String {

@@ -81,11 +81,18 @@ impl From<&str> for DefaultRole {
 pub struct User<R: Role> {
     pub id: i64,
     pub email: String,
+    /// Argon2 hash. Never serialized: a `User` dropped into a template
+    /// context or JSON response must not leak credential material (template
+    /// contexts are additionally embedded verbatim into the page as
+    /// `__fse-props__` JSON).
+    #[serde(skip_serializing, default)]
     pub password: String,
     pub role: R,
     pub created_at: NaiveDateTime,
     #[serde(default = "default_true")]
     pub is_verified: bool,
+    /// Single-use secret; never serialized, same reasoning as `password`.
+    #[serde(skip_serializing, default)]
     pub verification_token: Option<String>,
 }
 
@@ -114,4 +121,37 @@ pub struct Table<T: Serialize> {
     pub rows: Vec<T>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<TableAction>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_never_serializes_credential_material() {
+        let user = User::<DefaultRole> {
+            id: 1,
+            email: "a@b.c".to_string(),
+            password: "$argon2id$secret-hash".to_string(),
+            role: DefaultRole::User,
+            created_at: chrono::DateTime::from_timestamp(0, 0).unwrap().naive_utc(),
+            is_verified: true,
+            verification_token: Some("secret-token".to_string()),
+        };
+
+        // A `User` placed into a template context ends up embedded in the
+        // page (page-props JSON), so the hash and single-use tokens must
+        // never survive serialization.
+        let json = serde_json::to_value(&user).unwrap();
+        assert!(
+            json.get("password").is_none(),
+            "password hash must not serialize"
+        );
+        assert!(
+            json.get("verification_token").is_none(),
+            "verification token must not serialize"
+        );
+        assert_eq!(json["email"], "a@b.c");
+        assert_eq!(json["id"], 1);
+    }
 }
