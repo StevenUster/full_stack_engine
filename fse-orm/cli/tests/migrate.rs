@@ -35,7 +35,10 @@ fn write_tables(root: &Path, tables: &[(&str, &str)]) {
 
 fn migration_files(root: &Path) -> Vec<String> {
     let mut names: Vec<String> = fs::read_dir(root.join("migrations"))
-        .map(|it| it.map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect())
+        .map(|it| {
+            it.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
         .unwrap_or_default();
     names.sort();
     names
@@ -45,10 +48,11 @@ async fn table_columns(opts: &MigrateOpts, table: &str) -> Vec<String> {
     let pool = sqlx::SqlitePool::connect(opts.database_url.as_deref().unwrap())
         .await
         .unwrap();
-    let rows: Vec<(String,)> = sqlx::query_as(&format!("SELECT name FROM pragma_table_info('{table}')"))
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+    let rows: Vec<(String,)> =
+        sqlx::query_as(&format!("SELECT name FROM pragma_table_info('{table}')"))
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     pool.close().await;
     rows.into_iter().map(|r| r.0).collect()
 }
@@ -77,7 +81,13 @@ async fn generates_applies_and_stays_idempotent() {
     // First run: creates the table.
     let out = run(&root, &opts).await.unwrap();
     let generated = out.generated.expect("migration generated");
-    assert!(generated.file_name().unwrap().to_string_lossy().ends_with("_create_events.sql"));
+    assert!(
+        generated
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .ends_with("_create_events.sql")
+    );
     assert!(root.join(".fse/schema.json").exists());
     assert_eq!(table_columns(&opts, "events").await, ["id", "name"]);
 
@@ -90,9 +100,15 @@ async fn generates_applies_and_stays_idempotent() {
     write_tables(&root, &[("event.rs", EVENT_WITH_LOCATION)]);
     let out = run(&root, &opts).await.unwrap();
     let sql = fs::read_to_string(out.generated.unwrap()).unwrap();
-    assert_eq!(sql, "ALTER TABLE events ADD COLUMN location TEXT;\n");
+    assert_eq!(
+        sql,
+        "ALTER TABLE \"events\" ADD COLUMN \"location\" TEXT;\n"
+    );
     assert_eq!(migration_files(&root).len(), 2);
-    assert_eq!(table_columns(&opts, "events").await, ["id", "name", "location"]);
+    assert_eq!(
+        table_columns(&opts, "events").await,
+        ["id", "name", "location"]
+    );
 }
 
 #[tokio::test]
@@ -101,9 +117,11 @@ async fn manual_edit_flow_applies_only_after_rerun() {
     run(&root, &opts).await.unwrap();
 
     // A new NOT NULL column without default needs a hand-written backfill.
-    write_tables(&root, &[(
-        "event.rs",
-        "
+    write_tables(
+        &root,
+        &[(
+            "event.rs",
+            "
 #[derive(Table)]
 pub struct Event {
     pub id: i64,
@@ -111,7 +129,8 @@ pub struct Event {
     pub slug: String,
 }
 ",
-    )]);
+        )],
+    );
     let out = run(&root, &opts).await.unwrap();
     assert!(out.needs_manual_edit);
     let file = out.generated.unwrap();
@@ -121,7 +140,11 @@ pub struct Event {
     assert_eq!(table_columns(&opts, "events").await, ["id", "name"]);
 
     // Edit the TODO the way a user would, then rerun: applied, no new file.
-    fs::write(&file, sql.replace("NULL /* TODO: backfill NOT NULL column slug */", "name")).unwrap();
+    fs::write(
+        &file,
+        sql.replace("NULL /* TODO: backfill NOT NULL column slug */", "name"),
+    )
+    .unwrap();
     let out = run(&root, &opts).await.unwrap();
     assert!(out.generated.is_none());
     assert_eq!(table_columns(&opts, "events").await, ["id", "name", "slug"]);
@@ -141,18 +164,136 @@ async fn required_columns_contract_is_enforced() {
     assert!(err.message.contains("`users` table"), "got: {err}");
 
     // Users table present but missing a required column.
-    write_tables(&root, &[(
-        "user.rs",
-        "
+    write_tables(
+        &root,
+        &[(
+            "user.rs",
+            "
 #[derive(Table)]
 pub struct User {
     pub id: i64,
     pub email: String,
 }
 ",
-    )]);
+        )],
+    );
     let err = run(&root, &opts).await.unwrap_err();
     assert!(err.message.contains("`password`"), "got: {err}");
+}
+
+#[tokio::test]
+async fn table_rebuild_preserves_child_rows_behind_cascade_fk() {
+    const PRODUCT_CASCADE: &str = "
+#[derive(Table)]
+pub struct Product {
+    pub id: i64,
+    pub name: String,
+    #[orm(references(Event, on_delete = cascade))]
+    pub event_id: i64,
+}
+";
+    const EVENT_UNIQUE_NAME: &str = "
+#[derive(Table)]
+pub struct Event {
+    pub id: i64,
+    #[orm(unique)]
+    pub name: String,
+}
+";
+
+    let (root, opts) = project(&[("event.rs", EVENT), ("product.rs", PRODUCT_CASCADE)]);
+    run(&root, &opts).await.unwrap();
+
+    // Insert a parent and a child the way the app would (FK enforcement on —
+    // the sqlx default).
+    let pool = sqlx::SqlitePool::connect(opts.database_url.as_deref().unwrap())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO events (name) VALUES ('fair')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO products (name, event_id) VALUES ('mug', 1)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+
+    // Adding UNIQUE to an existing column cannot be expressed with ALTER
+    // TABLE, so events is rebuilt (create new shape, copy rows, DROP the old
+    // table, rename). That DROP must not fire products' ON DELETE CASCADE.
+    write_tables(&root, &[("event.rs", EVENT_UNIQUE_NAME)]);
+    run(&root, &opts).await.unwrap();
+
+    let pool = sqlx::SqlitePool::connect(opts.database_url.as_deref().unwrap())
+        .await
+        .unwrap();
+    let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let products: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    assert_eq!(events, 1);
+    assert_eq!(
+        products, 1,
+        "rebuilding a parent table must not cascade-delete child rows"
+    );
+}
+
+#[tokio::test]
+async fn table_rebuild_succeeds_behind_restrict_fk() {
+    const PRODUCT_RESTRICT: &str = "
+#[derive(Table)]
+pub struct Product {
+    pub id: i64,
+    pub name: String,
+    #[orm(references(Event, on_delete = restrict))]
+    pub event_id: i64,
+}
+";
+    const EVENT_UNIQUE_NAME: &str = "
+#[derive(Table)]
+pub struct Event {
+    pub id: i64,
+    #[orm(unique)]
+    pub name: String,
+}
+";
+
+    let (root, opts) = project(&[("event.rs", EVENT), ("product.rs", PRODUCT_RESTRICT)]);
+    run(&root, &opts).await.unwrap();
+
+    let pool = sqlx::SqlitePool::connect(opts.database_url.as_deref().unwrap())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO events (name) VALUES ('fair')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO products (name, event_id) VALUES ('mug', 1)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+
+    // With ON DELETE RESTRICT the rebuild's DROP TABLE must not fail the
+    // migration: FK enforcement is off while migrations run.
+    write_tables(&root, &[("event.rs", EVENT_UNIQUE_NAME)]);
+    run(&root, &opts).await.unwrap();
+
+    let pool = sqlx::SqlitePool::connect(opts.database_url.as_deref().unwrap())
+        .await
+        .unwrap();
+    let products: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    assert_eq!(products, 1);
 }
 
 #[tokio::test]

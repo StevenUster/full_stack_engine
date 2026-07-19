@@ -97,7 +97,10 @@ fn parse_order_items(input: ParseStream) -> syn::Result<Vec<OrderItem>> {
             let parens;
             syn::parenthesized!(parens in input);
             if !parens.is_empty() {
-                return Err(syn::Error::new(direction.span(), "asc()/desc() take no arguments"));
+                return Err(syn::Error::new(
+                    direction.span(),
+                    "asc()/desc() take no arguments",
+                ));
             }
             descending = match direction.to_string().as_str() {
                 "asc" => false,
@@ -144,6 +147,7 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
 
     let includes = relation::resolve(&table, &input.include)?;
     let table_name = &table.name;
+    let quoted_table = fse_schema::sql::quote_ident(table_name);
 
     // A join makes a bare column name ambiguous between the primary table and
     // a joined one, so once anything is joined in, the primary table's own
@@ -152,7 +156,11 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
     // string generated below is byte-identical to before `include:` existed
     // — the overwhelming majority of call sites never churn the offline
     // query cache from this feature.
-    let qualifier: Option<&str> = if includes.is_empty() { None } else { Some(table_name.as_str()) };
+    let qualifier: Option<&str> = if includes.is_empty() {
+        None
+    } else {
+        Some(table_name.as_str())
+    };
 
     let filter = filter::compile(&input.filter, &table, qualifier)?;
     let where_clause = if filter.sql.is_empty() {
@@ -170,8 +178,10 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
         Some(q) => codegen::select_list_qualified(&table.columns, q),
         None => codegen::select_list(&table.columns),
     };
-    let joins: String =
-        includes.iter().map(|inc| format!(" {}", relation::join_clause(table_name, inc))).collect();
+    let joins: String = includes
+        .iter()
+        .map(|inc| format!(" {}", relation::join_clause(table_name, inc)))
+        .collect();
     let select_list = {
         let mut items = vec![own_select];
         items.extend(includes.iter().flat_map(relation::select_items));
@@ -186,20 +196,21 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
     let relation_fields: Vec<TokenStream> = table
         .relations
         .iter()
-        .map(|r| match includes.iter().find(|inc| inc.relation.field == r.field) {
-            Some(inc) => {
-                let id = format_ident!("{}", r.field);
-                let call = relation::call_expr(table_ident, inc);
-                quote! { #id: #call }
-            }
-            None => {
-                let id = format_ident!("{}", r.field);
-                quote! { #id: None }
-            }
-        })
+        .map(
+            |r| match includes.iter().find(|inc| inc.relation.field == r.field) {
+                Some(inc) => {
+                    let id = format_ident!("{}", r.field);
+                    let call = relation::call_expr(table_ident, inc);
+                    quote! { #id: #call }
+                }
+                None => {
+                    let id = format_ident!("{}", r.field);
+                    quote! { #id: None }
+                }
+            },
+        )
         .collect();
-    let count_sql =
-        format!("SELECT COUNT(*) as \"count!: i64\" FROM {table_name}{where_clause}");
+    let count_sql = format!("SELECT COUNT(*) as \"count!: i64\" FROM {quoted_table}{where_clause}");
 
     // `setup` is evaluated in the surrounding scope, `body` inside
     // `async move`. Bind expressions must be hoisted into `setup` (like
@@ -208,8 +219,9 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
     // by value.
     let (setup, body) = match mode {
         Mode::All => {
-            let mut sql =
-                format!("SELECT {select_list} FROM {table_name}{joins}{where_clause}{order_clause}");
+            let mut sql = format!(
+                "SELECT {select_list} FROM {quoted_table}{joins}{where_clause}{order_clause}"
+            );
             let mut extra_locals = Vec::new();
             let mut extra_args: Vec<syn::Ident> = Vec::new();
             match (&input.limit, &input.offset) {
@@ -250,7 +262,7 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
         }
         Mode::One => {
             let sql = format!(
-                "SELECT {select_list} FROM {table_name}{joins}{where_clause}{order_clause} LIMIT 1"
+                "SELECT {select_list} FROM {quoted_table}{joins}{where_clause}{order_clause} LIMIT 1"
             );
             (
                 quote! {},
@@ -272,7 +284,7 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
                 ));
             };
             let sql = format!(
-                "SELECT {select_list} FROM {table_name}{joins}{where_clause}{order_clause} LIMIT ? OFFSET ?"
+                "SELECT {select_list} FROM {quoted_table}{joins}{where_clause}{order_clause} LIMIT ? OFFSET ?"
             );
             (
                 quote! {
@@ -281,7 +293,11 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
                     // whole table.
                     let __per_page: i64 = <i64>::max(#per_page, 1);
                     let __page: i64 = <i64>::max(#page, 1);
-                    let __offset: i64 = (__page - 1) * __per_page;
+                    // Saturating: `page` often comes straight from a query
+                    // param, and `i64::MAX` must mean "empty page far past
+                    // the end", not an overflow panic (debug) or a
+                    // wrapped-negative offset (release).
+                    let __offset: i64 = (__page - 1).saturating_mul(__per_page);
                 },
                 quote! {
                     let total = ::sqlx::query_scalar!(#count_sql #(, #args)*)
@@ -307,7 +323,7 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
             },
         ),
         Mode::Delete => {
-            let sql = format!("DELETE FROM {table_name}{where_clause}");
+            let sql = format!("DELETE FROM {quoted_table}{where_clause}");
             (
                 quote! {},
                 quote! {
@@ -332,7 +348,11 @@ pub fn expand(input: &QueryInput, mode: &Mode) -> syn::Result<TokenStream> {
     })
 }
 
-fn order_clause(input: &QueryInput, table: &TableDef, qualifier: Option<&str>) -> syn::Result<String> {
+fn order_clause(
+    input: &QueryInput,
+    table: &TableDef,
+    qualifier: Option<&str>,
+) -> syn::Result<String> {
     if input.order_by.is_empty() {
         return Ok(String::new());
     }
@@ -345,9 +365,12 @@ fn order_clause(input: &QueryInput, table: &TableDef, qualifier: Option<&str>) -
                 format!("no column `{name}` on table `{}`", table.name),
             ));
         }
-        let name = match qualifier {
-            Some(q) => format!("{q}.{name}"),
-            None => name,
+        let name = {
+            let quoted = fse_schema::sql::quote_ident(&name);
+            match qualifier {
+                Some(q) => format!("{}.{quoted}", fse_schema::sql::quote_ident(q)),
+                None => quoted,
+            }
         };
         items.push(if item.descending {
             format!("{name} DESC")

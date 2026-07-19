@@ -29,17 +29,22 @@ pub fn load_table(struct_name: &str, span: Span) -> syn::Result<TableDef> {
     let entries = std::fs::read_dir(&tables_dir)
         .map_err(|e| syn::Error::new(span, format!("{}: {e}", tables_dir.display())))?;
     for entry in entries {
-        let path = entry.map_err(|e| syn::Error::new(span, e.to_string()))?.path();
+        let path = entry
+            .map_err(|e| syn::Error::new(span, e.to_string()))?
+            .path();
         if path.extension().is_some_and(|e| e == "rs") {
             let code = std::fs::read_to_string(&path)
                 .map_err(|e| syn::Error::new(span, format!("{}: {e}", path.display())))?;
-            sources.push((path.file_name().unwrap().to_string_lossy().into_owned(), code));
+            sources.push((
+                path.file_name().unwrap().to_string_lossy().into_owned(),
+                code,
+            ));
         }
     }
     sources.sort();
 
-    let schema = fse_schema::parse::parse_sources(&sources)
-        .map_err(|e| syn::Error::new(span, e.message))?;
+    let schema =
+        fse_schema::parse::parse_sources(&sources).map_err(|e| syn::Error::new(span, e.message))?;
     schema
         .tables
         .into_iter()
@@ -69,8 +74,11 @@ pub fn table_path(struct_name: &str, span: Span) -> syn::Result<TokenStream> {
         .into();
     let dir = tables_dir_from_config(&manifest);
     let module = dir.strip_prefix("src/").unwrap_or(dir.as_str());
-    let module_segments: Vec<syn::Ident> =
-        module.split('/').filter(|s| !s.is_empty()).map(|s| format_ident!("{s}")).collect();
+    let module_segments: Vec<syn::Ident> = module
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(|s| format_ident!("{s}"))
+        .collect();
     let file_stem = format_ident!("{}", fse_schema::parse::to_snake_case(struct_name));
     let struct_ident = format_ident!("{struct_name}");
     Ok(quote! { crate::#(#module_segments::)* #file_stem::#struct_ident })

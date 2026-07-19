@@ -24,8 +24,7 @@ enum ParsedField {
 pub fn parse_sources(sources: &[(String, String)]) -> Result<Schema, Error> {
     let mut files = Vec::new();
     for (name, code) in sources {
-        let file =
-            syn::parse_file(code).map_err(|e| Error::new(format!("{name}: {e}")))?;
+        let file = syn::parse_file(code).map_err(|e| Error::new(format!("{name}: {e}")))?;
         files.push((name, file));
     }
 
@@ -37,7 +36,10 @@ pub fn parse_sources(sources: &[(String, String)]) -> Result<Schema, Error> {
             {
                 let def = enum_from_item(e).map_err(|e| Error::new(format!("{name}: {e}")))?;
                 if enums.iter().any(|x| x.rust_name == def.rust_name) {
-                    return Err(Error::new(format!("{name}: duplicate DbEnum {}", def.rust_name)));
+                    return Err(Error::new(format!(
+                        "{name}: duplicate DbEnum {}",
+                        def.rust_name
+                    )));
                 }
                 enums.push(def);
             }
@@ -54,7 +56,10 @@ pub fn parse_sources(sources: &[(String, String)]) -> Result<Schema, Error> {
                 let table = table_from_struct(s, Some(&enums))
                     .map_err(|e| Error::new(format!("{name}: {e}")))?;
                 if tables.iter().any(|t| t.name == table.name) {
-                    return Err(Error::new(format!("{name}: duplicate table {}", table.name)));
+                    return Err(Error::new(format!(
+                        "{name}: duplicate table {}",
+                        table.name
+                    )));
                 }
                 tables.push(table);
             }
@@ -92,10 +97,16 @@ pub fn parse_sources(sources: &[(String, String)]) -> Result<Schema, Error> {
         let fk_targets: Vec<(String, String)> = table
             .columns
             .iter()
-            .filter_map(|c| c.references.as_ref().map(|fk| (c.name.clone(), fk.table.clone())))
+            .filter_map(|c| {
+                c.references
+                    .as_ref()
+                    .map(|fk| (c.name.clone(), fk.table.clone()))
+            })
             .collect();
         for rel in &mut table.relations {
-            if let Some((_, target)) = fk_targets.iter().find(|(name, _)| *name == rel.local_column)
+            if let Some((_, target)) = fk_targets
+                .iter()
+                .find(|(name, _)| *name == rel.local_column)
             {
                 rel.target_table = target.clone();
             }
@@ -120,7 +131,9 @@ pub fn enum_from_item(item: &syn::ItemEnum) -> Result<EnumDef, Error> {
         values.push(to_snake_case(&v.ident.to_string()));
     }
     if values.is_empty() {
-        return Err(Error::new(format!("{rust_name}: DbEnum needs at least one variant")));
+        return Err(Error::new(format!(
+            "{rust_name}: DbEnum needs at least one variant"
+        )));
     }
     Ok(EnumDef { rust_name, values })
 }
@@ -164,7 +177,9 @@ pub fn table_from_struct(
     let name = table_name.unwrap_or_else(|| pluralize(&to_snake_case(&struct_name)));
 
     let syn::Fields::Named(fields) = &item.fields else {
-        return Err(Error::new(format!("{struct_name}: a Table struct needs named fields")));
+        return Err(Error::new(format!(
+            "{struct_name}: a Table struct needs named fields"
+        )));
     };
 
     let mut columns = Vec::new();
@@ -225,7 +240,10 @@ pub fn table_from_struct(
 
 /// Parses the parenthesized column list following a struct-level `unique`/
 /// `index` key, e.g. the `(user_id, run_id)` in `#[orm(unique(user_id, run_id))]`.
-fn parse_struct_column_list(meta: &syn::meta::ParseNestedMeta, key: &str) -> syn::Result<Vec<String>> {
+fn parse_struct_column_list(
+    meta: &syn::meta::ParseNestedMeta,
+    key: &str,
+) -> syn::Result<Vec<String>> {
     let mut cols = Vec::new();
     meta.parse_nested_meta(|m| {
         let Some(ident) = m.path.get_ident() else {
@@ -235,7 +253,9 @@ fn parse_struct_column_list(meta: &syn::meta::ParseNestedMeta, key: &str) -> syn
         Ok(())
     })?;
     if cols.is_empty() {
-        return Err(meta.error(format!("{key}(...) needs at least one column, e.g. {key}(a, b)")));
+        return Err(meta.error(format!(
+            "{key}(...) needs at least one column, e.g. {key}(a, b)"
+        )));
     }
     Ok(cols)
 }
@@ -250,7 +270,11 @@ fn field_from_field(
     if let Some(rel) = relation_from_field(struct_name, field)? {
         return Ok(ParsedField::Relation(rel));
     }
-    Ok(ParsedField::Column(Box::new(column_from_field(struct_name, field, enums)?)))
+    Ok(ParsedField::Column(Box::new(column_from_field(
+        struct_name,
+        field,
+        enums,
+    )?)))
 }
 
 /// A relation field is `#[orm(relation = fk_column)] name: Option<Target>`. It
@@ -275,18 +299,26 @@ fn relation_from_field(
     let mut other_key = false;
     for attr in field.attrs.iter().filter(|a| a.path().is_ident("orm")) {
         let metas = attr
-            .parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+            .parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            )
             .map_err(|e| Error::new(format!("{ctx}: {e}")))?;
         for meta in &metas {
             if meta.path().is_ident("relation") {
                 let syn::Meta::NameValue(nv) = meta else {
-                    return Err(Error::new(format!("{ctx}: expected `relation = fk_column`")));
+                    return Err(Error::new(format!(
+                        "{ctx}: expected `relation = fk_column`"
+                    )));
                 };
                 let syn::Expr::Path(p) = &nv.value else {
-                    return Err(Error::new(format!("{ctx}: relation value must be a column name")));
+                    return Err(Error::new(format!(
+                        "{ctx}: relation value must be a column name"
+                    )));
                 };
                 let Some(ident) = p.path.get_ident() else {
-                    return Err(Error::new(format!("{ctx}: relation value must be a column name")));
+                    return Err(Error::new(format!(
+                        "{ctx}: relation value must be a column name"
+                    )));
                 };
                 local_column = Some(ident.to_string());
             } else {
@@ -310,7 +342,9 @@ fn relation_from_field(
         )));
     }
     let Some(target_struct) = last_segment_ident(inner) else {
-        return Err(Error::new(format!("{ctx}: relation target must be a struct type")));
+        return Err(Error::new(format!(
+            "{ctx}: relation target must be a struct type"
+        )));
     };
 
     Ok(Some(RelationDef {
@@ -329,11 +363,7 @@ fn column_from_field(
     field: &syn::Field,
     enums: Option<&[EnumDef]>,
 ) -> Result<ColumnDef, Error> {
-    let name = field
-        .ident
-        .as_ref()
-        .expect("named field")
-        .to_string();
+    let name = field.ident.as_ref().expect("named field").to_string();
     let ctx = format!("{struct_name}.{name}");
 
     let mut unique = false;
@@ -405,6 +435,13 @@ fn column_from_field(
 
     let (ty, is_enum, check_in) = if json {
         (SqlType::Text, false, None)
+    } else if matches!(rust_type.as_str(), "u64" | "usize" | "isize") {
+        // SQLite INTEGER is i64 and sqlx-sqlite has no Encode impl for these
+        // — without this check the failure would be a cryptic trait-bound
+        // error deep inside generated code.
+        return Err(Error::new(format!(
+            "{ctx}: `{rust_type}` cannot be stored in SQLite (INTEGER is i64) — use i64"
+        )));
     } else if text {
         // `#[orm(text)]`: stored TEXT via as_str()/FromStr, no CHECK — for
         // types whose value set the schema layer cannot see (e.g. a role
@@ -419,7 +456,10 @@ fn column_from_field(
         (t, false, None)
     } else if let Some(enums) = enums {
         let type_name = last_segment_ident(inner);
-        match enums.iter().find(|e| Some(e.rust_name.as_str()) == type_name.as_deref()) {
+        match enums
+            .iter()
+            .find(|e| Some(e.rust_name.as_str()) == type_name.as_deref())
+        {
             Some(e) => (SqlType::Text, true, Some(e.values.clone())),
             None => {
                 return Err(Error::new(format!(
@@ -470,10 +510,12 @@ fn parse_default(expr: &syn::Expr) -> Result<DefaultValue, String> {
     match expr {
         syn::Expr::Path(p) if p.path.is_ident("now") => Ok(DefaultValue::Now),
         syn::Expr::Lit(l) => match &l.lit {
-            syn::Lit::Int(i) => Ok(DefaultValue::Int(i.base10_parse().map_err(|e| e.to_string())?)),
-            syn::Lit::Float(f) => {
-                Ok(DefaultValue::Float(f.base10_parse().map_err(|e| e.to_string())?))
-            }
+            syn::Lit::Int(i) => Ok(DefaultValue::Int(
+                i.base10_parse().map_err(|e| e.to_string())?,
+            )),
+            syn::Lit::Float(f) => Ok(DefaultValue::Float(
+                f.base10_parse().map_err(|e| e.to_string())?,
+            )),
             syn::Lit::Str(s) => Ok(DefaultValue::Text(s.value())),
             syn::Lit::Bool(b) => Ok(DefaultValue::Bool(b.value)),
             _ => Err("unsupported default literal".into()),
@@ -522,9 +564,9 @@ fn validate_default(
 pub fn native_sql_type(ty: &syn::Type) -> Option<SqlType> {
     let seg = last_segment(ty)?;
     Some(match seg.ident.to_string().as_str() {
-        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" | "isize" | "usize" => {
-            SqlType::Integer
-        }
+        // u64/usize/isize are rejected with a dedicated error in
+        // `column_from_field` — sqlx-sqlite cannot encode them.
+        "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" => SqlType::Integer,
         "f32" | "f64" => SqlType::Real,
         "bool" => SqlType::Boolean,
         "String" => SqlType::Text,

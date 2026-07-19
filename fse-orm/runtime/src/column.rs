@@ -20,6 +20,14 @@ impl<T> Bindable for T where
 
 pub(crate) type BindFn = Box<dyn for<'q> Fn(&mut QueryBuilder<'q, Sqlite>) + Send + Sync>;
 
+/// Double-quote an identifier so names that collide with SQL keywords
+/// (`order`, `group`, ...) work — the same rule the checked macros and the
+/// migration DDL apply (`fse_schema::sql::quote_ident`; duplicated here
+/// because the runtime crate deliberately doesn't depend on fse-schema).
+pub(crate) fn quote_ident(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
 pub(crate) fn bind_fn<V: Bindable>(value: V) -> BindFn {
     Box::new(move |qb| {
         qb.push_bind(value.clone());
@@ -43,7 +51,10 @@ impl<T> Copy for Col<T> {}
 
 impl<T> Col<T> {
     pub const fn new(name: &'static str) -> Self {
-        Self { name, _marker: PhantomData }
+        Self {
+            name,
+            _marker: PhantomData,
+        }
     }
 
     pub const fn name(self) -> &'static str {
@@ -51,26 +62,26 @@ impl<T> Col<T> {
     }
 
     pub fn asc(self) -> Order {
-        Order(format!("{} ASC", self.name))
+        Order(format!("{} ASC", quote_ident(self.name)))
     }
 
     pub fn desc(self) -> Order {
-        Order(format!("{} DESC", self.name))
+        Order(format!("{} DESC", quote_ident(self.name)))
     }
 
     pub fn is_null(self) -> Cond {
-        Cond::fragment(format!("{} IS NULL", self.name))
+        Cond::fragment(format!("{} IS NULL", quote_ident(self.name)))
     }
 
     pub fn is_not_null(self) -> Cond {
-        Cond::fragment(format!("{} IS NOT NULL", self.name))
+        Cond::fragment(format!("{} IS NOT NULL", quote_ident(self.name)))
     }
 }
 
 impl<T: Bindable> Col<T> {
     fn compare(self, op: &str, value: impl Into<T>) -> Cond {
         Cond {
-            fragments: vec![format!("{} {op} ", self.name), String::new()],
+            fragments: vec![format!("{} {op} ", quote_ident(self.name)), String::new()],
             binds: vec![bind_fn(value.into())],
         }
     }
@@ -102,10 +113,13 @@ impl<T: Bindable> Col<T> {
         if values.is_empty() {
             return Cond::fragment("0 = 1".into());
         }
-        let mut fragments = vec![format!("{} IN (", self.name)];
+        let mut fragments = vec![format!("{} IN (", quote_ident(self.name))];
         fragments.extend(std::iter::repeat_n(", ".to_string(), values.len() - 1));
         fragments.push(")".into());
-        Cond { fragments, binds: values.into_iter().map(bind_fn).collect() }
+        Cond {
+            fragments,
+            binds: values.into_iter().map(bind_fn).collect(),
+        }
     }
 }
 
@@ -116,7 +130,7 @@ impl Col<String> {
     pub fn contains(self, value: impl Into<String>) -> Cond {
         Cond {
             fragments: vec![
-                format!("{} LIKE '%' || ", self.name),
+                format!("{} LIKE '%' || ", quote_ident(self.name)),
                 " || '%' ESCAPE '\\'".into(),
             ],
             binds: vec![bind_fn(crate::escape_like(value.into()))],
@@ -126,7 +140,10 @@ impl Col<String> {
     /// Prefix match; the value is matched literally, like [`Col::contains`].
     pub fn starts_with(self, value: impl Into<String>) -> Cond {
         Cond {
-            fragments: vec![format!("{} LIKE ", self.name), " || '%' ESCAPE '\\'".into()],
+            fragments: vec![
+                format!("{} LIKE ", quote_ident(self.name)),
+                " || '%' ESCAPE '\\'".into(),
+            ],
             binds: vec![bind_fn(crate::escape_like(value.into()))],
         }
     }
@@ -146,7 +163,10 @@ pub struct Cond {
 
 impl Cond {
     fn fragment(sql: String) -> Self {
-        Self { fragments: vec![sql], binds: Vec::new() }
+        Self {
+            fragments: vec![sql],
+            binds: Vec::new(),
+        }
     }
 
     pub fn and(self, other: Cond) -> Cond {
@@ -186,11 +206,17 @@ fn combine(a: Cond, separator: &str, b: Cond) -> Cond {
     fragments.extend(b_fragments);
     binds.extend(b.binds);
 
-    fragments.first_mut().expect("condition has fragments").insert(0, '(');
+    fragments
+        .first_mut()
+        .expect("condition has fragments")
+        .insert(0, '(');
     if binds.len() == fragments.len() {
         fragments.push(")".into());
     } else {
-        fragments.last_mut().expect("condition has fragments").push(')');
+        fragments
+            .last_mut()
+            .expect("condition has fragments")
+            .push(')');
     }
     Cond { fragments, binds }
 }

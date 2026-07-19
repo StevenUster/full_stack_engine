@@ -27,7 +27,9 @@ async fn setup() -> sqlx::SqlitePool {
         .foreign_keys(true);
     let db = sqlx::SqlitePool::connect_with(options).await.unwrap();
 
-    let event = insert!(Event, &db, name = "Fair".to_string()).await.unwrap();
+    let event = insert!(Event, &db, name = "Fair".to_string())
+        .await
+        .unwrap();
     // "100% Cotton Tee" contains a literal `%`, "a_c" a literal `_`.
     for (slug, name) in [
         ("blue-shirt", "Blue Shirt"),
@@ -131,15 +133,24 @@ async fn checked_contains_matches_wildcards_literally() {
     );
 
     let payload = "a_c";
-    let hit = find_one!(Product, &db, name.contains(payload)).await.unwrap();
+    let hit = find_one!(Product, &db, name.contains(payload))
+        .await
+        .unwrap();
     assert_eq!(hit.expect("literal a_c row").slug, "a-c");
 
     let payload = "B_ue";
-    let hit = find_one!(Product, &db, name.contains(payload)).await.unwrap();
-    assert!(hit.is_none(), "`_` must not match 'Blue' one-char-wildcard style");
+    let hit = find_one!(Product, &db, name.contains(payload))
+        .await
+        .unwrap();
+    assert!(
+        hit.is_none(),
+        "`_` must not match 'Blue' one-char-wildcard style"
+    );
 
     let payload = "100%";
-    let hit = find_one!(Product, &db, name.starts_with(payload)).await.unwrap();
+    let hit = find_one!(Product, &db, name.starts_with(payload))
+        .await
+        .unwrap();
     assert_eq!(hit.expect("literal 100% prefix").slug, "cotton-tee");
 }
 
@@ -153,7 +164,9 @@ async fn checked_contains_opt_matches_wildcards_literally_and_keeps_empty_semant
 
     // The search-box payload `%` must not degrade into "no filter" holds too.
     let search = "%";
-    let hits = find!(Product, &db, name.contains_opt(search)).await.unwrap();
+    let hits = find!(Product, &db, name.contains_opt(search))
+        .await
+        .unwrap();
     assert_eq!(
         hits.iter().map(|p| p.slug.as_str()).collect::<Vec<_>>(),
         vec!["cotton-tee"],
@@ -169,15 +182,42 @@ async fn find_page_clamps_hostile_per_page() {
 
     // SQLite treats a negative LIMIT as "unlimited" — a per_page of -1 from an
     // unvalidated query param must not return every row.
-    let page = find_page!(Product, &db, all, page: 1, per_page: -1).await.unwrap();
+    let page = find_page!(Product, &db, all, page: 1, per_page: -1)
+        .await
+        .unwrap();
     assert!(
         page.rows.len() <= 1,
         "negative per_page must be clamped, got {} rows",
         page.rows.len()
     );
 
-    let page = find_page!(Product, &db, all, page: 1, per_page: 0).await.unwrap();
+    let page = find_page!(Product, &db, all, page: 1, per_page: 0)
+        .await
+        .unwrap();
     assert!(page.rows.len() <= 1, "zero per_page must be clamped");
+}
+
+#[tokio::test]
+async fn find_page_survives_hostile_page_number() {
+    let db = setup().await;
+
+    // page comes straight from a query param in real apps: `?page=i64::MAX`
+    // must not overflow the offset computation (a panic in debug builds).
+    let page = find_page!(Product, &db, all, page: i64::MAX, per_page: 100)
+        .await
+        .unwrap();
+    assert!(
+        page.rows.is_empty(),
+        "a page far past the end is empty, not an error"
+    );
+    assert_eq!(page.total, 4);
+
+    let page = Product::find()
+        .fetch_page(&db, i64::MAX, 100)
+        .await
+        .unwrap();
+    assert!(page.rows.is_empty());
+    assert_eq!(page.total, 4);
 }
 
 #[tokio::test]

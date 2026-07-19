@@ -41,7 +41,12 @@ impl Parse for UpdateInput {
                 break;
             }
         }
-        Ok(Self { table_ident, db, filter, assignments })
+        Ok(Self {
+            table_ident,
+            db,
+            filter,
+            assignments,
+        })
     }
 }
 
@@ -70,6 +75,14 @@ pub fn expand(input: &UpdateInput) -> syn::Result<TokenStream> {
                 format!("`{name}` is a primary key and cannot be updated"),
             ));
         }
+        // SQLite accepts `SET a = ?, a = ?` and silently applies the last
+        // value; reject the duplicate like `insert!` does.
+        if input.assignments[..i].iter().any(|(c, _)| *c == name) {
+            return Err(syn::Error::new(
+                column_ident.span(),
+                format!("column `{name}` assigned more than once"),
+            ));
+        }
 
         let raw = format_ident!("__raw{i}");
         let out = format_ident!("__set{i}");
@@ -94,10 +107,13 @@ pub fn expand(input: &UpdateInput) -> syn::Result<TokenStream> {
             // Plain columns bind the raw local directly.
             args.push(raw);
         }
-        set_items.push(format!("{name} = ?"));
+        set_items.push(format!("{} = ?", fse_schema::sql::quote_ident(&name)));
     }
     if set_items.is_empty() {
-        return Err(syn::Error::new(input.filter.span(), "update! needs at least one `col = value`"));
+        return Err(syn::Error::new(
+            input.filter.span(),
+            "update! needs at least one `col = value`",
+        ));
     }
 
     let compiled = filter::compile(&input.filter, &table, None)?;
@@ -106,7 +122,11 @@ pub fn expand(input: &UpdateInput) -> syn::Result<TokenStream> {
     } else {
         format!(" WHERE {}", compiled.sql)
     };
-    let sql = format!("UPDATE {} SET {}{where_clause}", table.name, set_items.join(", "));
+    let sql = format!(
+        "UPDATE {} SET {}{where_clause}",
+        fse_schema::sql::quote_ident(&table.name),
+        set_items.join(", ")
+    );
 
     let db = &input.db;
     let table_ident = &input.table_ident;

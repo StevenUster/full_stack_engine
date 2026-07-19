@@ -58,10 +58,20 @@ pub fn resolve(table: &TableDef, idents: &[syn::Ident]) -> syn::Result<Vec<Inclu
 /// the same table (`Donation::donor`, `Donation::runner`, both `-> users`)
 /// never collide.
 pub fn join_clause(table_name: &str, inc: &Included) -> String {
-    let kind = if inc.relation.nullable { "LEFT JOIN" } else { "JOIN" };
+    let kind = if inc.relation.nullable {
+        "LEFT JOIN"
+    } else {
+        "JOIN"
+    };
+    let q = fse_schema::sql::quote_ident;
     format!(
-        "{kind} {} AS {} ON {table_name}.{} = {}.id",
-        inc.target.name, inc.relation.field, inc.relation.local_column, inc.relation.field
+        "{kind} {} AS {} ON {}.{} = {}.{}",
+        q(&inc.target.name),
+        q(&inc.relation.field),
+        q(table_name),
+        q(&inc.relation.local_column),
+        q(&inc.relation.field),
+        q("id"),
     )
 }
 
@@ -93,8 +103,12 @@ pub fn helper_fn_def(inc: &Included, span: Span) -> syn::Result<TokenStream> {
     let target_path = lookup::table_path(&inc.target.struct_name, span)?;
     let force_nullable = inc.relation.nullable;
 
-    let param_idents: Vec<syn::Ident> =
-        inc.target.columns.iter().map(|c| format_ident!("{}", c.name)).collect();
+    let param_idents: Vec<syn::Ident> = inc
+        .target
+        .columns
+        .iter()
+        .map(|c| format_ident!("{}", c.name))
+        .collect();
     let param_types: Vec<TokenStream> = inc
         .target
         .columns

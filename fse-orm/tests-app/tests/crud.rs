@@ -26,7 +26,9 @@ async fn setup() -> sqlx::SqlitePool {
 async fn full_crud_roundtrip() {
     let db = setup().await;
 
-    let event = insert!(Event, &db, name = "Spring Fair".to_string()).await.unwrap();
+    let event = insert!(Event, &db, name = "Spring Fair".to_string())
+        .await
+        .unwrap();
     assert!(event.id > 0);
     assert_eq!(event.name, "Spring Fair");
 
@@ -40,7 +42,10 @@ async fn full_crud_roundtrip() {
         event_id = event.id,
         status = ProductStatus::Published,
         description = Some("A nice shirt".to_string()),
-        dimensions = Some(Dimensions { width_cm: 30.0, height_cm: 40.0 })
+        dimensions = Some(Dimensions {
+            width_cm: 30.0,
+            height_cm: 40.0
+        })
     )
     .await
     .unwrap();
@@ -48,12 +53,19 @@ async fn full_crud_roundtrip() {
     assert!(product.id > 0);
     assert_eq!(product.price, 0.0, "default = 0.0");
     assert!(product.active, "default = true");
-    assert_eq!(product.status, ProductStatus::Published, "explicit override");
+    assert_eq!(
+        product.status,
+        ProductStatus::Published,
+        "explicit override"
+    );
     let age = chrono::Utc::now().naive_utc() - product.created_at;
     assert!(age.num_seconds().abs() < 10, "default = now");
     assert_eq!(
         product.dimensions,
-        Some(Dimensions { width_cm: 30.0, height_cm: 40.0 }),
+        Some(Dimensions {
+            width_cm: 30.0,
+            height_cm: 40.0
+        }),
         "json column roundtrips through serde"
     );
 
@@ -62,9 +74,17 @@ async fn full_crud_roundtrip() {
     assert_eq!(fetched.slug, "t-shirt");
     assert_eq!(fetched.dimensions, product.dimensions);
 
-    let by_slug = Product::fetch_by_slug(&db, "t-shirt").await.unwrap().unwrap();
+    let by_slug = Product::fetch_by_slug(&db, "t-shirt")
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(by_slug.id, product.id);
-    assert!(Product::fetch_by_slug(&db, "missing").await.unwrap().is_none());
+    assert!(
+        Product::fetch_by_slug(&db, "missing")
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     assert_eq!(Product::fetch_all(&db).await.unwrap().len(), 1);
     assert_eq!(Product::count(&db).await.unwrap(), 1);
@@ -74,14 +94,23 @@ async fn full_crud_roundtrip() {
     updated.name = "Premium T-Shirt".into();
     updated.status = ProductStatus::Archived;
     updated.description = None;
-    updated.dimensions = Some(Dimensions { width_cm: 31.5, height_cm: 41.0 });
+    updated.dimensions = Some(Dimensions {
+        width_cm: 31.5,
+        height_cm: 41.0,
+    });
     updated.update(&db).await.unwrap();
 
     let reread = Product::fetch(&db, product.id).await.unwrap().unwrap();
     assert_eq!(reread.name, "Premium T-Shirt");
     assert_eq!(reread.status, ProductStatus::Archived);
     assert_eq!(reread.description, None);
-    assert_eq!(reread.dimensions, Some(Dimensions { width_cm: 31.5, height_cm: 41.0 }));
+    assert_eq!(
+        reread.dimensions,
+        Some(Dimensions {
+            width_cm: 31.5,
+            height_cm: 41.0
+        })
+    );
 
     // Delete.
     assert_eq!(Product::delete(&db, product.id).await.unwrap(), 1);
@@ -94,10 +123,18 @@ async fn full_crud_roundtrip() {
 async fn foreign_key_cascade_from_generated_ddl() {
     let db = setup().await;
 
-    let event = insert!(Event, &db, name = "Autumn Fair".to_string()).await.unwrap();
-    insert!(Product, &db, slug = "mug".to_string(), name = "Mug".to_string(), event_id = event.id)
+    let event = insert!(Event, &db, name = "Autumn Fair".to_string())
         .await
         .unwrap();
+    insert!(
+        Product,
+        &db,
+        slug = "mug".to_string(),
+        name = "Mug".to_string(),
+        event_id = event.id
+    )
+    .await
+    .unwrap();
     assert_eq!(Product::count(&db).await.unwrap(), 1);
 
     // ON DELETE CASCADE came from #[orm(references(Event, on_delete = cascade))].
@@ -109,25 +146,43 @@ async fn foreign_key_cascade_from_generated_ddl() {
 async fn db_enum_string_contract() {
     // DB value == JSON value == form value == Display.
     assert_eq!(ProductStatus::Draft.as_str(), "draft");
-    assert_eq!("published".parse::<ProductStatus>().unwrap(), ProductStatus::Published);
+    assert_eq!(
+        "published".parse::<ProductStatus>().unwrap(),
+        ProductStatus::Published
+    );
     assert!("bogus".parse::<ProductStatus>().is_err());
     assert_eq!(ProductStatus::Archived.to_string(), "archived");
-    assert_eq!(serde_json::to_string(&ProductStatus::Draft).unwrap(), "\"draft\"");
+    assert_eq!(
+        serde_json::to_string(&ProductStatus::Draft).unwrap(),
+        "\"draft\""
+    );
     assert_eq!(
         serde_json::from_str::<ProductStatus>("\"archived\"").unwrap(),
         ProductStatus::Archived
     );
     assert_eq!(
         ProductStatus::VARIANTS,
-        [ProductStatus::Draft, ProductStatus::Published, ProductStatus::Archived]
+        [
+            ProductStatus::Draft,
+            ProductStatus::Published,
+            ProductStatus::Archived
+        ]
     );
 
     // The unique-slug constraint from #[orm(unique)] is enforced by the DDL.
     let db = setup().await;
-    let event = insert!(Event, &db, name = "Fair".to_string()).await.unwrap();
-    insert!(Product, &db, slug = "cap".to_string(), name = "Cap".to_string(), event_id = event.id)
+    let event = insert!(Event, &db, name = "Fair".to_string())
         .await
         .unwrap();
+    insert!(
+        Product,
+        &db,
+        slug = "cap".to_string(),
+        name = "Cap".to_string(),
+        event_id = event.id
+    )
+    .await
+    .unwrap();
     let duplicate = insert!(
         Product,
         &db,

@@ -50,7 +50,10 @@ pub async fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateOutcome, Erro
     };
 
     let migrations_dir = root.join(&cfg.migrations_dir);
-    let mut outcome = MigrateOutcome { generated: None, needs_manual_edit: false };
+    let mut outcome = MigrateOutcome {
+        generated: None,
+        needs_manual_edit: false,
+    };
 
     if let Some(migration) = diff_schemas(&old_schema, &new_schema)? {
         println!("Schema change: {}\n", migration.summary);
@@ -175,9 +178,7 @@ fn next_version(migrations_dir: &Path) -> Result<u64, Error> {
         .expect("timestamp is numeric");
     let mut existing = Vec::new();
     if migrations_dir.exists() {
-        for entry in
-            fs::read_dir(migrations_dir).map_err(|e| Error::new(e.to_string()))?
-        {
+        for entry in fs::read_dir(migrations_dir).map_err(|e| Error::new(e.to_string()))? {
             let name = entry.map_err(|e| Error::new(e.to_string()))?.file_name();
             let name = name.to_string_lossy();
             let digits: String = name.chars().take_while(char::is_ascii_digit).collect();
@@ -226,10 +227,18 @@ async fn apply_pending(
     }
     let url = config::resolve_database_url(root, cfg, opts.database_url.as_deref())?;
 
+    // Migrations must run with foreign-key enforcement OFF: a table rebuild
+    // DROPs the old table, and with enforcement on that DROP fires child
+    // tables' ON DELETE actions — CASCADE silently wipes their rows, RESTRICT
+    // fails the migration. sqlx wraps every migration in a transaction, where
+    // `PRAGMA foreign_keys` is a silent no-op, so it has to be set on the
+    // connection itself. `pragma_foreign_key_check` below restores the safety
+    // net once everything has been applied.
     let options = url
         .parse::<sqlx::sqlite::SqliteConnectOptions>()
         .map_err(|e| Error::new(format!("invalid database url: {e}")))?
-        .create_if_missing(true);
+        .create_if_missing(true)
+        .foreign_keys(false);
     let pool = sqlx::SqlitePool::connect_with(options)
         .await
         .map_err(|e| Error::new(format!("cannot open database: {e}")))?;
@@ -241,7 +250,29 @@ async fn apply_pending(
         .run(&pool)
         .await
         .map_err(|e| Error::new(format!("migration failed: {e}")))?;
+
+    let violations: Vec<(String, Option<i64>, String)> =
+        sqlx::query_as("SELECT \"table\", rowid, parent FROM pragma_foreign_key_check")
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| Error::new(format!("foreign_key_check failed: {e}")))?;
     pool.close().await;
+    if !violations.is_empty() {
+        let examples: Vec<String> = violations
+            .iter()
+            .take(5)
+            .map(|(table, rowid, parent)| match rowid {
+                Some(rowid) => format!("{table} rowid {rowid} -> missing {parent} row"),
+                None => format!("{table} -> missing {parent} row"),
+            })
+            .collect();
+        return Err(Error::new(format!(
+            "migrations applied, but the database now has {} foreign key violation(s):\n  {}\n\
+             fix the offending rows (or the migration that orphaned them) and rerun.",
+            violations.len(),
+            examples.join("\n  "),
+        )));
+    }
     println!("database is up to date.");
     Ok(())
 }

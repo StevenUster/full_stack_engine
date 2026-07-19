@@ -26,7 +26,9 @@ async fn setup() -> (sqlx::SqlitePool, i64, i64) {
         .foreign_keys(true);
     let db = sqlx::SqlitePool::connect_with(options).await.unwrap();
 
-    let event = insert!(Event, &db, name = "Fair".to_string()).await.unwrap();
+    let event = insert!(Event, &db, name = "Fair".to_string())
+        .await
+        .unwrap();
     let product = insert!(
         Product,
         &db,

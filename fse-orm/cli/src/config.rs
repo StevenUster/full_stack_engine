@@ -50,8 +50,7 @@ pub fn load(root: &Path) -> Result<OrmConfig, Error> {
     }
     let raw = std::fs::read_to_string(&path)
         .map_err(|e| Error::new(format!("cannot read {}: {e}", path.display())))?;
-    let parsed: FseToml =
-        toml::from_str(&raw).map_err(|e| Error::new(format!("fse.toml: {e}")))?;
+    let parsed: FseToml = toml::from_str(&raw).map_err(|e| Error::new(format!("fse.toml: {e}")))?;
     Ok(parsed.orm)
 }
 

@@ -36,14 +36,18 @@ fn main() {
         let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
         for table in &schema.tables {
             let ddl = fse_schema::sql::create_table_sql(table);
-            sqlx::query(&ddl).execute(&pool).await.unwrap_or_else(|e| {
-                panic!("generated DDL failed for {}: {e}\n{ddl}", table.name)
-            });
+            sqlx::query(&ddl)
+                .execute(&pool)
+                .await
+                .unwrap_or_else(|e| panic!("generated DDL failed for {}: {e}\n{ddl}", table.name));
         }
         pool.close().await;
     });
 
     // Point the sqlx macros at the database we just built (absolute path, so
     // it resolves no matter where cargo is invoked from).
-    println!("cargo:rustc-env=DATABASE_URL=sqlite://{}", db_path.display());
+    println!(
+        "cargo:rustc-env=DATABASE_URL=sqlite://{}",
+        db_path.display()
+    );
 }

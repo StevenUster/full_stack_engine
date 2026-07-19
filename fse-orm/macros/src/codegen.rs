@@ -8,6 +8,7 @@
 //! inferred from the struct field).
 
 use fse_schema::ColumnDef;
+use fse_schema::sql::quote_ident;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 
@@ -25,8 +26,8 @@ pub fn select_item(c: &ColumnDef) -> String {
 fn select_item_impl(c: &ColumnDef, qualifier: Option<&str>) -> String {
     let name = &c.name;
     let source = match qualifier {
-        Some(q) => format!("{q}.{name}"),
-        None => name.clone(),
+        Some(q) => format!("{}.{}", quote_ident(q), quote_ident(name)),
+        None => quote_ident(name),
     };
     let bang = if c.nullable { "" } else { "!" };
     match override_type(c) {
@@ -50,6 +51,7 @@ fn select_item_impl(c: &ColumnDef, qualifier: Option<&str>) -> String {
 /// under `force_nullable`) would then mismatch.
 pub fn select_item_relation(c: &ColumnDef, alias: &str, force_nullable: bool) -> String {
     let out_name = format!("{alias}__{}", c.name);
+    let source = format!("{}.{}", quote_ident(alias), quote_ident(&c.name));
     let marker = if force_nullable {
         "?"
     } else if c.nullable {
@@ -58,9 +60,9 @@ pub fn select_item_relation(c: &ColumnDef, alias: &str, force_nullable: bool) ->
         "!"
     };
     match override_type(c) {
-        Some(ty) => format!("{alias}.{} as \"{out_name}{marker}: {ty}\"", c.name),
-        None if marker.is_empty() => format!("{alias}.{} as \"{out_name}\"", c.name),
-        None => format!("{alias}.{} as \"{out_name}{marker}\"", c.name),
+        Some(ty) => format!("{source} as \"{out_name}{marker}: {ty}\""),
+        None if marker.is_empty() => format!("{source} as \"{out_name}\""),
+        None => format!("{source} as \"{out_name}{marker}\""),
     }
 }
 
@@ -84,7 +86,11 @@ fn override_type(c: &ColumnDef) -> Option<String> {
 }
 
 pub fn select_list(columns: &[ColumnDef]) -> String {
-    columns.iter().map(select_item).collect::<Vec<_>>().join(", ")
+    columns
+        .iter()
+        .map(select_item)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// [`select_list`], with every column's FROM-side reference qualified by

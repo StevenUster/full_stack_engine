@@ -551,10 +551,42 @@ async fn init_db(
             .await
             .expect("Failed to load migrations")
     };
-    migrator
-        .run(&db_pool)
-        .await
-        .expect("Failed to run database migrations");
+    // Migrations run on a dedicated connection with foreign-key enforcement
+    // OFF: fse's table-rebuild migrations DROP the old table, and with
+    // enforcement on that DROP fires child tables' ON DELETE actions (CASCADE
+    // silently wipes their rows, RESTRICT fails the deploy). sqlx wraps each
+    // migration in a transaction, where `PRAGMA foreign_keys` is a silent
+    // no-op, so it must be a connection-level setting — the app pool keeps
+    // enforcement on as before.
+    {
+        use sqlx::{ConnectOptions, Connection};
+        let mut conn = database_url
+            .parse::<sqlx::sqlite::SqliteConnectOptions>()
+            .expect("Failed to parse database url")
+            .foreign_keys(false)
+            .connect()
+            .await
+            .expect("Failed to open migration connection");
+        migrator
+            .run(&mut conn)
+            .await
+            .expect("Failed to run database migrations");
+        let violations: Vec<(String, String)> =
+            sqlx::query_as("SELECT \"table\", parent FROM pragma_foreign_key_check")
+                .fetch_all(&mut conn)
+                .await
+                .expect("Failed to run foreign_key_check");
+        if !violations.is_empty() {
+            eprintln!(
+                "WARNING: database has {} foreign key violation(s) after migrations \
+                 (first: table `{}` references missing `{}` row)",
+                violations.len(),
+                violations[0].0,
+                violations[0].1
+            );
+        }
+        conn.close().await.ok();
+    }
 
     sqlx::query("PRAGMA foreign_keys = 1;")
         .execute(&db_pool)

@@ -81,7 +81,10 @@ fn parses_the_full_model() {
 
     let status = p.column("status").unwrap();
     assert!(status.is_enum);
-    assert_eq!(status.check_in.as_deref().unwrap(), ["draft", "published", "archived"]);
+    assert_eq!(
+        status.check_in.as_deref().unwrap(),
+        ["draft", "published", "archived"]
+    );
     assert_eq!(status.default, Some(DefaultValue::Text("draft".into())));
 
     // FK target resolved from struct name to table name.
@@ -105,17 +108,17 @@ fn generates_create_table_sql() {
     let sql = create_table_sql(schema.table("products").unwrap());
     assert_eq!(
         sql,
-        "CREATE TABLE products (\n    \
-             id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n    \
-             slug TEXT NOT NULL UNIQUE,\n    \
-             name TEXT NOT NULL,\n    \
-             description TEXT,\n    \
-             price REAL NOT NULL DEFAULT 0,\n    \
-             status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),\n    \
-             event_id INTEGER NOT NULL,\n    \
-             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \
-             dimensions TEXT,\n    \
-             FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE\n\
+        "CREATE TABLE \"products\" (\n    \
+             \"id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,\n    \
+             \"slug\" TEXT NOT NULL UNIQUE,\n    \
+             \"name\" TEXT NOT NULL,\n    \
+             \"description\" TEXT,\n    \
+             \"price\" REAL NOT NULL DEFAULT 0,\n    \
+             \"status\" TEXT NOT NULL DEFAULT 'draft' CHECK (\"status\" IN ('draft', 'published', 'archived')),\n    \
+             \"event_id\" INTEGER NOT NULL,\n    \
+             \"created_at\" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \
+             \"dimensions\" TEXT,\n    \
+             FOREIGN KEY (\"event_id\") REFERENCES \"events\"(\"id\") ON DELETE CASCADE\n\
          );"
     );
 }
@@ -131,11 +134,11 @@ fn new_table_is_created_and_removed_table_dropped() {
     let new = v1();
 
     let m = diff_schemas(&old, &new).unwrap().unwrap();
-    assert!(m.sql.starts_with("CREATE TABLE products ("));
+    assert!(m.sql.starts_with("CREATE TABLE \"products\" ("));
     assert!(!m.destructive);
 
     let back = diff_schemas(&new, &old).unwrap().unwrap();
-    assert_eq!(back.sql, "DROP TABLE products;\n");
+    assert_eq!(back.sql, "DROP TABLE \"products\";\n");
     assert!(back.destructive);
 }
 
@@ -145,10 +148,16 @@ fn simple_added_column_uses_alter_table() {
         "pub name: String,",
         "pub name: String,\n    pub archived_at: Option<NaiveDateTime>,",
     );
-    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
-        .unwrap()
-        .unwrap();
-    assert_eq!(m.sql, "ALTER TABLE products ADD COLUMN archived_at TIMESTAMP;\n");
+    let m = diff_schemas(
+        &v1(),
+        &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        m.sql,
+        "ALTER TABLE \"products\" ADD COLUMN \"archived_at\" TIMESTAMP;\n"
+    );
     assert!(!m.destructive && !m.needs_manual_edit);
 }
 
@@ -158,10 +167,16 @@ fn renamed_column_uses_rename_column() {
         "pub name: String,",
         "#[orm(renamed_from = \"name\")]\n    pub title: String,",
     );
-    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
-        .unwrap()
-        .unwrap();
-    assert_eq!(m.sql, "ALTER TABLE products RENAME COLUMN name TO title;\n");
+    let m = diff_schemas(
+        &v1(),
+        &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        m.sql,
+        "ALTER TABLE \"products\" RENAME COLUMN \"name\" TO \"title\";\n"
+    );
 
     // Attribute left in place after the migration ran: no-op, not a re-rename.
     let renamed = schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]);
@@ -171,10 +186,16 @@ fn renamed_column_uses_rename_column() {
 #[test]
 fn dropped_column_is_destructive() {
     let new_src = PRODUCT_V1.replace("pub description: Option<String>,", "");
-    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
-        .unwrap()
-        .unwrap();
-    assert_eq!(m.sql, "ALTER TABLE products DROP COLUMN description;\n");
+    let m = diff_schemas(
+        &v1(),
+        &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        m.sql,
+        "ALTER TABLE \"products\" DROP COLUMN \"description\";\n"
+    );
     assert!(m.destructive);
 }
 
@@ -184,26 +205,38 @@ fn type_change_rebuilds_the_table() {
         "#[orm(default = 0.0)]\n    pub price: f64,",
         "#[orm(default = 0)]\n    pub price: i64,",
     );
-    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
-        .unwrap()
-        .unwrap();
-    assert!(m.sql.contains("CREATE TABLE products_new ("));
-    assert!(m.sql.contains("price INTEGER NOT NULL DEFAULT 0"));
+    let m = diff_schemas(
+        &v1(),
+        &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(m.sql.contains("CREATE TABLE \"products_new\" ("));
+    assert!(m.sql.contains("\"price\" INTEGER NOT NULL DEFAULT 0"));
     // Existing rows are copied across, column list intact.
     assert!(m.sql.contains(
-        "INSERT INTO products_new (id, slug, name, description, price, status, event_id, created_at, dimensions)"
+        "INSERT INTO \"products_new\" (\"id\", \"slug\", \"name\", \"description\", \"price\", \"status\", \"event_id\", \"created_at\", \"dimensions\")"
     ));
-    assert!(m.sql.contains("DROP TABLE products;"));
-    assert!(m.sql.contains("ALTER TABLE products_new RENAME TO products;"));
+    assert!(m.sql.contains("DROP TABLE \"products\";"));
+    assert!(
+        m.sql
+            .contains("ALTER TABLE \"products_new\" RENAME TO \"products\";")
+    );
     assert!(!m.destructive && !m.needs_manual_edit);
 }
 
 #[test]
 fn new_not_null_column_without_default_needs_manual_backfill() {
-    let new_src = PRODUCT_V1.replace("pub name: String,", "pub name: String,\n    pub sku: String,");
-    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
-        .unwrap()
-        .unwrap();
+    let new_src = PRODUCT_V1.replace(
+        "pub name: String,",
+        "pub name: String,\n    pub sku: String,",
+    );
+    let m = diff_schemas(
+        &v1(),
+        &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]),
+    )
+    .unwrap()
+    .unwrap();
     assert!(m.needs_manual_edit);
     assert!(m.sql.contains("/* TODO: backfill NOT NULL column sku */"));
 }
@@ -214,20 +247,29 @@ fn added_unique_column_forces_a_rebuild() {
         "pub name: String,",
         "pub name: String,\n    #[orm(unique)]\n    pub sku: Option<String>,",
     );
-    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
-        .unwrap()
-        .unwrap();
-    assert!(m.sql.contains("CREATE TABLE products_new ("));
-    assert!(m.sql.contains("sku TEXT UNIQUE"));
+    let m = diff_schemas(
+        &v1(),
+        &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(m.sql.contains("CREATE TABLE \"products_new\" ("));
+    assert!(m.sql.contains("\"sku\" TEXT UNIQUE"));
 }
 
 #[test]
 fn enum_value_change_rebuilds_with_new_check() {
     let new_src = PRODUCT_V1.replace("Archived,", "Archived,\n    Discontinued,");
-    let m = diff_schemas(&v1(), &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]))
-        .unwrap()
-        .unwrap();
-    assert!(m.sql.contains("CHECK (status IN ('draft', 'published', 'archived', 'discontinued'))"));
+    let m = diff_schemas(
+        &v1(),
+        &schema_of(&[("event.rs", EVENT), ("product.rs", &new_src)]),
+    )
+    .unwrap()
+    .unwrap();
+    assert!(
+        m.sql
+            .contains("CHECK (\"status\" IN ('draft', 'published', 'archived', 'discontinued'))")
+    );
 }
 
 #[test]
@@ -243,7 +285,7 @@ pub struct EventManager {
 "#;
     let schema = schema_of(&[("event.rs", EVENT), ("event_manager.rs", src)]);
     let sql = create_table_sql(schema.table("event_managers").unwrap());
-    assert!(sql.contains("PRIMARY KEY (event_id, user_id)"));
+    assert!(sql.contains("PRIMARY KEY (\"event_id\", \"user_id\")"));
     assert!(!sql.contains("AUTOINCREMENT"));
 }
 
@@ -267,19 +309,25 @@ pub struct Account {
     assert!(role.is_enum && role.check_in.is_none());
     assert_eq!(role.ty, SqlType::Text);
     let sql = create_table_sql(t);
-    assert!(sql.contains("role TEXT NOT NULL DEFAULT 'none'"));
+    assert!(sql.contains("\"role\" TEXT NOT NULL DEFAULT 'none'"));
     assert!(!sql.contains("CHECK"));
 
     // #[orm(index)]: separate CREATE INDEX statement, emitted on create.
     let m = diff_schemas(&Schema::default(), &schema).unwrap().unwrap();
-    assert!(m.sql.contains("CREATE INDEX idx_accounts_team_id ON accounts (team_id);"));
+    assert!(
+        m.sql
+            .contains("CREATE INDEX \"idx_accounts_team_id\" ON \"accounts\" (\"team_id\");")
+    );
 
     // Removing the index later is a plain DROP INDEX, not a rebuild.
     let without = schema_of(&[("account.rs", &src.replace("#[orm(index)]\n    ", ""))]);
     let m = diff_schemas(&schema, &without).unwrap().unwrap();
-    assert_eq!(m.sql, "DROP INDEX IF EXISTS idx_accounts_team_id;\n");
+    assert_eq!(m.sql, "DROP INDEX IF EXISTS \"idx_accounts_team_id\";\n");
     let back = diff_schemas(&without, &schema).unwrap().unwrap();
-    assert_eq!(back.sql, "CREATE INDEX idx_accounts_team_id ON accounts (team_id);\n");
+    assert_eq!(
+        back.sql,
+        "CREATE INDEX \"idx_accounts_team_id\" ON \"accounts\" (\"team_id\");\n"
+    );
 }
 
 #[test]
@@ -295,32 +343,44 @@ pub struct Registration {
 "#;
     let schema = schema_of(&[("registration.rs", src)]);
     let t = schema.table("registrations").unwrap();
-    assert_eq!(t.composite_uniques, vec![vec!["user_id".to_string(), "run_id".to_string()]]);
+    assert_eq!(
+        t.composite_uniques,
+        vec![vec!["user_id".to_string(), "run_id".to_string()]]
+    );
 
     // Emitted as a CREATE UNIQUE INDEX at table-creation time, not an inline
     // table constraint (so it can be added/dropped without a rebuild).
     let m = diff_schemas(&Schema::default(), &schema).unwrap().unwrap();
     assert!(
         m.sql.contains(
-            "CREATE UNIQUE INDEX idx_registrations_user_id_run_id ON registrations (user_id, run_id);"
+            "CREATE UNIQUE INDEX \"idx_registrations_user_id_run_id\" ON \"registrations\" (\"user_id\", \"run_id\");"
         ),
         "got: {}",
         m.sql
     );
     let create = create_table_sql(t);
-    assert!(!create.contains("UNIQUE (user_id, run_id)"), "should not be inline: {create}");
+    assert!(
+        !create.contains("UNIQUE (\"user_id\", \"run_id\")"),
+        "should not be inline: {create}"
+    );
 
     // Composite constraints survive a snapshot round-trip too.
     assert_eq!(schema_from_json(&schema_to_json(&schema)).unwrap(), schema);
 
     // Removing it later is a plain DROP INDEX, not a rebuild.
-    let without = schema_of(&[("registration.rs", &src.replace("#[orm(unique(user_id, run_id))]\n", ""))]);
+    let without = schema_of(&[(
+        "registration.rs",
+        &src.replace("#[orm(unique(user_id, run_id))]\n", ""),
+    )]);
     let m = diff_schemas(&schema, &without).unwrap().unwrap();
-    assert_eq!(m.sql, "DROP INDEX IF EXISTS idx_registrations_user_id_run_id;\n");
+    assert_eq!(
+        m.sql,
+        "DROP INDEX IF EXISTS \"idx_registrations_user_id_run_id\";\n"
+    );
     let back = diff_schemas(&without, &schema).unwrap().unwrap();
     assert_eq!(
         back.sql,
-        "CREATE UNIQUE INDEX idx_registrations_user_id_run_id ON registrations (user_id, run_id);\n"
+        "CREATE UNIQUE INDEX \"idx_registrations_user_id_run_id\" ON \"registrations\" (\"user_id\", \"run_id\");\n"
     );
 }
 
@@ -347,7 +407,9 @@ pub struct EventManager {
 
     let m = diff_schemas(&Schema::default(), &schema).unwrap().unwrap();
     assert!(
-        m.sql.contains("CREATE INDEX idx_event_managers_user_id ON event_managers (user_id);"),
+        m.sql.contains(
+            "CREATE INDEX \"idx_event_managers_user_id\" ON \"event_managers\" (\"user_id\");"
+        ),
         "got: {}",
         m.sql
     );
@@ -378,9 +440,17 @@ fn unsupported_types_and_missing_pk_are_rejected() {
     let no_pk = "#[derive(Table)]\npub struct Setting { pub key: String }";
     assert!(parse_sources(&[("s.rs".into(), no_pk.into())]).is_err());
 
-    let bad_type = "#[derive(Table)]\npub struct Thing { pub id: i64, pub blob: HashMap<String, u8> }";
+    let bad_type =
+        "#[derive(Table)]\npub struct Thing { pub id: i64, pub blob: HashMap<String, u8> }";
     let err = parse_sources(&[("t.rs".into(), bad_type.into())]).unwrap_err();
     assert!(err.message.contains("Thing.blob"), "got: {err}");
+
+    // u64/usize/isize map to nothing SQLite can store (INTEGER is i64 and
+    // sqlx-sqlite cannot encode them) — rejected with a pointed message, not
+    // the generic "unsupported type" one.
+    let big = "#[derive(Table)]\npub struct Thing { pub id: i64, pub big: u64 }";
+    let err = parse_sources(&[("t.rs".into(), big.into())]).unwrap_err();
+    assert!(err.message.contains("use i64"), "got: {err}");
 }
 
 #[test]

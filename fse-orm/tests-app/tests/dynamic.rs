@@ -22,7 +22,9 @@ async fn setup() -> sqlx::SqlitePool {
         .foreign_keys(true);
     let db = sqlx::SqlitePool::connect_with(options).await.unwrap();
 
-    let event = insert!(Event, &db, name = "Fair".to_string()).await.unwrap();
+    let event = insert!(Event, &db, name = "Fair".to_string())
+        .await
+        .unwrap();
     for (slug, name, status, price) in [
         ("blue-shirt", "Blue Shirt", ProductStatus::Published, 20.0),
         ("red-shirt", "Red Shirt", ProductStatus::Published, 25.0),
@@ -85,12 +87,14 @@ async fn runtime_composed_select() {
         .await
         .unwrap();
     assert_eq!(in_list.len(), 2);
-    assert!(Product::find()
-        .filter(Product::SLUG.in_(Vec::<String>::new()))
-        .fetch_all(&db)
-        .await
-        .unwrap()
-        .is_empty());
+    assert!(
+        Product::find()
+            .filter(Product::SLUG.in_(Vec::<String>::new()))
+            .fetch_all(&db)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 
     let cheap = Product::find()
         .filter(Product::PRICE.lt(10.0))
@@ -106,6 +110,59 @@ async fn runtime_composed_select() {
         .unwrap()
         .unwrap();
     assert_eq!(one.name, "Coffee Mug");
+}
+
+/// `Cond::and`/`Cond::or` merge SQL fragments and bind lists by hand
+/// (column.rs `combine`) — these assert the grouping actually holds against
+/// real rows, including the zero-bind (`is_null`) boundary case.
+#[tokio::test]
+async fn nested_and_or_conditions_group_correctly() {
+    let db = setup().await;
+    let slugs = |rows: &[Product]| rows.iter().map(|p| p.slug.clone()).collect::<Vec<_>>();
+
+    // status = published AND (slug = mug OR slug = old-cap): the OR must stay
+    // grouped — ungrouped precedence would also match the archived old-cap.
+    let rows = Product::find()
+        .filter(Product::STATUS.eq(ProductStatus::Published))
+        .filter(Product::SLUG.eq("mug").or(Product::SLUG.eq("old-cap")))
+        .fetch_all(&db)
+        .await
+        .unwrap();
+    assert_eq!(slugs(&rows), ["mug"]);
+
+    // slug = old-cap OR (status = published AND price < 10).
+    let rows = Product::find()
+        .filter(
+            Product::SLUG.eq("old-cap").or(Product::STATUS
+                .eq(ProductStatus::Published)
+                .and(Product::PRICE.lt(10.0))),
+        )
+        .order_by(Product::ID.asc())
+        .fetch_all(&db)
+        .await
+        .unwrap();
+    assert_eq!(slugs(&rows), ["mug", "old-cap"]);
+
+    // A zero-bind condition (is_null) merged with a bound one — every product
+    // has description NULL, so the OR arm is what matches.
+    let rows = Product::find()
+        .filter(Product::DESCRIPTION.is_null().or(Product::PRICE.gt(1000.0)))
+        .fetch_all(&db)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 4);
+
+    // ...and the mirror image, bound OR zero-bind.
+    let rows = Product::find()
+        .filter(
+            Product::PRICE
+                .gt(1000.0)
+                .or(Product::DESCRIPTION.is_not_null()),
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+    assert!(rows.is_empty());
 }
 
 #[tokio::test]
@@ -131,12 +188,19 @@ async fn pagination_and_writes() {
         .await
         .unwrap();
     assert_eq!(updated, 1);
-    let mug = Product::find().filter(Product::SLUG.eq("mug")).fetch_one(&db).await.unwrap();
+    let mug = Product::find()
+        .filter(Product::SLUG.eq("mug"))
+        .fetch_one(&db)
+        .await
+        .unwrap();
     assert_eq!(mug.price, 9.5);
     assert_eq!(mug.status, ProductStatus::Draft);
 
     // set() without filter is an error only when there is nothing to set.
-    let err = Product::update_set().filter(Product::ID.eq(1i64)).execute(&db).await;
+    let err = Product::update_set()
+        .filter(Product::ID.eq(1i64))
+        .execute(&db)
+        .await;
     assert!(err.is_err());
 
     // Dynamic delete.

@@ -41,7 +41,11 @@ impl Parse for InsertInput {
             let value: syn::Expr = input.parse()?;
             assignments.push((column, value));
         }
-        Ok(Self { table_ident, db, assignments })
+        Ok(Self {
+            table_ident,
+            db,
+            assignments,
+        })
     }
 }
 
@@ -68,7 +72,9 @@ pub fn expand(input: &InsertInput) -> syn::Result<TokenStream> {
         if Some(name.as_str()) == auto_id_col {
             return Err(syn::Error::new(
                 column_ident.span(),
-                format!("`{name}` is an auto-increment primary key and cannot be inserted explicitly"),
+                format!(
+                    "`{name}` is an auto-increment primary key and cannot be inserted explicitly"
+                ),
             ));
         }
         if col_names.contains(&name) {
@@ -121,14 +127,18 @@ pub fn expand(input: &InsertInput) -> syn::Result<TokenStream> {
     }
 
     let select_list = codegen::select_list(&table.columns);
+    let quoted_table = fse_schema::sql::quote_ident(&table.name);
     let sql = if col_names.is_empty() {
-        format!("INSERT INTO {} DEFAULT VALUES RETURNING {select_list}", table.name)
+        format!("INSERT INTO {quoted_table} DEFAULT VALUES RETURNING {select_list}")
     } else {
         let marks = vec!["?"; col_names.len()].join(", ");
         format!(
-            "INSERT INTO {} ({}) VALUES ({marks}) RETURNING {select_list}",
-            table.name,
-            col_names.join(", ")
+            "INSERT INTO {quoted_table} ({}) VALUES ({marks}) RETURNING {select_list}",
+            col_names
+                .iter()
+                .map(|c| fse_schema::sql::quote_ident(c))
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     };
 

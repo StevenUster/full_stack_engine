@@ -36,18 +36,27 @@ pub fn compile(expr: &syn::Expr, table: &TableDef, qualifier: Option<&str>) -> s
     if let syn::Expr::Path(p) = expr
         && p.path.is_ident("all")
     {
-        return Ok(Filter { sql: String::new(), locals: Vec::new(), args: Vec::new() });
+        return Ok(Filter {
+            sql: String::new(),
+            locals: Vec::new(),
+            args: Vec::new(),
+        });
     }
-    let mut filter = Filter { sql: String::new(), locals: Vec::new(), args: Vec::new() };
+    let mut filter = Filter {
+        sql: String::new(),
+        locals: Vec::new(),
+        args: Vec::new(),
+    };
     let sql = walk(expr, table, qualifier, &mut filter)?;
     filter.sql = sql;
     Ok(filter)
 }
 
 fn qualified(name: &str, qualifier: Option<&str>) -> String {
+    let name = fse_schema::sql::quote_ident(name);
     match qualifier {
-        Some(q) => format!("{q}.{name}"),
-        None => name.to_string(),
+        Some(q) => format!("{}.{name}", fse_schema::sql::quote_ident(q)),
+        None => name,
     }
 }
 
@@ -76,7 +85,10 @@ fn walk(
             syn::BinOp::Le(_) => comparison(b, "<=", table, qualifier, out),
             syn::BinOp::Gt(_) => comparison(b, ">", table, qualifier, out),
             syn::BinOp::Ge(_) => comparison(b, ">=", table, qualifier, out),
-            _ => Err(syn::Error::new(b.op.span(), "unsupported operator in filter")),
+            _ => Err(syn::Error::new(
+                b.op.span(),
+                "unsupported operator in filter",
+            )),
         },
         syn::Expr::MethodCall(call) => method(call, table, qualifier, out),
         other => Err(syn::Error::new(
@@ -112,14 +124,20 @@ fn method(
         if call.args.len() == 1 {
             Ok(&call.args[0])
         } else {
-            Err(syn::Error::new(call.span(), format!("{method} takes exactly one argument")))
+            Err(syn::Error::new(
+                call.span(),
+                format!("{method} takes exactly one argument"),
+            ))
         }
     };
 
     match method.as_str() {
         "is_null" | "is_not_null" => {
             if !call.args.is_empty() {
-                return Err(syn::Error::new(call.span(), format!("{method} takes no arguments")));
+                return Err(syn::Error::new(
+                    call.span(),
+                    format!("{method} takes no arguments"),
+                ));
             }
             Ok(if method == "is_null" {
                 format!("{name} IS NULL")
@@ -139,7 +157,9 @@ fn method(
             // Escaping never adds/removes emptiness, so the `= ''` "no
             // filter" test still sees the user's empty string.
             let arg = bind_like(one_arg()?, true, out);
-            Ok(format!("({arg} = '' OR {name} LIKE '%' || {arg} || '%' ESCAPE '\\')"))
+            Ok(format!(
+                "({arg} = '' OR {name} LIKE '%' || {arg} || '%' ESCAPE '\\')"
+            ))
         }
         "eq_opt" | "ne_opt" | "lt_opt" | "lte_opt" | "gt_opt" | "gte_opt" => {
             let op = match method.as_str() {
@@ -213,7 +233,8 @@ fn bind_twice(expr: &syn::Expr, out: &mut Filter) -> String {
 /// widen a filter.
 fn bind_like(expr: &syn::Expr, twice: bool, out: &mut Filter) -> String {
     let name = format_ident!("__fb{}", out.locals.len());
-    out.locals.push(quote! { let #name = ::fse_orm::escape_like(#expr); });
+    out.locals
+        .push(quote! { let #name = ::fse_orm::escape_like(#expr); });
     if twice {
         out.args.push(name.clone());
     }

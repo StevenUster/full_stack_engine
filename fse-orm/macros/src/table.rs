@@ -73,7 +73,10 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
         .map(|r| {
             let target = crate::lookup::load_table(&r.target_struct, span)?;
             crate::relation::helper_fn_def(
-                &crate::relation::Included { relation: r.clone(), target },
+                &crate::relation::Included {
+                    relation: r.clone(),
+                    target,
+                },
                 span,
             )
         })
@@ -92,6 +95,7 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
 
     let ident = &item.ident;
     let table_name = &table.name;
+    let quoted_table = fse_schema::sql::quote_ident(table_name);
     let pk_cols: Vec<&Col> = cols.iter().filter(|c| c.def.primary_key).collect();
     let non_pk_cols: Vec<&Col> = cols.iter().filter(|c| !c.def.primary_key).collect();
 
@@ -103,14 +107,14 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
         hoist_binds(pk_cols.iter().map(|c| param_bind(c)).collect());
     let pk_where = pk_cols
         .iter()
-        .map(|c| format!("{} = ?", c.def.name))
+        .map(|c| format!("{} = ?", fse_schema::sql::quote_ident(&c.def.name)))
         .collect::<Vec<_>>()
         .join(" AND ");
 
-    let fetch_sql = format!("SELECT {select_list} FROM {table_name} WHERE {pk_where}");
-    let fetch_all_sql = format!("SELECT {select_list} FROM {table_name}");
-    let count_sql = format!("SELECT COUNT(*) as \"count!: i64\" FROM {table_name}");
-    let delete_sql = format!("DELETE FROM {table_name} WHERE {pk_where}");
+    let fetch_sql = format!("SELECT {select_list} FROM {quoted_table} WHERE {pk_where}");
+    let fetch_all_sql = format!("SELECT {select_list} FROM {quoted_table}");
+    let count_sql = format!("SELECT COUNT(*) as \"count!: i64\" FROM {quoted_table}");
+    let delete_sql = format!("DELETE FROM {quoted_table} WHERE {pk_where}");
 
     let mut methods = vec![quote! {
         pub async fn fetch(
@@ -151,7 +155,10 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
         let method = format_ident!("fetch_by_{}", c.ident);
         let param = fn_param(c);
         let (bind_local, bind_name) = hoist_binds(vec![param_bind(c)]);
-        let sql = format!("SELECT {select_list} FROM {table_name} WHERE {} = ?", c.def.name);
+        let sql = format!(
+            "SELECT {select_list} FROM {quoted_table} WHERE {} = ?",
+            fse_schema::sql::quote_ident(&c.def.name)
+        );
         methods.push(quote! {
             pub async fn #method(
                 db: impl ::sqlx::SqliteExecutor<'_>,
@@ -171,10 +178,10 @@ pub fn expand(item: &syn::ItemStruct) -> syn::Result<TokenStream> {
     if !non_pk_cols.is_empty() {
         let set_list = non_pk_cols
             .iter()
-            .map(|c| format!("{} = ?", c.def.name))
+            .map(|c| format!("{} = ?", fse_schema::sql::quote_ident(&c.def.name)))
             .collect::<Vec<_>>()
             .join(", ");
-        let sql = format!("UPDATE {table_name} SET {set_list} WHERE {pk_where}");
+        let sql = format!("UPDATE {quoted_table} SET {set_list} WHERE {pk_where}");
         let locals: Vec<TokenStream> = non_pk_cols.iter().filter_map(|c| json_local(c)).collect();
         let (bind_locals, bind_names) = hoist_binds(
             non_pk_cols
@@ -373,4 +380,3 @@ fn param_bind(c: &Col) -> TokenStream {
         quote! { #id }
     }
 }
-

@@ -23,7 +23,9 @@ async fn setup() -> sqlx::SqlitePool {
         .foreign_keys(true);
     let db = sqlx::SqlitePool::connect_with(options).await.unwrap();
 
-    let event = insert!(Event, &db, name = "Fair".to_string()).await.unwrap();
+    let event = insert!(Event, &db, name = "Fair".to_string())
+        .await
+        .unwrap();
     for (slug, name, status, price) in [
         ("blue-shirt", "Blue Shirt", ProductStatus::Published, 20.0),
         ("red-shirt", "Red Shirt", ProductStatus::Published, 25.0),
@@ -56,7 +58,10 @@ const PAYLOADS: &[&str] = &[
 ];
 
 async fn products_still_intact(db: &sqlx::SqlitePool) {
-    let count = Product::find().count(db).await.expect("products table survives");
+    let count = Product::find()
+        .count(db)
+        .await
+        .expect("products table survives");
     assert_eq!(count, 3, "row count changed — a payload executed as SQL");
 }
 
@@ -71,7 +76,10 @@ async fn builder_eq_treats_payload_as_data() {
             .fetch_all(&db)
             .await
             .expect("query runs, payload bound as a value");
-        assert!(hits.is_empty(), "payload {payload:?} matched a row via eq()");
+        assert!(
+            hits.is_empty(),
+            "payload {payload:?} matched a row via eq()"
+        );
         products_still_intact(&db).await;
     }
 }
@@ -85,7 +93,10 @@ async fn builder_like_and_in_treat_payload_as_data() {
             .fetch_all(&db)
             .await
             .expect("contains payload bound");
-        assert!(contains.is_empty(), "payload {payload:?} matched via contains()");
+        assert!(
+            contains.is_empty(),
+            "payload {payload:?} matched via contains()"
+        );
 
         let in_list = Product::find()
             .filter(Product::SLUG.in_(vec![payload.to_string(), "mug".into()]))
@@ -145,7 +156,9 @@ async fn builder_update_and_delete_treat_payload_as_data() {
 async fn checked_macros_treat_payload_as_data() {
     let db = setup().await;
     for payload in PAYLOADS {
-        let hit = find_one!(Product, &db, slug == *payload).await.expect("checked query runs");
+        let hit = find_one!(Product, &db, slug == *payload)
+            .await
+            .expect("checked query runs");
         assert!(hit.is_none(), "payload {payload:?} matched via find_one!");
 
         let n = update!(

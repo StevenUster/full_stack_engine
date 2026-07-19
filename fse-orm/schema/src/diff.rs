@@ -8,7 +8,7 @@
 
 use crate::error::Error;
 use crate::model::{ColumnDef, DefaultValue, Schema, TableDef};
-use crate::sql::{column_sql, composite_index_name, create_table_sql, index_name};
+use crate::sql::{column_sql, composite_index_name, create_table_sql, index_name, quote_ident};
 
 #[derive(Debug, Clone)]
 pub struct Migration {
@@ -56,7 +56,7 @@ pub fn diff_schemas(old: &Schema, new: &Schema) -> Result<Option<Migration>, Err
     }
     for t in &old.tables {
         if new.table(&t.name).is_none() {
-            stmts.push(format!("DROP TABLE {};", t.name));
+            stmts.push(format!("DROP TABLE {};", quote_ident(&t.name)));
             summary.push(format!("drop {}", t.name));
             destructive = true;
         }
@@ -135,21 +135,32 @@ fn diff_table(
         .iter()
         .filter_map(|c| {
             let old_c = eff.column(&c.name)?;
-            (old_c.index != c.index && old_c.signature() == c.signature())
-                .then_some((c, c.index))
+            (old_c.index != c.index && old_c.signature() == c.signature()).then_some((c, c.index))
         })
         .collect();
 
     // Composite unique/index changes: also plain CREATE/DROP INDEX, never a
     // rebuild by themselves (same reasoning as single-column `index_changes`).
-    let unique_added: Vec<&Vec<String>> =
-        new.composite_uniques.iter().filter(|c| !old.composite_uniques.contains(c)).collect();
-    let unique_removed: Vec<&Vec<String>> =
-        old.composite_uniques.iter().filter(|c| !new.composite_uniques.contains(c)).collect();
-    let index_added: Vec<&Vec<String>> =
-        new.composite_indexes.iter().filter(|c| !old.composite_indexes.contains(c)).collect();
-    let index_removed: Vec<&Vec<String>> =
-        old.composite_indexes.iter().filter(|c| !new.composite_indexes.contains(c)).collect();
+    let unique_added: Vec<&Vec<String>> = new
+        .composite_uniques
+        .iter()
+        .filter(|c| !old.composite_uniques.contains(c))
+        .collect();
+    let unique_removed: Vec<&Vec<String>> = old
+        .composite_uniques
+        .iter()
+        .filter(|c| !new.composite_uniques.contains(c))
+        .collect();
+    let index_added: Vec<&Vec<String>> = new
+        .composite_indexes
+        .iter()
+        .filter(|c| !old.composite_indexes.contains(c))
+        .collect();
+    let index_removed: Vec<&Vec<String>> = old
+        .composite_indexes
+        .iter()
+        .filter(|c| !new.composite_indexes.contains(c))
+        .collect();
 
     if renames.is_empty()
         && added.is_empty()
@@ -174,10 +185,26 @@ fn diff_table(
             .iter()
             .map(|(c, on)| format!("{} {}", if *on { "index" } else { "unindex" }, c.name)),
     );
-    bits.extend(unique_added.iter().map(|c| format!("unique({})", c.join(","))));
-    bits.extend(unique_removed.iter().map(|c| format!("drop unique({})", c.join(","))));
-    bits.extend(index_added.iter().map(|c| format!("index({})", c.join(","))));
-    bits.extend(index_removed.iter().map(|c| format!("drop index({})", c.join(","))));
+    bits.extend(
+        unique_added
+            .iter()
+            .map(|c| format!("unique({})", c.join(","))),
+    );
+    bits.extend(
+        unique_removed
+            .iter()
+            .map(|c| format!("drop unique({})", c.join(","))),
+    );
+    bits.extend(
+        index_added
+            .iter()
+            .map(|c| format!("index({})", c.join(","))),
+    );
+    bits.extend(
+        index_removed
+            .iter()
+            .map(|c| format!("drop index({})", c.join(","))),
+    );
 
     let rebuild = !changed.is_empty()
         || added.iter().any(|c| !can_add_column(c))
@@ -197,9 +224,17 @@ fn diff_table(
             if let Some(c) = new.column(to)
                 && c.index
             {
-                stmts.push(format!("DROP INDEX IF EXISTS {};", index_name(&new.name, from)));
+                stmts.push(format!(
+                    "DROP INDEX IF EXISTS {};",
+                    quote_ident(&index_name(&new.name, from))
+                ));
             }
-            stmts.push(format!("ALTER TABLE {} RENAME COLUMN {from} TO {to};", new.name));
+            stmts.push(format!(
+                "ALTER TABLE {} RENAME COLUMN {} TO {};",
+                quote_ident(&new.name),
+                quote_ident(from),
+                quote_ident(to)
+            ));
             if let Some(c) = new.column(to)
                 && c.index
             {
@@ -207,41 +242,64 @@ fn diff_table(
             }
         }
         for c in &added {
-            stmts.push(format!("ALTER TABLE {} ADD COLUMN {};", new.name, column_sql(c, false)));
+            stmts.push(format!(
+                "ALTER TABLE {} ADD COLUMN {};",
+                quote_ident(&new.name),
+                column_sql(c, false)
+            ));
             if c.index {
                 stmts.push(create_index_sql(&new.name, &c.name));
             }
         }
         for c in &dropped {
-            stmts.push(format!("ALTER TABLE {} DROP COLUMN {};", new.name, c.name));
+            stmts.push(format!(
+                "ALTER TABLE {} DROP COLUMN {};",
+                quote_ident(&new.name),
+                quote_ident(&c.name)
+            ));
         }
         for (c, on) in &index_changes {
             stmts.push(if *on {
                 create_index_sql(&new.name, &c.name)
             } else {
-                format!("DROP INDEX IF EXISTS {};", index_name(&new.name, &c.name))
+                format!(
+                    "DROP INDEX IF EXISTS {};",
+                    quote_ident(&index_name(&new.name, &c.name))
+                )
             });
         }
         for cols in &unique_removed {
-            stmts.push(format!("DROP INDEX IF EXISTS {};", composite_index_name(&new.name, cols)));
+            stmts.push(format!(
+                "DROP INDEX IF EXISTS {};",
+                quote_ident(&composite_index_name(&new.name, cols))
+            ));
         }
         for cols in &unique_added {
             stmts.push(format!(
                 "CREATE UNIQUE INDEX {} ON {} ({});",
-                composite_index_name(&new.name, cols),
-                new.name,
-                cols.join(", "),
+                quote_ident(&composite_index_name(&new.name, cols)),
+                quote_ident(&new.name),
+                cols.iter()
+                    .map(|c| quote_ident(c))
+                    .collect::<Vec<_>>()
+                    .join(", "),
             ));
         }
         for cols in &index_removed {
-            stmts.push(format!("DROP INDEX IF EXISTS {};", composite_index_name(&new.name, cols)));
+            stmts.push(format!(
+                "DROP INDEX IF EXISTS {};",
+                quote_ident(&composite_index_name(&new.name, cols))
+            ));
         }
         for cols in &index_added {
             stmts.push(format!(
                 "CREATE INDEX {} ON {} ({});",
-                composite_index_name(&new.name, cols),
-                new.name,
-                cols.join(", "),
+                quote_ident(&composite_index_name(&new.name, cols)),
+                quote_ident(&new.name),
+                cols.iter()
+                    .map(|c| quote_ident(c))
+                    .collect::<Vec<_>>()
+                    .join(", "),
             ));
         }
         summary.push(format!("{}: {}", new.name, bits.join(", ")));
@@ -253,7 +311,12 @@ fn diff_table(
 }
 
 fn create_index_sql(table: &str, column: &str) -> String {
-    format!("CREATE INDEX {} ON {table} ({column});", index_name(table, column))
+    format!(
+        "CREATE INDEX {} ON {} ({});",
+        quote_ident(&index_name(table, column)),
+        quote_ident(table),
+        quote_ident(column)
+    )
 }
 
 /// SQLite `ALTER TABLE ... ADD COLUMN` restrictions: no PRIMARY KEY or
@@ -284,7 +347,7 @@ fn rebuild_table_sql(old: &TableDef, new: &TableDef, needs_manual_edit: &mut boo
     };
     let create = create_table_sql(&tmp);
 
-    let cols: Vec<String> = new.columns.iter().map(|c| c.name.clone()).collect();
+    let cols: Vec<String> = new.columns.iter().map(|c| quote_ident(&c.name)).collect();
     let exprs: Vec<String> = new
         .columns
         .iter()
@@ -292,10 +355,10 @@ fn rebuild_table_sql(old: &TableDef, new: &TableDef, needs_manual_edit: &mut boo
             if let Some(from) = &c.renamed_from
                 && old.column(from).is_some()
             {
-                return from.clone();
+                return quote_ident(from);
             }
             if old.column(&c.name).is_some() {
-                return c.name.clone();
+                return quote_ident(&c.name);
             }
             if let Some(d) = &c.default {
                 return d.sql();
@@ -312,10 +375,12 @@ fn rebuild_table_sql(old: &TableDef, new: &TableDef, needs_manual_edit: &mut boo
         "-- {table}: SQLite cannot express this change with ALTER TABLE, so the\n\
          -- table is rebuilt and its rows copied over.\n\
          {create}\n\n\
-         INSERT INTO {tmp_name} ({})\nSELECT {}\nFROM {table};\n\n\
-         DROP TABLE {table};\n\n\
-         ALTER TABLE {tmp_name} RENAME TO {table};",
+         INSERT INTO {qtmp} ({})\nSELECT {}\nFROM {qtable};\n\n\
+         DROP TABLE {qtable};\n\n\
+         ALTER TABLE {qtmp} RENAME TO {qtable};",
         cols.join(", "),
         exprs.join(", "),
+        qtmp = quote_ident(&tmp_name),
+        qtable = quote_ident(table),
     )
 }
