@@ -26,22 +26,21 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
-use fse_schema::Error;
+use color_eyre::eyre::{Result, WrapErr, bail};
 
 use crate::config::{self, OrmConfig};
 
-pub fn run(root: &Path, cfg: &OrmConfig, database_url: Option<&str>) -> Result<(), Error> {
+pub fn run(root: &Path, cfg: &OrmConfig, database_url: Option<&str>) -> Result<()> {
     let url = config::resolve_database_url(root, cfg, database_url)?;
 
     let cache_dir = root.join(".sqlx");
     fs::create_dir_all(&cache_dir)
-        .map_err(|e| Error::new(format!("cannot create {}: {e}", cache_dir.display())))?;
+        .wrap_err_with(|| format!("cannot create {}", cache_dir.display()))?;
 
     // Only delete our own query-*.json files, never touch anything else a
     // user may have placed in .sqlx.
     for file in query_files(&cache_dir)? {
-        fs::remove_file(&file)
-            .map_err(|e| Error::new(format!("cannot remove {}: {e}", file.display())))?;
+        fs::remove_file(&file).wrap_err_with(|| format!("cannot remove {}", file.display()))?;
     }
 
     touch_rs_files(&root.join("src"))?;
@@ -49,7 +48,7 @@ pub fn run(root: &Path, cfg: &OrmConfig, database_url: Option<&str>) -> Result<(
 
     let cache_dir_abs = cache_dir
         .canonicalize()
-        .map_err(|e| Error::new(format!("cannot resolve {}: {e}", cache_dir.display())))?;
+        .wrap_err_with(|| format!("cannot resolve {}", cache_dir.display()))?;
 
     println!("refreshing query cache ...");
     let status = Command::new("cargo")
@@ -60,12 +59,12 @@ pub fn run(root: &Path, cfg: &OrmConfig, database_url: Option<&str>) -> Result<(
         .env("SQLX_OFFLINE", "false")
         .env("SQLX_OFFLINE_DIR", &cache_dir_abs)
         .status()
-        .map_err(|e| Error::new(format!("failed to run `cargo check`: {e}")))?;
+        .wrap_err("failed to run `cargo check`")?;
 
     if !status.success() {
-        return Err(Error::new(
-            "`cargo check` failed while refreshing the query cache — fix the build error and rerun",
-        ));
+        bail!(
+            "`cargo check` failed while refreshing the query cache — fix the build error and rerun"
+        );
     }
 
     let count = query_files(&cache_dir)?.len();
@@ -82,13 +81,13 @@ pub fn run(root: &Path, cfg: &OrmConfig, database_url: Option<&str>) -> Result<(
     Ok(())
 }
 
-fn query_files(dir: &Path) -> Result<Vec<PathBuf>, Error> {
+fn query_files(dir: &Path) -> Result<Vec<PathBuf>> {
     if !dir.exists() {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for entry in fs::read_dir(dir).map_err(|e| Error::new(format!("{}: {e}", dir.display())))? {
-        let path = entry.map_err(|e| Error::new(e.to_string()))?.path();
+    for entry in fs::read_dir(dir).wrap_err_with(|| dir.display().to_string())? {
+        let path = entry.wrap_err_with(|| dir.display().to_string())?.path();
         let is_query_file = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -105,26 +104,24 @@ fn query_files(dir: &Path) -> Result<Vec<PathBuf>, Error> {
 /// calls whose SQL text hasn't changed — cargo's fingerprint has no way to
 /// know `SQLX_OFFLINE_DIR` changed, and would otherwise skip them via
 /// incremental compilation, silently never running the capture side effect.
-fn touch_rs_files(dir: &Path) -> Result<(), Error> {
+fn touch_rs_files(dir: &Path) -> Result<()> {
     if !dir.exists() {
         return Ok(());
     }
     let now = SystemTime::now();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(current) = stack.pop() {
-        for entry in
-            fs::read_dir(&current).map_err(|e| Error::new(format!("{}: {e}", current.display())))?
-        {
-            let path = entry.map_err(|e| Error::new(e.to_string()))?.path();
+        for entry in fs::read_dir(&current).wrap_err_with(|| current.display().to_string())? {
+            let path = entry.wrap_err_with(|| current.display().to_string())?.path();
             if path.is_dir() {
                 stack.push(path);
             } else if path.extension().is_some_and(|e| e == "rs") {
                 let file = fs::OpenOptions::new()
                     .write(true)
                     .open(&path)
-                    .map_err(|e| Error::new(format!("cannot open {}: {e}", path.display())))?;
+                    .wrap_err_with(|| format!("cannot open {}", path.display()))?;
                 file.set_modified(now)
-                    .map_err(|e| Error::new(format!("cannot touch {}: {e}", path.display())))?;
+                    .wrap_err_with(|| format!("cannot touch {}", path.display()))?;
             }
         }
     }

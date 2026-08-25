@@ -1,6 +1,7 @@
 //! The `fse` binary. `fse init` (introspect an existing database into table
 //! structs + snapshot) lands in build-order step 5.
 
+use color_eyre::eyre::{Result, WrapErr};
 use fse_cli::config;
 use fse_cli::migrate::{self, MigrateOpts};
 use fse_cli::modules;
@@ -37,10 +38,12 @@ tables_dir, migrations_dir, snapshot_path, database_url_env and
 [orm.required_columns] for framework-required table contracts.
 ";
 
-fn main() {
+fn main() -> Result<()> {
+    color_eyre::install()?;
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |name: &str| args.iter().any(|a| a == name);
-    let root = std::env::current_dir().expect("current dir");
+    let root = std::env::current_dir().wrap_err("cannot read the current directory")?;
 
     match args.first().map(String::as_str) {
         Some("migrate") => {
@@ -53,25 +56,16 @@ fn main() {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
-                .expect("tokio runtime");
-            if let Err(e) = runtime.block_on(migrate::run(&root, &opts)) {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
+                .wrap_err("cannot start the tokio runtime")?;
+            runtime.block_on(migrate::run(&root, &opts))?;
         }
         Some("prepare") => {
-            let result = config::load(&root).and_then(|cfg| prepare::run(&root, &cfg, None));
-            if let Err(e) = result {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
+            let cfg = config::load(&root)?;
+            prepare::run(&root, &cfg, None)?;
         }
         Some("sync") => {
-            let result = config::load(&root).and_then(|cfg| modules::sync(&root, &cfg));
-            if let Err(e) = result {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
+            let cfg = config::load(&root)?;
+            modules::sync(&root, &cfg)?;
         }
         None | Some("help") | Some("--help") | Some("-h") => print!("{HELP}"),
         Some(other) => {
@@ -79,4 +73,5 @@ fn main() {
             std::process::exit(2);
         }
     }
+    Ok(())
 }

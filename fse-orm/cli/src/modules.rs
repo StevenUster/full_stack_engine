@@ -6,7 +6,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use fse_schema::{Error, Schema, snapshot};
+use color_eyre::eyre::{Result, WrapErr, bail, eyre};
+use fse_schema::{Schema, snapshot};
 
 use crate::config::OrmConfig;
 
@@ -19,7 +20,7 @@ pub struct ModuleInfo {
 
 /// Locates every configured module crate through `cargo metadata`. Requires
 /// each to be an actual dependency of the app.
-pub fn discover(root: &Path, cfg: &OrmConfig) -> Result<Vec<ModuleInfo>, Error> {
+pub fn discover(root: &Path, cfg: &OrmConfig) -> Result<Vec<ModuleInfo>> {
     if cfg.modules.is_empty() {
         return Ok(Vec::new());
     }
@@ -27,18 +28,18 @@ pub fn discover(root: &Path, cfg: &OrmConfig) -> Result<Vec<ModuleInfo>, Error> 
         .args(["metadata", "--format-version", "1"])
         .current_dir(root)
         .output()
-        .map_err(|e| Error::new(format!("cannot run cargo metadata: {e}")))?;
+        .wrap_err("cannot run cargo metadata")?;
     if !output.status.success() {
-        return Err(Error::new(format!(
+        bail!(
             "cargo metadata failed: {}",
             String::from_utf8_lossy(&output.stderr)
-        )));
+        );
     }
-    let meta: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| Error::new(format!("cargo metadata output: {e}")))?;
+    let meta: serde_json::Value =
+        serde_json::from_slice(&output.stdout).wrap_err("cargo metadata output")?;
     let packages = meta["packages"]
         .as_array()
-        .ok_or_else(|| Error::new("cargo metadata output has no packages"))?;
+        .ok_or_else(|| eyre!("cargo metadata output has no packages"))?;
 
     let mut modules = Vec::new();
     for name in &cfg.modules {
@@ -46,16 +47,14 @@ pub fn discover(root: &Path, cfg: &OrmConfig) -> Result<Vec<ModuleInfo>, Error> 
             .iter()
             .find(|p| p["name"].as_str() == Some(name))
             .ok_or_else(|| {
-                Error::new(format!(
-                    "module crate `{name}` not found — is it a dependency in Cargo.toml?"
-                ))
+                eyre!("module crate `{name}` not found — is it a dependency in Cargo.toml?")
             })?;
         let manifest = package["manifest_path"]
             .as_str()
-            .ok_or_else(|| Error::new(format!("module `{name}`: no manifest_path")))?;
+            .ok_or_else(|| eyre!("module `{name}`: no manifest_path"))?;
         let dir = PathBuf::from(manifest)
             .parent()
-            .ok_or_else(|| Error::new(format!("module `{name}`: bad manifest_path")))?
+            .ok_or_else(|| eyre!("module `{name}`: bad manifest_path"))?
             .to_path_buf();
         modules.push(ModuleInfo {
             name: name.clone(),
@@ -66,28 +65,27 @@ pub fn discover(root: &Path, cfg: &OrmConfig) -> Result<Vec<ModuleInfo>, Error> 
 }
 
 /// A module's shipped schema snapshot — the tables it contributes.
-pub fn load_schema(module: &ModuleInfo) -> Result<Schema, Error> {
+pub fn load_schema(module: &ModuleInfo) -> Result<Schema> {
     let path = module.dir.join(".fse/schema.json");
     let raw = fs::read_to_string(&path).map_err(|_| {
-        Error::new(format!(
+        eyre!(
             "module `{}` ships no schema snapshot ({}) — the module author must run \
              `fse migrate` and include .fse/schema.json in the published crate",
             module.name,
             path.display()
-        ))
+        )
     })?;
-    snapshot::schema_from_json(&raw)
+    Ok(snapshot::schema_from_json(&raw)?)
 }
 
 /// `fse sync`: refreshes `.fse/modules/<name>/frontend/` from every
 /// configured module's `frontend/` sources. The whole `.fse/modules/`
 /// directory is regenerated (it's build output — removed modules disappear).
-pub fn sync(root: &Path, cfg: &OrmConfig) -> Result<(), Error> {
+pub fn sync(root: &Path, cfg: &OrmConfig) -> Result<()> {
     let modules = discover(root, cfg)?;
     let base = root.join(".fse/modules");
     if base.exists() {
-        fs::remove_dir_all(&base)
-            .map_err(|e| Error::new(format!("cannot clear {}: {e}", base.display())))?;
+        fs::remove_dir_all(&base).wrap_err_with(|| format!("cannot clear {}", base.display()))?;
     }
     if modules.is_empty() {
         println!("no modules configured (fse.toml [orm] modules).");
@@ -106,16 +104,16 @@ pub fn sync(root: &Path, cfg: &OrmConfig) -> Result<(), Error> {
     Ok(())
 }
 
-fn copy_dir(src: &Path, dest: &Path) -> Result<(), Error> {
-    fs::create_dir_all(dest).map_err(|e| Error::new(format!("{}: {e}", dest.display())))?;
-    for entry in fs::read_dir(src).map_err(|e| Error::new(format!("{}: {e}", src.display())))? {
-        let entry = entry.map_err(|e| Error::new(e.to_string()))?;
+fn copy_dir(src: &Path, dest: &Path) -> Result<()> {
+    fs::create_dir_all(dest).wrap_err_with(|| dest.display().to_string())?;
+    for entry in fs::read_dir(src).wrap_err_with(|| src.display().to_string())? {
+        let entry = entry.wrap_err_with(|| src.display().to_string())?;
         let from = entry.path();
         let to = dest.join(entry.file_name());
         if from.is_dir() {
             copy_dir(&from, &to)?;
         } else {
-            fs::copy(&from, &to).map_err(|e| Error::new(format!("{}: {e}", from.display())))?;
+            fs::copy(&from, &to).wrap_err_with(|| from.display().to_string())?;
         }
     }
     Ok(())

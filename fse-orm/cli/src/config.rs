@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use fse_schema::Error;
+use color_eyre::eyre::{Result, WrapErr, eyre};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -49,14 +49,14 @@ struct FseToml {
     orm: OrmConfig,
 }
 
-pub fn load(root: &Path) -> Result<OrmConfig, Error> {
+pub fn load(root: &Path) -> Result<OrmConfig> {
     let path = root.join("fse.toml");
     if !path.exists() {
         return Ok(OrmConfig::default());
     }
     let raw = std::fs::read_to_string(&path)
-        .map_err(|e| Error::new(format!("cannot read {}: {e}", path.display())))?;
-    let parsed: FseToml = toml::from_str(&raw).map_err(|e| Error::new(format!("fse.toml: {e}")))?;
+        .wrap_err_with(|| format!("cannot read {}", path.display()))?;
+    let parsed: FseToml = toml::from_str(&raw).wrap_err("fse.toml is not valid TOML")?;
     Ok(parsed.orm)
 }
 
@@ -66,11 +66,11 @@ pub fn resolve_database_url(
     root: &Path,
     cfg: &OrmConfig,
     override_url: Option<&str>,
-) -> Result<String, Error> {
+) -> Result<String> {
     if let Some(url) = override_url {
         return Ok(url.to_string());
     }
     dotenvy::from_path(root.join(".env")).ok();
     std::env::var(&cfg.database_url_env)
-        .map_err(|_| Error::new(format!("{} is not set (env or .env)", cfg.database_url_env)))
+        .map_err(|_| eyre!("{} is not set (env or .env)", cfg.database_url_env))
 }

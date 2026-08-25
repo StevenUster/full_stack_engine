@@ -161,7 +161,7 @@ async fn required_columns_contract_is_enforced() {
 
     // No users table at all.
     let err = run(&root, &opts).await.unwrap_err();
-    assert!(err.message.contains("`users` table"), "got: {err}");
+    assert!(err.to_string().contains("`users` table"), "got: {err}");
 
     // Users table present but missing a required column.
     write_tables(
@@ -178,7 +178,7 @@ pub struct User {
         )],
     );
     let err = run(&root, &opts).await.unwrap_err();
-    assert!(err.message.contains("`password`"), "got: {err}");
+    assert!(err.to_string().contains("`password`"), "got: {err}");
 }
 
 #[tokio::test]

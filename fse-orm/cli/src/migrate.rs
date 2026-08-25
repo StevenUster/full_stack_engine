@@ -11,7 +11,8 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use fse_schema::{Error, Schema, diff_schemas, parse, snapshot};
+use color_eyre::eyre::{Result, WrapErr, bail};
+use fse_schema::{Schema, diff_schemas, parse, snapshot};
 
 use crate::config::{self, OrmConfig};
 
@@ -35,7 +36,7 @@ pub struct MigrateOutcome {
     pub needs_manual_edit: bool,
 }
 
-pub async fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateOutcome, Error> {
+pub async fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateOutcome> {
     let cfg = config::load(root)?;
 
     // Module tables (shipped snapshots) resolve app foreign keys and merge
@@ -57,7 +58,7 @@ pub async fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateOutcome, Erro
     let snapshot_path = root.join(&cfg.snapshot_path);
     let old_schema = if snapshot_path.exists() {
         let raw = fs::read_to_string(&snapshot_path)
-            .map_err(|e| Error::new(format!("cannot read {}: {e}", snapshot_path.display())))?;
+            .wrap_err_with(|| format!("cannot read {}", snapshot_path.display()))?;
         snapshot::schema_from_json(&raw)?
     } else {
         Schema::default()
@@ -86,14 +87,14 @@ pub async fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateOutcome, Erro
         }
 
         fs::create_dir_all(&migrations_dir)
-            .map_err(|e| Error::new(format!("cannot create {}: {e}", migrations_dir.display())))?;
+            .wrap_err_with(|| format!("cannot create {}", migrations_dir.display()))?;
         let file = migrations_dir.join(format!(
             "{}_{}.sql",
             next_version(&migrations_dir)?,
             slug_or_default(&migration.filename_slug()),
         ));
         fs::write(&file, &migration.sql)
-            .map_err(|e| Error::new(format!("cannot write {}: {e}", file.display())))?;
+            .wrap_err_with(|| format!("cannot write {}", file.display()))?;
         write_snapshot(&snapshot_path, &new_schema)?;
         println!("wrote {}", file.display());
 
@@ -131,64 +132,63 @@ fn parse_tables(
     root: &Path,
     cfg: &OrmConfig,
     external: &[fse_schema::TableDef],
-) -> Result<Schema, Error> {
+) -> Result<Schema> {
     let dir = root.join(&cfg.tables_dir);
     if !dir.exists() {
-        return Err(Error::new(format!(
+        bail!(
             "tables folder {} does not exist (set orm.tables_dir in fse.toml)",
             dir.display()
-        )));
+        );
     }
     let mut sources = Vec::new();
-    for entry in fs::read_dir(&dir).map_err(|e| Error::new(format!("{}: {e}", dir.display())))? {
-        let path = entry.map_err(|e| Error::new(e.to_string()))?.path();
+    for entry in fs::read_dir(&dir).wrap_err_with(|| dir.display().to_string())? {
+        let path = entry.wrap_err_with(|| dir.display().to_string())?.path();
         if path.extension().is_some_and(|e| e == "rs") {
             sources.push((
                 path.file_name().unwrap().to_string_lossy().into_owned(),
-                fs::read_to_string(&path)
-                    .map_err(|e| Error::new(format!("{}: {e}", path.display())))?,
+                fs::read_to_string(&path).wrap_err_with(|| path.display().to_string())?,
             ));
         }
     }
     sources.sort();
     if sources.is_empty() {
-        return Err(Error::new(format!("no .rs files in {}", dir.display())));
+        bail!("no .rs files in {}", dir.display());
     }
-    parse::parse_sources_with_external(&sources, external)
+    Ok(parse::parse_sources_with_external(&sources, external)?)
 }
 
 /// The framework contract from fse.toml: every listed table must exist and
 /// carry the listed columns (e.g. what auth needs on `users`).
-fn validate_required_columns(schema: &Schema, cfg: &OrmConfig) -> Result<(), Error> {
+fn validate_required_columns(schema: &Schema, cfg: &OrmConfig) -> Result<()> {
     for (table_name, columns) in &cfg.required_columns {
         let Some(table) = schema.table(table_name) else {
-            return Err(Error::new(format!(
+            bail!(
                 "fse.toml requires a `{table_name}` table, but no #[derive(Table)] struct defines it"
-            )));
+            );
         };
         for column in columns {
             if table.column(column).is_none() {
-                return Err(Error::new(format!(
+                bail!(
                     "fse.toml requires column `{column}` on `{table_name}` — the framework depends on it; add it back to the struct"
-                )));
+                );
             }
         }
     }
     Ok(())
 }
 
-fn write_snapshot(path: &Path, schema: &Schema) -> Result<(), Error> {
+fn write_snapshot(path: &Path, schema: &Schema) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
-            .map_err(|e| Error::new(format!("cannot create {}: {e}", parent.display())))?;
+            .wrap_err_with(|| format!("cannot create {}", parent.display()))?;
     }
     fs::write(path, snapshot::schema_to_json(schema))
-        .map_err(|e| Error::new(format!("cannot write {}: {e}", path.display())))
+        .wrap_err_with(|| format!("cannot write {}", path.display()))
 }
 
 /// sqlx migration version: current UTC timestamp, bumped past any version
 /// already in the folder (hand-written or generated seconds apart).
-fn next_version(migrations_dir: &Path) -> Result<u64, Error> {
+fn next_version(migrations_dir: &Path) -> Result<u64> {
     let mut version: u64 = chrono::Utc::now()
         .format("%Y%m%d%H%M%S")
         .to_string()
@@ -196,8 +196,12 @@ fn next_version(migrations_dir: &Path) -> Result<u64, Error> {
         .expect("timestamp is numeric");
     let mut existing = Vec::new();
     if migrations_dir.exists() {
-        for entry in fs::read_dir(migrations_dir).map_err(|e| Error::new(e.to_string()))? {
-            let name = entry.map_err(|e| Error::new(e.to_string()))?.file_name();
+        for entry in
+            fs::read_dir(migrations_dir).wrap_err_with(|| migrations_dir.display().to_string())?
+        {
+            let name = entry
+                .wrap_err_with(|| migrations_dir.display().to_string())?
+                .file_name();
             let name = name.to_string_lossy();
             let digits: String = name.chars().take_while(char::is_ascii_digit).collect();
             if let Ok(v) = digits.parse::<u64>() {
@@ -215,7 +219,7 @@ fn slug_or_default(slug: &str) -> &str {
     if slug.is_empty() { "schema" } else { slug }
 }
 
-fn confirm(destructive: bool) -> Result<bool, Error> {
+fn confirm(destructive: bool) -> Result<bool> {
     if destructive {
         print!("apply this DESTRUCTIVE migration? type `yes` to continue: ");
     } else {
@@ -225,7 +229,7 @@ fn confirm(destructive: bool) -> Result<bool, Error> {
     let mut answer = String::new();
     std::io::stdin()
         .read_line(&mut answer)
-        .map_err(|e| Error::new(e.to_string()))?;
+        .wrap_err("cannot read from stdin")?;
     let answer = answer.trim().to_lowercase();
     Ok(if destructive {
         answer == "yes"
@@ -239,7 +243,7 @@ async fn apply_pending(
     cfg: &OrmConfig,
     opts: &MigrateOpts,
     migrations_dir: &Path,
-) -> Result<(), Error> {
+) -> Result<()> {
     if !migrations_dir.exists() {
         return Ok(());
     }
@@ -254,26 +258,23 @@ async fn apply_pending(
     // net once everything has been applied.
     let options = url
         .parse::<sqlx::sqlite::SqliteConnectOptions>()
-        .map_err(|e| Error::new(format!("invalid database url: {e}")))?
+        .wrap_err("invalid database url")?
         .create_if_missing(true)
         .foreign_keys(false);
     let pool = sqlx::SqlitePool::connect_with(options)
         .await
-        .map_err(|e| Error::new(format!("cannot open database: {e}")))?;
+        .wrap_err("cannot open database")?;
 
     let migrator = sqlx::migrate::Migrator::new(migrations_dir.to_path_buf())
         .await
-        .map_err(|e| Error::new(format!("invalid migrations folder: {e}")))?;
-    migrator
-        .run(&pool)
-        .await
-        .map_err(|e| Error::new(format!("migration failed: {e}")))?;
+        .wrap_err("invalid migrations folder")?;
+    migrator.run(&pool).await.wrap_err("migration failed")?;
 
     let violations: Vec<(String, Option<i64>, String)> =
         sqlx::query_as("SELECT \"table\", rowid, parent FROM pragma_foreign_key_check")
             .fetch_all(&pool)
             .await
-            .map_err(|e| Error::new(format!("foreign_key_check failed: {e}")))?;
+            .wrap_err("foreign_key_check failed")?;
     pool.close().await;
     if !violations.is_empty() {
         let examples: Vec<String> = violations
@@ -284,12 +285,12 @@ async fn apply_pending(
                 None => format!("{table} -> missing {parent} row"),
             })
             .collect();
-        return Err(Error::new(format!(
+        bail!(
             "migrations applied, but the database now has {} foreign key violation(s):\n  {}\n\
              fix the offending rows (or the migration that orphaned them) and rerun.",
             violations.len(),
             examples.join("\n  "),
-        )));
+        );
     }
     println!("database is up to date.");
     Ok(())
