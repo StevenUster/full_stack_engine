@@ -1,5 +1,6 @@
 use std::env;
 use std::io;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 fn main() -> io::Result<()> {
@@ -13,10 +14,23 @@ fn main() -> io::Result<()> {
 
     println!("🚀 Starting development servers...");
 
-    println!("📦 Starting Astro dev server on port 4321...");
+    if !Path::new("theme/node_modules").exists() {
+        println!("📦 Installing theme dependencies...");
+        run(Command::new("bun").arg("install").current_dir("theme"))?;
+    }
+    // The binary embeds theme/dist (the fallback for anything the dev server
+    // doesn't serve), so it must exist before the first `cargo run`.
+    if !Path::new("theme/dist").exists() {
+        println!("🎨 Building the theme once...");
+        run(Command::new("bun")
+            .args(["run", "build"])
+            .current_dir("theme"))?;
+    }
+
+    println!("🎨 Starting the theme dev server (Astro) on port 4321...");
     let mut astro_child = Command::new("bun")
         .args(["dev"])
-        .current_dir("src/frontend")
+        .current_dir("theme")
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()?;
@@ -25,7 +39,7 @@ fn main() -> io::Result<()> {
 
     println!("🦀 Starting Rust backend with hot reload on port 8080...");
     let mut cargo_child = Command::new("cargo")
-        .args(["watch", "-x", "run --bin starter"])
+        .args(["watch", "-i", "theme/", "-x", "run --bin starter"])
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()?;
@@ -46,4 +60,13 @@ fn main() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+fn run(cmd: &mut Command) -> io::Result<()> {
+    let status = cmd.status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!("{cmd:?} failed with {status}")))
+    }
 }

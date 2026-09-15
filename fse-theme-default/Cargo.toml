@@ -1,0 +1,18 @@
+[package]
+name = "fse-theme-default"
+version = "0.2.0"
+edition = "2024"
+description = "The built default theme for full_stack_engine apps, embedded for `Theme::embedded(&fse_theme_default::DIST)`."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/StevenUster/full_stack_engine"
+readme = "README.md"
+keywords = ["full_stack_engine", "theme", "templates"]
+categories = ["web-programming"]
+# Only the built output ships in the crate; the Astro sources ship on npm.
+include = ["lib.rs", "dist/**", "README.md"]
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+include_dir = "0.7.4"

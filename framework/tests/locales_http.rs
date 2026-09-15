@@ -38,6 +38,7 @@ fn app_data(selector: LocaleSelector) -> web::Data<AppData> {
         context_injector: None,
         locales: locales(),
         locale_selector: selector,
+        themes: std::sync::Arc::default(),
     })
 }
 

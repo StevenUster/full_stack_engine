@@ -265,3 +265,14 @@ pages; `api` adds `/api/{table}` JSON endpoints; labels come from locale keys
 - End state: starter integration tests (products/orders/auth flows) pass against fully
   generated endpoints; `fse migrate --dry-run` clean; run the starter and click through
   list/create/edit/delete, language switching in all three modes, and a page override.
+
+## Update 2026-09-14 — runtime theme layering (supersedes the theme parts above)
+
+Themes are now WordPress-style parent/child layers of **built** output
+(`theme.json` + Tera `*.html` + assets), resolved by the framework at runtime
+(`framework/src/themes.rs`, `FrameworkApp::theme`/`active_theme`, `THEME` env),
+so themes can come from any HTML generator. `fse-theme-default` is a full Astro
+project plus a crate embedding its `dist/`; fse-ssr's `theme:` option and the
+`@theme`/`@app-styles` aliases are replaced by `theme.json` `parent`, child-first
+resolution of parent `src/` files and `@parent/...`. The starter's
+`src/frontend/` became the child theme `theme/`. Full reference: `docs/themes.md`.

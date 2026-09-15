@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is the **starter** app for the `full_stack_engine` framework — a template to copy and rename for a new app. **The app is defined by the `#[model]` structs in `src/models/`**: each struct generates its table (migrations via `fse migrate`), its compile-time-checked ORM queries, and its admin CRUD endpoints + pages (mounted by `.models::<AppRole>()`). Auth (login/register/email verification/password reset/settings/user admin) comes from the framework's built-in auth module; the visual layer comes from the `fse-theme-default` theme. What remains hand-written is **overrides and custom flows only**.
+This is the **starter** app for the `full_stack_engine` framework — a template to copy and rename for a new app. **The app is defined by the `#[model]` structs in `src/models/`**: each struct generates its table (migrations via `fse migrate`), its compile-time-checked ORM queries, and its admin CRUD endpoints + pages (mounted by `.models::<AppRole>()`). Auth (login/register/email verification/password reset/settings/user admin) comes from the framework's built-in auth module; the visual layer comes from the `fse-theme-default` theme, extended by the app's child theme in `theme/`. What remains hand-written is **overrides and custom flows only**.
 
 The example domain: a `Product` catalog (generated admin at `/admin/products`, hand-written public pages at `/products` showing only `published` rows) and an `Order` child resource (generated admin at `/admin/orders`, hand-written user flows for placing/cancelling own orders).
 
@@ -14,15 +14,15 @@ The example domain: a `Product` catalog (generated admin at `/admin/products`, h
 
 **Models are the app.** To add a CRUD feature, add one `#[model]` struct in `src/models/` and run `fse migrate` — endpoints, pages, permissions (`{table}.read`/`{table}.write`) and translations exist after that. Configure with `#[model(...)]` (permission, path, public_read, api, no_create/no_edit/no_delete, disabled, title_field) and per-field `#[ui(...)]` (list, search, filter, textarea, hidden, readonly). Everything is validated at compile time.
 
-**Override, don't fork.** Registration order is the override mechanism — app routes (`services/`, registered first) beat auth-module routes beat generated routes on the same path. A page is overridden by creating a same-path file under `src/frontend/src/pages/` (beats theme and module pages). Generated handlers prefer a model-specific template (`admin/products`, `admin/products/form`) over the theme's generic `fse/*` ones. Write an override only for what generation can't know (business rules like "only `published` products are public") — see `services/products_public.rs` and `services/orders.rs` for the canonical examples.
+**Override, don't fork.** Registration order is the override mechanism — app routes (`services/`, registered first) beat auth-module routes beat generated routes on the same path. A page is overridden by creating a same-path file under `theme/src/pages/` (beats parent-theme and module pages); any parent component/layout/style is overridden by creating the same `src/` path in `theme/`. Generated handlers prefer a model-specific template (`admin/products`, `admin/products/form`) over the theme's generic `fse/*` ones. Write an override only for what generation can't know (business rules like "only `published` products are public") — see `services/products_public.rs` and `services/orders.rs` for the canonical examples.
 
-**Single, self-contained binary.** Frontend dist and locales are embedded via `include_dir!`, migrations via `sqlx::migrate!()`. No runtime dependencies on external services or non-volume files.
+**Single, self-contained binary.** Both themes (`fse_theme_default::DIST`, `theme/dist`) and locales are embedded via `include_dir!`, migrations via `sqlx::migrate!()`. No runtime dependencies on external services or non-volume files.
 
 **Security defaults win.** Cookies stay `HttpOnly` + `SameSite=Strict` + `Secure` in prod. Never log secrets, tokens, password hashes, or full JWTs. Every hand-written state-changing endpoint verifies the caller's role (`AuthUser::require_permission`) and ownership where relevant; generated endpoints do this by convention. Public read endpoints expose **only** `published` products.
 
 **The ORM is the only data layer in app code — never write raw SQL.** Reads/writes use the checked query macros (`find!`, `find_one!`, `find_page!`, `count!`, `insert!`, `update!`, `delete_rows!`), the generated per-table methods, or the dynamic builder (`Product::find().filter(..)`) for runtime-shaped queries.
 
-**Template output is escaped by default.** Tera autoescaping is forced on; anything in `src/frontend/dist/` is registered as a Tera template at boot (template names are used verbatim — no rewriting).
+**Template output is escaped by default.** Tera autoescaping is forced on; every `.html` file of the theme stack is registered as a Tera template at boot (child over parent; template names are used verbatim).
 
 **Schema lives in `src/models/`, migrations are generated.** Edit a struct, run `fse migrate`. The auth module's `users` columns are protected by `[orm.required_columns]` in `fse.toml`. Migrations are forward-only; never edit an applied one.
 
@@ -35,7 +35,7 @@ cargo run                    # backend only
 cargo test                   # integration tests (incl. every template render-checked)
 ```
 
-### Frontend (Astro) — run from `src/frontend`
+### Theme (Astro) — run from `theme/`
 ```bash
 bun dev          # dev server with HMR
 bun run build    # astro check + astro build (required before a release build)
@@ -54,13 +54,13 @@ fse sync               # extract configured module frontends into .fse/modules/
 ### Backend (`src/`)
 - **`models/`** — THE APP. One `#[model]` struct per file. This is where features start.
 - **`services/`** — overrides and custom flows only: `products_public.rs` (published-only catalog), `orders.rs` (place/my-orders/cancel-own), `api.rs` (public JSON API + OpenAPI/Swagger), `index.rs`. Registered in `services/mod.rs`, always before modules/generated routes.
-- **`lib.rs`** — roles (`define_roles!`), the builder chain (`configure` → `module(auth)` → `models::<AppRole>()` → `locales(...)`), context injector for user claims.
+- **`lib.rs`** — roles (`define_roles!`), `themes()`, the builder chain (`theme`s → `configure` → `module(auth)` → `models::<AppRole>()` → `locales(...)`), context injector for app extras (the framework injects `nav`/`user`).
 - Auth flows, settings and user admin come from `full_stack_engine::auth_module` — override any of its routes/pages the same way as generated ones.
 
-### Frontend (`src/frontend/src/`)
-- **`pages/`** — app pages and overrides only (public products, my-orders, index, error pages, API docs). Login/register/settings/users/admin CRUD pages come from `fse-theme-default` (override by creating the same path here).
-- **`styles/global.css`** — the single Tailwind root: imports `tailwindcss`, then the theme's design layer, then `@source`s the theme package. App-specific tokens go here.
-- **`components/`, `layouts/`** — the app's own chrome (Sidebar etc.). The theme ships its own set for its pages.
+### Theme (`theme/`) — a child theme of `fse-theme-default` (see `../docs/themes.md`)
+- **`theme.json`** — `{ "name": "starter", "parent": "fse-theme-default" }`. `src/lib.rs::themes()` installs the parent (crate) and this theme's built `dist/`; the child is active, the parent fills in anything missing at runtime.
+- **`src/pages/`** — the app's own pages only (public products, my-orders, API docs). Home, error, login/register/settings/users, emails and admin CRUD pages are inherited from the parent (built into `dist/` by fse-ssr with this theme's overrides applied).
+- **`src/components/SidebarLinks.astro`, `src/styles/global.css`** — override examples: a parent file at the same `src/` path is replaced everywhere it's used. Import parent originals with `@parent/...`.
 
 ### Localization
 - `locales/en.json` + `de.json` hold **app-specific keys only**: `models.{table}` labels for generated UIs, plus sections the app's own pages use. The framework provides all auth/CRUD-chrome translations; app keys deep-merge on top (app wins).
@@ -72,4 +72,4 @@ fse sync               # extract configured module frontends into .fse/modules/
 
 ## Deployment
 
-Multi-stage Dockerfile: Bun builds the frontend → Rust compiles the backend → slim runtime image. SQLite data persists via the `data/` volume.
+Multi-stage Dockerfile: Bun builds the child theme → Rust compiles the backend → slim runtime image. SQLite data persists via the `data/` volume.

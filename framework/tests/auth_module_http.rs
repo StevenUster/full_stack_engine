@@ -75,6 +75,7 @@ fn app_data(db: SqlitePool, verification: bool) -> web::Data<AppData> {
         context_injector: None,
         locales: std::collections::HashMap::new(),
         locale_selector: full_stack_engine::i18n::LocaleSelector::default(),
+        themes: std::sync::Arc::default(),
     })
 }
 

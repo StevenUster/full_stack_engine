@@ -1,3 +1,3 @@
 @import "tailwindcss";
-@import "fse-theme-default/styles/global.css";
-@source "../../node_modules/fse-theme-default";
+@import "fse-theme-default/src/styles/theme.css";
+@source "../";

@@ -5,37 +5,42 @@
 
 use std::fmt::Write as _;
 
-use include_dir::Dir;
 use tera::Tera;
 
-/// Parses every `.html` file in `dir` into a [`Tera`] instance using the same
-/// `index.html` -> `index`, `foo/index.html` -> `foo` naming convention as
-/// the app's real boot-time loader. Unlike that loader — which logs and
-/// skips a broken template so one bad page doesn't take the whole app down —
-/// this collects and returns every parse failure instead of swallowing it.
+use crate::themes::{Theme, ThemeStack};
+
+/// Resolves `themes` exactly like the app's boot does (active theme = the
+/// one no other installed theme extends) and parses every template of the
+/// resulting stack into a [`Tera`] — child templates over parent ones, each
+/// theme's own copies also under `@{theme}/{name}`. Unlike the boot-time
+/// loader, which logs and skips a broken template so one bad page doesn't
+/// take the whole app down, this returns every failure.
 ///
 /// Meant for a one-line integration test in a consuming app:
 ///
 /// ```ignore
 /// #[test]
 /// fn all_templates_parse() {
-///     full_stack_engine::testing::load_templates(&DIST_DIR).unwrap();
+///     full_stack_engine::testing::load_themes(starter::themes()).unwrap();
 /// }
 /// ```
 ///
-/// so a broken template (invalid Tera syntax, a typo'd variable, an
-/// escaping bug in a compile-to-Tera pipeline like `fse-ssr`) fails
-/// `cargo test`/CI instead of only surfacing as a runtime 500.
+/// so a broken template (invalid Tera syntax, an `extends` of a missing
+/// parent template, an escaping bug in a compile-to-Tera pipeline like
+/// `fse-ssr`) fails `cargo test`/CI instead of only surfacing as a runtime
+/// 500.
 ///
 /// # Errors
 ///
-/// Returns `Err` with one block per broken template — its name, Tera's
-/// error, and its full `source()` chain — if any template fails to parse.
-pub fn load_templates(dir: &Dir) -> Result<Tera, String> {
+/// Returns `Err` when the themes don't resolve (missing parent, ambiguous
+/// active theme, …) or with one block per broken template — its name,
+/// Tera's error, and its full `source()` chain.
+pub fn load_themes(themes: impl IntoIterator<Item = Theme>) -> Result<Tera, String> {
+    let stack = theme_stack(themes)?;
     let mut tera = Tera::default();
     tera.autoescape_on(vec![""]);
     let mut errors = Vec::new();
-    crate::walk_templates(&mut tera, dir, &mut |name, err| {
+    stack.load_into(&mut tera, &mut |name, err| {
         let mut msg = format!("{name}: {err}");
         let mut source = std::error::Error::source(&err);
         while let Some(cause) = source {
@@ -49,4 +54,14 @@ pub fn load_templates(dir: &Dir) -> Result<Tera, String> {
     } else {
         Err(errors.join("\n\n"))
     }
+}
+
+/// The [`ThemeStack`] `themes` resolve to — for building an `AppData` in
+/// tests.
+///
+/// # Errors
+///
+/// Returns the resolution error as a string.
+pub fn theme_stack(themes: impl IntoIterator<Item = Theme>) -> Result<ThemeStack, String> {
+    ThemeStack::resolve(themes.into_iter().collect(), None).map_err(|e| e.to_string())
 }

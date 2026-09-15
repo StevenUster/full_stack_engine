@@ -5,7 +5,7 @@
 //! Enable it with one builder call:
 //!
 //! ```ignore
-//! FrameworkApp::new(&DIST_DIR)
+//! FrameworkApp::new()
 //!     .module(auth_module::module::<AppRole>())
 //! ```
 //!

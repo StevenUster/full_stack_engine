@@ -23,6 +23,45 @@ mod routes;
 
 pub use routes::mount_all;
 
+/// Context injector installed by [`crate::FrameworkApp::models`]: gives
+/// every page what a theme needs to draw app navigation without app code.
+///
+/// - `nav`: `[{ "table", "href" }]` — the admin page of every enabled model
+///   the signed-in user may read (`<base>.read`), in registration order.
+///   Labels are the theme's job (`t.models[table].title`).
+/// - `user`: `{ "id", "role", "is_admin", "can_read_users" }` when signed in
+///   (absent otherwise).
+///
+/// Only the token is checked here (no database round trip) — it decides
+/// what links to show, never what a request may do; every generated
+/// endpoint re-checks permissions itself.
+pub fn inject_nav<R: crate::structs::Role>(
+    req: &actix_web::HttpRequest,
+    value: &mut serde_json::Value,
+) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+    let Ok(claims) = crate::auth::read_jwt::<R>(req) else {
+        return;
+    };
+    let nav: Vec<serde_json::Value> = registered_models()
+        .iter()
+        .filter(|m| !m.ui.disabled && claims.role.has_permission(&m.read_permission()))
+        .map(|m| serde_json::json!({ "table": m.table.name, "href": m.base_path() }))
+        .collect();
+    obj.insert("nav".to_string(), serde_json::json!(nav));
+    obj.insert(
+        "user".to_string(),
+        serde_json::json!({
+            "id": claims.sub,
+            "role": claims.role.as_str(),
+            "is_admin": claims.role.is_admin(),
+            "can_read_users": claims.role.has_permission("users.read"),
+        }),
+    );
+}
+
 pub use resource::{
     Db, DbResult, FieldError, FormData, FormErrors, ListQuery, ListResult, ModelResource, and_opt,
 };
@@ -163,7 +202,10 @@ static MODELS: LazyLock<Vec<ModelMeta>> = LazyLock::new(|| {
 #[must_use]
 pub fn registered_models() -> &'static [ModelMeta] {
     let models = &*MODELS;
-    if let Some(pair) = models.windows(2).find(|w| w[0].table.name == w[1].table.name) {
+    if let Some(pair) = models
+        .windows(2)
+        .find(|w| w[0].table.name == w[1].table.name)
+    {
         panic!(
             "two models are registered for table `{}` (structs `{}` and `{}`) — rename one \
              or set #[orm(table = \"...\")]",
@@ -423,7 +465,10 @@ mod tests {
     fn conventions_resolve_from_table_name() {
         static FIELDS: [UiField; 2] = [ui_field_const("id"), ui_field_const("title")];
         let m = meta(
-            vec![column("id", SqlType::Integer), column("title", SqlType::Text)],
+            vec![
+                column("id", SqlType::Integer),
+                column("title", SqlType::Text),
+            ],
             &FIELDS,
         );
         assert_eq!(m.permission_base(), "notes");

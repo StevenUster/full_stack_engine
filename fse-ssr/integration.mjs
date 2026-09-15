@@ -9,9 +9,20 @@
  * case they emit Tera syntax into the built HTML.
  *
  * It also generates a `Translations` declaration-merge file from the app's
- * locale JSON so `t.*` accesses are type-checked per app.
+ * locale JSON so `t.*` accesses are type-checked per app, and implements
+ * theme inheritance: the project's `theme.json` names a parent theme, whose
+ * pages are built into this project with this project's overrides of any
+ * parent component/layout/style/asset applied (see `themeResolverPlugin`).
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -197,6 +208,9 @@ function tsType(value) {
   if (typeof value === "number") return "number";
   if (typeof value === "boolean") return "boolean";
   if (value && typeof value === "object" && !Array.isArray(value)) {
+    // An empty section is filled per app (e.g. the framework's `models` and
+    // `roles`), so generic pages may index it with runtime keys.
+    if (Object.keys(value).length === 0) return "Record<string, any>";
     const fields = Object.entries(value)
       .map(([k, v]) => `${JSON.stringify(k)}: ${tsType(v)};`)
       .join(" ");
@@ -237,21 +251,131 @@ function generateTranslationTypes(rootUrl, localesPath, defaultLocale, logger) {
   writeFileSync(outFile, content);
 }
 
-/**
- * Locates the theme's source directory. A `theme` starting with "." or "/"
- * is a local folder relative to the Astro project root; anything else is an
- * installed package name, resolved from the project.
- */
-function resolveThemeDir(theme, rootUrl) {
-  const root = fileURLToPath(rootUrl);
-  if (theme.startsWith(".") || theme.startsWith("/")) {
-    return resolve(root, theme);
+/** Reads a `theme.json` manifest, or `null` when the directory has none. */
+function readManifest(dir) {
+  const file = join(dir, "theme.json");
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch (err) {
+    throw new Error(`${PKG_NAME}: invalid ${file}: ${err.message}`);
   }
-  const require = createRequire(join(root, "package.json"));
-  return dirname(require.resolve(`${theme}/package.json`));
 }
 
-/** All page files under `dir`, as root-relative paths ("_model/list.astro"). */
+function realDir(dir) {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return resolve(dir);
+  }
+}
+
+/**
+ * The theme chain this project builds, child first: the project itself,
+ * then every ancestor named by `theme.json` `parent` fields. A parent is an
+ * installed package resolved from the theme that extends it (so a theme's
+ * own dependencies are found), or a path starting with "." or "/".
+ * Ancestors without Astro sources (`src/`) end source-level inheritance —
+ * the framework still falls back to their *built* templates at runtime.
+ */
+function resolveThemeChain(rootDir, logger) {
+  const self = readManifest(rootDir);
+  const chain = [
+    { name: self?.name ?? "(app)", dir: realDir(rootDir), srcDir: realDir(join(rootDir, "src")) },
+  ];
+  let manifest = self;
+  let fromDir = rootDir;
+  const seen = new Set([chain[0].name]);
+  while (manifest?.parent) {
+    const parent = manifest.parent;
+    let dir;
+    if (parent.startsWith(".") || parent.startsWith("/")) {
+      dir = resolve(fromDir, parent);
+    } else {
+      try {
+        const require = createRequire(join(fromDir, "package.json"));
+        dir = dirname(require.resolve(`${parent}/package.json`));
+      } catch {
+        throw new Error(
+          `${PKG_NAME}: theme "${manifest.name}" extends "${parent}", which is not installed ` +
+            `(add it as a dependency).`,
+        );
+      }
+    }
+    const parentManifest = readManifest(dir);
+    const name = parentManifest?.name ?? parent;
+    if (seen.has(name)) {
+      throw new Error(`${PKG_NAME}: theme inheritance cycle at "${name}".`);
+    }
+    seen.add(name);
+    if (!existsSync(join(dir, "src"))) {
+      logger.info(
+        `Theme "${name}" ships no Astro sources — its templates are inherited at runtime only.`,
+      );
+      break;
+    }
+    chain.push({ name, dir: realDir(dir), srcDir: realDir(join(dir, "src")) });
+    manifest = parentManifest;
+    fromDir = dir;
+  }
+  return chain;
+}
+
+const stripQuery = (id) => id.split("?")[0];
+
+/** Index of the chain layer whose `src/` contains `file`, or -1. */
+function layerOf(chain, file) {
+  return chain.findIndex((layer) => file === layer.srcDir || file.startsWith(layer.srcDir + sep));
+}
+
+/**
+ * WordPress-style template parts for Astro themes. When a file of an
+ * ancestor theme imports another file of its own `src/` (a relative import
+ * like `../components/Card.astro`), the most specific theme that has a file
+ * at the same `src/`-relative path wins — so a child theme overrides a
+ * parent's component, layout, stylesheet or asset just by creating it.
+ *
+ * `@parent/...` resolves to the `src/` of the importing theme's parent and
+ * is never redirected, so an override can wrap the original it replaces.
+ */
+function themeResolverPlugin(chain) {
+  return {
+    name: `${PKG_NAME}:themes`,
+    enforce: "pre",
+    async resolveId(source, importer, options) {
+      if (!importer || source.startsWith("\0") || importer.startsWith("\0")) return null;
+      const importerFile = stripQuery(importer);
+      const importerLayer = layerOf(chain, importerFile);
+
+      if (source === "@parent" || source.startsWith("@parent/")) {
+        const own = Math.max(importerLayer, 0);
+        const parent = chain[own + 1];
+        if (!parent) {
+          this.error(`"${source}" imported from ${importerFile}, but theme "${chain[own].name}" has no parent with Astro sources.`);
+        }
+        const target = join(parent.srcDir, source.slice("@parent".length));
+        return this.resolve(target, importer, { ...options, skipSelf: true });
+      }
+
+      // Only ancestor files are redirected; the project's own imports and
+      // query-suffixed sub-requests (styles/scripts of one .astro) stay put.
+      if (importerLayer <= 0 || source.includes("?")) return null;
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+      if (!resolved || resolved.external) return resolved;
+      const file = stripQuery(resolved.id);
+      const targetLayer = layerOf(chain, file);
+      if (targetLayer < 0) return resolved;
+      const rel = relative(chain[targetLayer].srcDir, file);
+      for (let i = 0; i < importerLayer; i++) {
+        const candidate = join(chain[i].srcDir, rel);
+        if (existsSync(candidate)) return candidate;
+      }
+      return resolved;
+    },
+  };
+}
+
+/** All page files under `dir`, as root-relative paths ("fse/list.astro"). */
 function walkPages(dir, prefix = "") {
   const out = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -265,7 +389,7 @@ function walkPages(dir, prefix = "") {
   return out;
 }
 
-/** "foo/index.astro" → "/foo", "_model/list.astro" → "/_model/list". */
+/** "foo/index.astro" → "/foo", "fse/list.astro" → "/fse/list". */
 function routePattern(relPath) {
   let route = relPath.replace(/\.[^.]+$/, "");
   if (route === "index") return "/";
@@ -274,9 +398,10 @@ function routePattern(relPath) {
 }
 
 /**
- * One pages layer: injects every page under `pagesDir` whose route the app
- * doesn't define and no higher-priority layer has claimed yet. Overriding =
- * creating a same-path file under `src/pages/` (or in a higher layer).
+ * One pages layer: injects every page under `pagesDir` whose route the
+ * project doesn't define and no higher-priority layer has claimed yet.
+ * Overriding = creating a same-path file under `src/pages/` (or in a more
+ * specific theme).
  */
 function injectPagesLayer(pagesDir, appPagesDir, claimed, injectRoute) {
   if (!existsSync(pagesDir)) return;
@@ -296,26 +421,8 @@ function injectPagesLayer(pagesDir, appPagesDir, claimed, injectRoute) {
 }
 
 /**
- * Theme layer: pages plus the `@theme/...` import alias.
- */
-function applyTheme(theme, config, injectRoute, updateConfig, logger, appPagesDir, claimed) {
-  const themeDir = resolveThemeDir(theme, config.root);
-  const pagesDir = join(themeDir, "pages");
-
-  updateConfig({
-    vite: { resolve: { alias: { "@theme": themeDir } } },
-  });
-
-  if (!existsSync(pagesDir)) {
-    logger.warn(`Theme "${theme}" has no pages/ directory (${pagesDir}).`);
-    return;
-  }
-  injectPagesLayer(pagesDir, appPagesDir, claimed, injectRoute);
-}
-
-/**
  * Module layers: every `<modulesDir>/<name>/frontend/pages` (extracted by
- * `fse sync`), below the app and theme in priority, ordered by module name.
+ * `fse sync`), below every theme in priority, ordered by module name.
  */
 function applyModules(modulesDir, rootUrl, appPagesDir, claimed, injectRoute) {
   const base = resolve(fileURLToPath(rootUrl), modulesDir);
@@ -334,36 +441,46 @@ function applyModules(modulesDir, rootUrl, appPagesDir, claimed, injectRoute) {
 }
 
 /**
- * @param {{ locales?: string, defaultLocale?: string, theme?: string, modulesDir?: string }} [options]
- *   `locales`: path to the locale directory, relative to the Astro project
- *   root (default "../../locales" — the starter layout).
- *   `theme`: an installed theme package name (e.g. "fse-theme-default") or a
- *   local folder ("./themes/custom"). The theme's `pages/` fill in every
- *   route the app doesn't define; its files are importable as `@theme/...`.
+ * @param {{ locales?: string, defaultLocale?: string, modulesDir?: string, inheritPages?: boolean }} [options]
+ *   `locales`: path to the locale directory, relative to the project root
+ *   (default "../locales" — a `theme/` folder next to the app's `locales/`).
  *   `modulesDir`: where `fse sync` extracts module frontends (default
- *   "../../.fse/modules" — the starter layout). Module pages layer below the
- *   app's and the theme's.
+ *   "../.fse/modules"). Module pages layer below every theme's.
+ *   `inheritPages`: build the ancestors' pages into this theme with its
+ *   overrides applied (default true). With `false` the build only contains
+ *   the project's own pages and the framework serves everything else from
+ *   the parent's built templates.
+ *
+ * The theme chain comes from the project's `theme.json`
+ * (`{ "name": "my-theme", "parent": "fse-theme-default" }`); the manifest is
+ * copied into the build output, which is what the framework loads.
  */
 export default function fseSsr(options = {}) {
   const {
-    locales = "../../locales",
+    locales = "../locales",
     defaultLocale = "en",
-    theme,
-    modulesDir = "../../.fse/modules",
+    modulesDir = "../.fse/modules",
+    inheritPages = true,
   } = options;
+  let rootDir;
   return {
     name: PKG_NAME,
     hooks: {
       "astro:config:setup": ({ config, updateConfig, injectRoute, logger }) => {
+        rootDir = fileURLToPath(config.root);
         generateTranslationTypes(config.root, locales, defaultLocale, logger);
+        const chain = resolveThemeChain(rootDir, logger);
+        if (chain.length > 1) {
+          logger.info(`Theme chain: ${chain.map((l) => l.name).join(" -> ")}`);
+        }
         updateConfig({
           vite: {
-            plugins: [vitePlugin()],
+            plugins: [themeResolverPlugin(chain), vitePlugin()],
             resolve: {
               // Pin this package's own entries to absolute paths so imports
-              // resolve from *anywhere* — theme/module sources typically live
-              // outside the app tree (symlinked packages, extracted module
-              // frontends) where node_modules lookup would fail.
+              // resolve from *anywhere* — parent theme/module sources
+              // typically live outside the project tree (symlinked packages,
+              // extracted module frontends) where node_modules lookup fails.
               alias: {
                 [`${PKG_NAME}/ssr`]: fileURLToPath(
                   new URL("./dist/runtime.js", import.meta.url),
@@ -371,24 +488,33 @@ export default function fseSsr(options = {}) {
                 [`${PKG_NAME}/client`]: fileURLToPath(
                   new URL("./dist/client.js", import.meta.url),
                 ),
-                // The app owns the single Tailwind CSS root; theme layouts
-                // import it through this alias so bare `tailwindcss` imports
-                // always resolve from the app, never from a symlinked
-                // package's real path.
-                "@app-styles": fileURLToPath(
-                  new URL("./styles/global.css", config.srcDir),
-                ),
               },
             },
+            // The dev server may serve files of parent themes that live
+            // outside the project (e.g. a linked package).
+            server: { fs: { allow: [rootDir, ...chain.map((l) => l.dir)] } },
           },
         });
-        // Page priority: app (file-based routing) > theme > modules.
+        // Page priority: project (file-based routing) > parent > grandparent
+        // > modules.
         const appPagesDir = fileURLToPath(new URL("./pages", config.srcDir));
         const claimed = new Set();
-        if (theme) {
-          applyTheme(theme, config, injectRoute, updateConfig, logger, appPagesDir, claimed);
+        if (inheritPages) {
+          for (const layer of chain.slice(1)) {
+            injectPagesLayer(join(layer.srcDir, "pages"), appPagesDir, claimed, injectRoute);
+          }
         }
         applyModules(modulesDir, config.root, appPagesDir, claimed, injectRoute);
+      },
+      "astro:build:done": ({ dir, logger }) => {
+        const manifest = join(rootDir, "theme.json");
+        if (existsSync(manifest)) {
+          copyFileSync(manifest, join(fileURLToPath(dir), "theme.json"));
+        } else {
+          logger.warn(
+            "No theme.json in the project root — the framework can't load this build as a theme.",
+          );
+        }
       },
     },
   };

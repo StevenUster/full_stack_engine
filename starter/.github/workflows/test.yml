@@ -21,14 +21,14 @@ jobs:
         with:
           bun-version: "1.3.8"
 
-      - name: Install frontend dependencies
-        working-directory: src/frontend
+      - name: Install theme dependencies
+        working-directory: theme
         run: bun install --frozen-lockfile
 
-      - name: Build frontend
-        # `cargo build`/`test` embed this via `include_dir!`, so it must exist
-        # (and be up to date) before the Rust step runs.
-        working-directory: src/frontend
+      - name: Build theme
+        # `cargo build`/`test` embed theme/dist via `include_dir!`, so it must
+        # exist (and be up to date) before the Rust step runs.
+        working-directory: theme
         run: bun run build
 
       - name: Set up Rust

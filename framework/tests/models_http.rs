@@ -117,6 +117,7 @@ fn app_data(db: SqlitePool) -> web::Data<AppData> {
         context_injector: None,
         locales: std::collections::HashMap::new(),
         locale_selector: full_stack_engine::i18n::LocaleSelector::default(),
+        themes: std::sync::Arc::default(),
     })
 }
 
@@ -157,7 +158,11 @@ async fn generated_crud_over_http() {
     .await;
 
     // No token: the admin UI redirects to login.
-    let res = test::call_service(&app, test::TestRequest::get().uri("/admin/posts").to_request()).await;
+    let res = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/admin/posts").to_request(),
+    )
+    .await;
     assert_eq!(res.status().as_u16(), 302);
     assert_eq!(res.headers().get(LOCATION).unwrap(), "/login");
 
@@ -221,7 +226,13 @@ async fn generated_crud_over_http() {
     )
     .await;
     assert_eq!(res.status().as_u16(), 302);
-    let location = res.headers().get(LOCATION).unwrap().to_str().unwrap().to_string();
+    let location = res
+        .headers()
+        .get(LOCATION)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
     assert!(location.starts_with("/admin/posts/"), "{location}");
     let id: i64 = location.rsplit('/').next().unwrap().parse().unwrap();
 
@@ -252,7 +263,11 @@ async fn generated_crud_over_http() {
         test::TestRequest::post()
             .uri(&location)
             .cookie(editor.clone())
-            .set_form([("title", "First!"), ("slug", "first"), ("status", "published")])
+            .set_form([
+                ("title", "First!"),
+                ("slug", "first"),
+                ("status", "published"),
+            ])
             .to_request(),
     )
     .await;
@@ -265,23 +280,35 @@ async fn generated_crud_over_http() {
     let body = String::from_utf8(test::read_body(res).await.to_vec()).unwrap();
     assert_eq!(body, "PUB-OVERRIDE total=1");
 
-    let res =
-        test::call_service(&app, test::TestRequest::get().uri("/posts/first").to_request()).await;
+    let res = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/posts/first").to_request(),
+    )
+    .await;
     let body = String::from_utf8(test::read_body(res).await.to_vec()).unwrap();
     assert_eq!(body, "PUBDET first");
-    let res =
-        test::call_service(&app, test::TestRequest::get().uri("/posts/nope").to_request()).await;
+    let res = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/posts/nope").to_request(),
+    )
+    .await;
     assert_eq!(res.status().as_u16(), 404);
 
     // Public JSON API.
-    let res = test::call_service(&app, test::TestRequest::get().uri("/api/posts").to_request()).await;
+    let res = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/api/posts").to_request(),
+    )
+    .await;
     assert_eq!(res.status().as_u16(), 200);
     let json: serde_json::Value = test::read_body_json(res).await;
     assert_eq!(json["total"], 1);
     assert_eq!(json["rows"][0]["slug"], "first");
     let res = test::call_service(
         &app,
-        test::TestRequest::get().uri("/api/posts/first").to_request(),
+        test::TestRequest::get()
+            .uri("/api/posts/first")
+            .to_request(),
     )
     .await;
     let json: serde_json::Value = test::read_body_json(res).await;
@@ -340,4 +367,44 @@ async fn app_route_shadows_generated_route() {
     let res = test::call_service(&app, test::TestRequest::get().uri("/posts").to_request()).await;
     let body = String::from_utf8(test::read_body(res).await.to_vec()).unwrap();
     assert_eq!(body, "APP WINS");
+}
+
+#[actix_web::test]
+async fn nav_context_lists_readable_models_for_the_signed_in_user() {
+    let db = SqlitePool::connect(env!("DATABASE_URL")).await.unwrap();
+    let viewer = token(&db, AppRole::Viewer).await;
+    let nobody = token(&db, AppRole::None).await;
+    let data = app_data(db);
+
+    let nav_for = |cookie: Option<Cookie<'static>>| {
+        let mut req = test::TestRequest::default().app_data(data.clone());
+        if let Some(cookie) = cookie {
+            req = req.cookie(cookie);
+        }
+        let req = req.to_http_request();
+        let mut ctx = serde_json::json!({});
+        data.inject_request_context(&req, &mut ctx);
+        models::inject_nav::<AppRole>(&req, &mut ctx);
+        ctx
+    };
+
+    // Signed out: an empty nav (always present for theme loops), no user.
+    let ctx = nav_for(None);
+    assert_eq!(ctx["nav"], serde_json::json!([]));
+    assert!(ctx.get("user").is_none());
+
+    // `content.read` shows the posts admin page; the disabled users model
+    // never appears.
+    let ctx = nav_for(Some(viewer));
+    assert_eq!(
+        ctx["nav"],
+        serde_json::json!([{ "table": "posts", "href": "/admin/posts" }])
+    );
+    assert_eq!(ctx["user"]["role"], "viewer");
+    assert_eq!(ctx["user"]["can_read_users"], false);
+
+    // Without the permission the link is hidden.
+    let ctx = nav_for(Some(nobody));
+    assert_eq!(ctx["nav"], serde_json::json!([]));
+    assert_eq!(ctx["user"]["is_admin"], false);
 }

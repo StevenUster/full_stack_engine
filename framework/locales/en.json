@@ -166,5 +166,20 @@
     "cancel": "Cancel",
     "delete_btn": "Delete",
     "delete_error": "Error occurred"
-  }
+  },
+  "nav": {
+    "home": "Home",
+    "users": "Users",
+    "settings": "Settings",
+    "logout": "Logout",
+    "login": "Login",
+    "dark_mode": "Dark mode",
+    "light_mode": "Light mode"
+  },
+  "dashboard": {
+    "signed_out": "Sign in to manage your data.",
+    "manage": "Manage entries"
+  },
+  "models": {},
+  "roles": {}
 }

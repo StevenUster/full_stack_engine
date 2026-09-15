@@ -13,6 +13,15 @@ the `<script type="application/json" id="__fse-props__">` placeholder emitted
 by its `Layout.astro`. See the starter's [README](../starter/README.md#server-rendered-data-in-templates-fse-ssr)
 for usage and the supported expression grammar.
 
+## Themes
+
+The integration reads the project's `theme.json`. With a `parent`
+(`{ "name": "my-theme", "parent": "fse-theme-default" }`), the parent's
+pages are built into this project with the project's overrides of any
+parent `src/` file applied, and `@parent/...` imports the parent's originals.
+`theme.json` is copied into the build output, which is what the framework
+loads. See [docs/themes.md](../docs/themes.md).
+
 ## Entry points
 
 - `fse-ssr` — the Astro integration (`astro.config.mjs`).

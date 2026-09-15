@@ -166,5 +166,20 @@
     "cancel": "Abbrechen",
     "delete_btn": "Löschen",
     "delete_error": "Es ist ein Fehler aufgetreten"
-  }
+  },
+  "nav": {
+    "home": "Start",
+    "users": "Benutzer",
+    "settings": "Einstellungen",
+    "logout": "Abmelden",
+    "login": "Anmelden",
+    "dark_mode": "Dunkler Modus",
+    "light_mode": "Heller Modus"
+  },
+  "dashboard": {
+    "signed_out": "Melde dich an, um deine Daten zu verwalten.",
+    "manage": "Einträge verwalten"
+  },
+  "models": {},
+  "roles": {}
 }

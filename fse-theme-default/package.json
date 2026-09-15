@@ -1,7 +1,7 @@
 {
   "name": "fse-theme-default",
-  "version": "0.1.0",
-  "description": "Default theme for full_stack_engine apps: layout, design system, and the generic metadata-driven CRUD pages (_model/*) rendered for every #[model] struct.",
+  "version": "0.2.0",
+  "description": "Default theme for full_stack_engine apps — a complete Astro project: app shell, design system, auth pages, emails and the generic metadata-driven CRUD pages. Extend it with a child theme.",
   "type": "module",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -10,14 +10,29 @@
     "directory": "fse-theme-default"
   },
   "files": [
-    "layouts",
-    "components",
-    "pages",
-    "styles",
-    "types.ts"
+    "src",
+    "public",
+    "theme.json",
+    "astro.config.mjs",
+    "tsconfig.json",
+    "README.md"
   ],
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
   "peerDependencies": {
-    "astro": ">=5.0.0",
+    "astro": ">=7.0.0",
     "fse-ssr": ">=0.2.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@tailwindcss/vite": "^4.3.1",
+    "astro": "^7.0.0",
+    "fse-ssr": "file:../fse-ssr",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.9.3"
   }
 }

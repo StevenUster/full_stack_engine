@@ -4,7 +4,8 @@
 //!   cargo run --bin test_email
 //!
 //! Prerequisites:
-//!   - Astro dev server running: `bun dev` inside src/frontend/
+//!   - the theme is built (`bun run build` inside theme/) — the email renders
+//!     from the same theme stack the app uses (child over fse-theme-default)
 //!   - SMTP_* env vars set in .env
 
 // ── Configure here ──────────────────────────────────────────────────────────
@@ -13,7 +14,7 @@ const TEMPLATE: Template = Template::Verify;
 // ────────────────────────────────────────────────────────────────────────────
 
 use full_stack_engine::mail::send_mail;
-use full_stack_engine::prelude::{reqwest, serde_json, tera};
+use full_stack_engine::prelude::{serde_json, tera};
 
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
@@ -61,27 +62,6 @@ impl Template {
     }
 }
 
-/// Remove Astro dev-server artifacts (Tailwind CSS blob, Vite HMR scripts,
-/// dev-toolbar JS) so only the actual email HTML is sent.
-fn strip_dev_artifacts(html: &str) -> String {
-    let no_style = strip_tags(html, "<style", "</style>");
-    strip_tags(&no_style, "<script", "</script>")
-}
-
-fn strip_tags(html: &str, open: &str, close: &str) -> String {
-    let mut out = String::with_capacity(html.len());
-    let mut rest = html;
-    while let Some(start) = rest.find(open) {
-        out.push_str(&rest[..start]);
-        rest = match rest[start..].find(close) {
-            Some(end) => &rest[start + end + close.len()..],
-            None => break,
-        };
-    }
-    out.push_str(rest);
-    out
-}
-
 #[actix_web::main]
 async fn main() {
     dotenv::dotenv().ok();
@@ -91,34 +71,14 @@ async fn main() {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
 
-    let url = format!("http://localhost:4321/{}", TEMPLATE.path());
-    println!("Fetching template from {url} ...");
-
-    let html = match reqwest::get(&url).await {
-        Ok(res) if res.status().is_success() => match res.text().await {
-            Ok(text) => strip_dev_artifacts(&text),
-            Err(e) => {
-                eprintln!("Failed to read response body: {e}");
-                std::process::exit(1);
-            }
-        },
-        Ok(res) => {
-            eprintln!("Astro dev server returned HTTP {}", res.status());
-            std::process::exit(1);
-        }
+    let tpl_name = TEMPLATE.path();
+    let tpl_engine = match full_stack_engine::testing::load_themes(starter::themes()) {
+        Ok(tera) => tera,
         Err(e) => {
-            eprintln!("Could not reach Astro dev server at {url}: {e}");
-            eprintln!("Make sure `bun dev` is running inside src/frontend/");
+            eprintln!("Failed to load the theme templates: {e}");
             std::process::exit(1);
         }
     };
-
-    let tpl_name = TEMPLATE.path();
-    let mut tpl_engine = tera::Tera::default();
-    if let Err(e) = tpl_engine.add_raw_template(tpl_name, &html) {
-        eprintln!("Failed to parse template: {e}");
-        std::process::exit(1);
-    }
 
     let ctx = match tera::Context::from_serialize(TEMPLATE.context(t.clone())) {
         Ok(c) => c,

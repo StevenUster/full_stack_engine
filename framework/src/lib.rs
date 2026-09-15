@@ -30,6 +30,7 @@ pub mod rate_limiter;
 pub mod roles;
 pub mod structs;
 pub mod testing;
+pub mod themes;
 pub mod uploads;
 
 // Re-exported because the code emitted by `#[derive(Model)]` submits its
@@ -62,16 +63,35 @@ pub struct AppData {
     pub locales: std::collections::HashMap<String, serde_json::Value>,
     /// How a request's language is decided (see [`FrameworkApp::locales`]).
     pub locale_selector: i18n::LocaleSelector,
+    /// The active theme and its ancestors (see [`themes`]). `tera` holds the
+    /// stack's templates; this is kept for static assets and dev servers.
+    pub themes: std::sync::Arc<themes::ThemeStack>,
 }
 
 impl AppData {
+    /// Everything the framework puts into every page's context before the
+    /// app's own injector runs: `t`/`lang`/`lang_prefix`/`i18n` and an
+    /// (empty unless [`FrameworkApp::models`] fills it) `nav` list, so theme
+    /// layouts can always loop over it.
+    pub fn inject_request_context(
+        &self,
+        req: &actix_web::HttpRequest,
+        value: &mut serde_json::Value,
+    ) {
+        self.inject_request_locale(req, value);
+        if let Some(obj) = value.as_object_mut() {
+            obj.entry("nav").or_insert_with(|| serde_json::json!([]));
+        }
+    }
+
     /// The language resolved for this request (set by the framework's locale
     /// middleware), falling back to the selector's default.
     #[must_use]
     pub fn request_lang(&self, req: &actix_web::HttpRequest) -> String {
-        req.extensions()
-            .get::<i18n::RequestLang>()
-            .map_or_else(|| self.locale_selector.default_lang().to_string(), |l| l.0.clone())
+        req.extensions().get::<i18n::RequestLang>().map_or_else(
+            || self.locale_selector.default_lang().to_string(),
+            |l| l.0.clone(),
+        )
     }
 
     /// The URL prefix links must carry to stay in the request's language:
@@ -110,12 +130,12 @@ impl AppData {
         };
         let lang = self.request_lang(req);
         obj.insert("t".to_string(), self.locale(&lang));
-        obj.insert("lang_prefix".to_string(), serde_json::json!(self.lang_prefix(req)));
-        obj.insert("lang".to_string(), serde_json::json!(lang));
         obj.insert(
-            "i18n".to_string(),
-            serde_json::json!(self.locales.clone()),
+            "lang_prefix".to_string(),
+            serde_json::json!(self.lang_prefix(req)),
         );
+        obj.insert("lang".to_string(), serde_json::json!(lang));
+        obj.insert("i18n".to_string(), serde_json::json!(self.locales.clone()));
     }
 }
 
@@ -141,7 +161,7 @@ impl RenderTplExt for actix_web::HttpRequest {
 
         // Locale context first, app injector second — an app that wants to
         // override `t`/`lang` for a request simply wins.
-        app_data.inject_request_locale(self, &mut value);
+        app_data.inject_request_context(self, &mut value);
         if let Some(injector) = &app_data.context_injector {
             injector(self, &mut value);
         }
@@ -176,87 +196,72 @@ impl AppData {
                 return HttpResponse::InternalServerError().body("Context serialization error");
             }
         };
-        if self.env == Env::Dev {
-            let path = if template_name == "index" {
-                String::new()
-            } else {
-                template_name.to_string()
-            };
-            let url = format!("http://localhost:4321/{path}");
-
-            let astro_html = match reqwest::get(&url).await {
-                Ok(response) => {
-                    if response.status().is_success() {
-                        match response.text().await {
-                            Ok(html) => html,
-                            Err(err) => {
-                                error!("Failed to read response from Astro dev server: {err}");
-                                return HttpResponse::InternalServerError()
-                                    .body("Failed to read response");
-                            }
-                        }
-                    } else {
-                        error!("Astro dev server returned status: {}", response.status());
-                        return HttpResponse::InternalServerError().body("Astro dev server error");
-                    }
-                }
-                Err(err) => {
-                    error!("Failed to connect to Astro dev server at {url}: {err}");
-                    return HttpResponse::InternalServerError()
-                        .body("Failed to connect to Astro dev server");
-                }
-            };
-
-            let mut tera_temp = Tera::default();
-            // Template names never carry a `.html` suffix (see `add_templates`), so Tera's
-            // default suffix-based autoescape detection never matches. An empty suffix is a
-            // suffix of every string, so this forces escaping for every template regardless
-            // of its name. Templates that intentionally emit raw HTML use the `safe` filter.
-            tera_temp.autoescape_on(vec![""]);
-            if let Err(err) = tera_temp.add_raw_template(template_name, &astro_html) {
-                error!("Failed to add Astro HTML as Tera template: {err}");
-                return HttpResponse::InternalServerError().body("Failed to add template");
+        let context = match Context::from_serialize(&value) {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                error!("Context serialization error: {err}");
+                return HttpResponse::InternalServerError().finish();
             }
+        };
 
-            let context = match Context::from_serialize(&value) {
-                Ok(ctx) => ctx,
-                Err(err) => {
-                    error!("Context serialization error: {err}");
-                    return HttpResponse::InternalServerError().body("Context serialization error");
-                }
-            };
-
-            match tera_temp.render(template_name, &context) {
-                Ok(html) => HttpResponse::Ok()
-                    .content_type("text/html")
-                    .body(inject_page_props(html, &value)),
-                Err(err) => {
-                    error!("Template rendering error: {err}");
-                    HttpResponse::InternalServerError().body("Template rendering error")
-                }
-            }
-        } else {
-            let context = match Context::from_serialize(&value) {
-                Ok(ctx) => ctx,
-                Err(err) => {
-                    error!("Context serialization error: {err}");
-                    return HttpResponse::InternalServerError().finish();
-                }
-            };
-
+        // In dev, a theme's dev server (child first) serves the freshest
+        // version of the page; the built templates are the fallback.
+        let rendered = match self.dev_template(template_name).await {
+            Some(tera) => tera.render(template_name, &context),
             // Names are used verbatim: template names can legitimately
-            // contain underscores (e.g. a `sort_items` table's pages, the
-            // generic `_model/*` templates).
-            match self.tera.render(template_name, &context) {
-                Ok(html) => HttpResponse::Ok()
-                    .content_type("text/html")
-                    .body(inject_page_props(html, &value)),
-                Err(err) => {
-                    error!("Template rendering error ({template_name}): {err}");
-                    HttpResponse::InternalServerError().finish()
-                }
+            // contain underscores (e.g. a `sort_items` table's pages).
+            None => self.tera.render(template_name, &context),
+        };
+        match rendered {
+            Ok(html) => HttpResponse::Ok()
+                .content_type("text/html")
+                .body(inject_page_props(html, &value)),
+            Err(err) => {
+                error!("Template rendering error ({template_name}): {err}");
+                HttpResponse::InternalServerError().finish()
             }
         }
+    }
+
+    /// `ENV=dev` only: the page fetched from the first theme dev server that
+    /// serves it, parsed into a copy of the built templates (so it can still
+    /// extend/include them). `None` in prod, or when no dev server has it.
+    async fn dev_template(&self, template_name: &str) -> Option<Tera> {
+        if self.env != Env::Dev {
+            return None;
+        }
+        let path = if template_name == "index" {
+            ""
+        } else {
+            template_name
+        };
+        for server in self.themes.dev_servers() {
+            let url = format!("{server}/{path}");
+            let html = match reqwest::get(&url).await {
+                Ok(res) if res.status().is_success() => match res.text().await {
+                    Ok(html) => html,
+                    Err(err) => {
+                        error!("Failed to read {url}: {err}");
+                        continue;
+                    }
+                },
+                Ok(res) => {
+                    debug!("Theme dev server {url} returned {}", res.status());
+                    continue;
+                }
+                Err(err) => {
+                    debug!("Theme dev server {server} unreachable: {err}");
+                    continue;
+                }
+            };
+            let mut tera = self.tera.clone();
+            if let Err(err) = tera.add_raw_template(template_name, &html) {
+                error!("Dev template {template_name} from {server} is invalid: {err}");
+                return None;
+            }
+            return Some(tera);
+        }
+        None
     }
 
     /// Renders an email template to an HTML string (via the Astro dev server
@@ -271,36 +276,13 @@ impl AppData {
         template_name: &str,
         context_data: &T,
     ) -> Result<String, String> {
-        if self.env == Env::Dev {
-            let url = format!("http://localhost:4321/{template_name}");
-
-            let astro_html = reqwest::get(&url)
-                .await
-                .map_err(|e| format!("Failed to connect to Astro dev server: {e}"))?
-                .text()
-                .await
-                .map_err(|e| format!("Failed to read Astro dev server response: {e}"))?;
-
-            let mut tera_temp = Tera::default();
-            tera_temp.autoescape_on(vec![""]);
-            tera_temp
-                .add_raw_template(template_name, &astro_html)
-                .map_err(|e| format!("Failed to add email template: {e}"))?;
-
-            let context = Context::from_serialize(context_data)
-                .map_err(|e| format!("Context serialization error: {e}"))?;
-
-            tera_temp
-                .render(template_name, &context)
-                .map_err(|e| format!("Email template rendering error: {e}"))
-        } else {
-            let context = Context::from_serialize(context_data)
-                .map_err(|e| format!("Context serialization error: {e}"))?;
-
-            self.tera
-                .render(template_name, &context)
-                .map_err(|e| format!("Email template rendering error ({template_name}): {e}"))
-        }
+        let context = Context::from_serialize(context_data)
+            .map_err(|e| format!("Context serialization error: {e}"))?;
+        let rendered = match self.dev_template(template_name).await {
+            Some(tera) => tera.render(template_name, &context),
+            None => self.tera.render(template_name, &context),
+        };
+        rendered.map_err(|e| format!("Email template rendering error ({template_name}): {e}"))
     }
 }
 
@@ -348,7 +330,9 @@ type StartupFn = Box<
 type ModelRoutesFn = std::sync::Arc<dyn Fn(&mut web::ServiceConfig) + Send + Sync>;
 
 pub struct FrameworkApp {
-    dist_dir: &'static Dir<'static>,
+    themes: Vec<themes::Theme>,
+    active_theme: Option<String>,
+    nav_injector: Option<std::sync::Arc<ContextInjectorFn>>,
     configure_fn: Option<ConfigureFn>,
     model_routes: Option<ModelRoutesFn>,
     cronjobs_fn: Option<CronjobsFn>,
@@ -361,11 +345,19 @@ pub struct FrameworkApp {
     modules: Vec<modules::ModuleDef>,
 }
 
+impl Default for FrameworkApp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FrameworkApp {
     #[must_use]
-    pub fn new(dist_dir: &'static Dir<'static>) -> Self {
+    pub fn new() -> Self {
         Self {
-            dist_dir,
+            themes: Vec::new(),
+            active_theme: None,
+            nav_injector: None,
             configure_fn: None,
             model_routes: None,
             cronjobs_fn: None,
@@ -379,13 +371,40 @@ impl FrameworkApp {
         }
     }
 
+    /// Installs a theme (see [`themes`]). Install a parent and its child and
+    /// the child becomes active; the parent fills in every template and
+    /// asset the child doesn't have. Several unrelated themes can be
+    /// installed side by side — pick one with [`FrameworkApp::active_theme`]
+    /// or the `THEME` environment variable.
+    ///
+    /// ```ignore
+    /// static THEME: Dir = include_dir!("$CARGO_MANIFEST_DIR/theme/dist");
+    ///
+    /// FrameworkApp::new()
+    ///     .theme(Theme::embedded(&fse_theme_default::DIST))
+    ///     .theme(Theme::embedded(&THEME).dev_server("http://localhost:4321"))
+    /// ```
+    #[must_use]
+    pub fn theme(mut self, theme: themes::Theme) -> Self {
+        self.themes.push(theme);
+        self
+    }
+
+    /// Activates an installed theme by its `theme.json` name. The `THEME`
+    /// environment variable, when set, takes precedence.
+    #[must_use]
+    pub fn active_theme(mut self, name: impl Into<String>) -> Self {
+        self.active_theme = Some(name.into());
+        self
+    }
+
     /// Adds a reusable module (see [`modules::ModuleDef`]): its routes mount
     /// between the app's and the generated CRUD, its locales layer between
     /// the framework's and the app's, its cronjobs start with the app's, and
     /// its `#[model]` structs register simply because the crate is linked.
     ///
     /// ```ignore
-    /// FrameworkApp::new(&DIST_DIR)
+    /// FrameworkApp::new()
     ///     .module(fse_module_erp::module())
     /// ```
     #[must_use]
@@ -414,11 +433,7 @@ impl FrameworkApp {
     /// .locales(&LOCALES, LocaleSelector::Path { default: "en".into() })
     /// ```
     #[must_use]
-    pub fn locales(
-        mut self,
-        dir: &'static Dir<'static>,
-        selector: i18n::LocaleSelector,
-    ) -> Self {
+    pub fn locales(mut self, dir: &'static Dir<'static>, selector: i18n::LocaleSelector) -> Self {
         self.locales_dir = Some(dir);
         self.locale_selector = selector;
         self
@@ -433,7 +448,7 @@ impl FrameworkApp {
     /// so a same-path route in the app simply overrides the generated one.
     ///
     /// ```ignore
-    /// FrameworkApp::new(&DIST_DIR)
+    /// FrameworkApp::new()
     ///     .configure(services::configure)
     ///     .models::<AppRole>()
     ///     .run().await
@@ -441,6 +456,7 @@ impl FrameworkApp {
     #[must_use]
     pub fn models<R: structs::Role>(mut self) -> Self {
         self.model_routes = Some(std::sync::Arc::new(models::mount_all::<R>));
+        self.nav_injector = Some(std::sync::Arc::new(Box::new(models::inject_nav::<R>)));
         self
     }
 
@@ -452,7 +468,7 @@ impl FrameworkApp {
     /// tight.
     ///
     /// ```ignore
-    /// FrameworkApp::new(&DIST_DIR).rate_limit_exempt_prefixes(["/api"]).run().await
+    /// FrameworkApp::new().rate_limit_exempt_prefixes(["/api"]).run().await
     /// ```
     #[must_use]
     pub fn rate_limit_exempt_prefixes<I, S>(mut self, prefixes: I) -> Self
@@ -470,7 +486,7 @@ impl FrameworkApp {
     /// `$CARGO_MANIFEST_DIR/migrations`) from your app:
     ///
     /// ```ignore
-    /// FrameworkApp::new(&DIST_DIR).migrator(sqlx::migrate!()).run().await
+    /// FrameworkApp::new().migrator(sqlx::migrate!()).run().await
     /// ```
     ///
     /// When omitted, migrations are loaded at runtime from the `MIGRATIONS_DIR`
@@ -516,7 +532,7 @@ impl FrameworkApp {
     /// with, not a separate connection like [`FrameworkApp::cronjobs`].
     ///
     /// ```ignore
-    /// FrameworkApp::new(&DIST_DIR).on_startup(bootstrap_admin).run().await
+    /// FrameworkApp::new().on_startup(bootstrap_admin).run().await
     /// ```
     #[must_use]
     pub fn on_startup<F, Fut>(mut self, f: F) -> Self
@@ -569,13 +585,28 @@ impl FrameworkApp {
                 .expect("Failed to run on_startup hook");
         }
 
-        let mut tera = Tera::default();
-        // Template names never carry a `.html` suffix (see `add_templates`), so Tera's
-        // default suffix-based autoescape detection never matches. An empty suffix is a
-        // suffix of every string, so this forces escaping for every template regardless
-        // of its name. Templates that intentionally emit raw HTML use the `safe` filter.
-        tera.autoescape_on(vec![""]);
-        add_templates(&mut tera, self.dist_dir);
+        let active_theme = env::var("THEME")
+            .ok()
+            .filter(|t| !t.is_empty())
+            .or_else(|| self.active_theme.take());
+        let theme_stack =
+            themes::ThemeStack::resolve(std::mem::take(&mut self.themes), active_theme.as_deref())
+                .unwrap_or_else(|err| panic!("Theme setup failed: {err}"));
+        info!(
+            "Theme: {}",
+            theme_stack
+                .chain()
+                .iter()
+                .map(themes::Theme::name)
+                .collect::<Vec<_>>()
+                .join(" -> ")
+        );
+        // Template names never carry a `.html` suffix, so Tera's default
+        // suffix-based autoescape detection never matches; `ThemeStack::tera`
+        // enables escaping for every template (raw HTML uses the `safe`
+        // filter), and logs and skips broken templates.
+        let tera = theme_stack.tera();
+        let theme_stack = std::sync::Arc::new(theme_stack);
 
         let env = parse_env(env::var("ENV").ok().as_deref());
 
@@ -583,14 +614,23 @@ impl FrameworkApp {
             self.modules.iter().filter_map(|m| m.cronjobs).collect();
         start_cron_scheduler(self.cronjobs_fn.take(), module_crons, &database_url).await;
 
-        let dist_dir = self.dist_dir;
         let configure_fn = self.configure_fn.map(std::sync::Arc::new);
         let model_routes = self.model_routes.clone();
-        let context_injector = self.context_injector.clone();
+        // Framework-provided context (nav/user) first, the app's injector
+        // second — the app can override either.
+        let context_injector: Option<std::sync::Arc<ContextInjectorFn>> =
+            match (self.nav_injector.clone(), self.context_injector.clone()) {
+                (Some(nav), Some(app)) => Some(std::sync::Arc::new(Box::new(
+                    move |req: &actix_web::HttpRequest, value: &mut serde_json::Value| {
+                        nav(req, value);
+                        app(req, value);
+                    },
+                ))),
+                (nav, app) => nav.or(app),
+            };
 
         let locale_selector = self.locale_selector.clone();
-        let module_locale_dirs: Vec<&Dir> =
-            self.modules.iter().filter_map(|m| m.locales).collect();
+        let module_locale_dirs: Vec<&Dir> = self.modules.iter().filter_map(|m| m.locales).collect();
         let locales = i18n::resolve_locales(
             i18n::build_locales(&module_locale_dirs, self.locales_dir),
             locale_selector.default_lang(),
@@ -624,15 +664,12 @@ impl FrameworkApp {
                     context_injector: context_injector.clone(),
                     locales: locales.clone(),
                     locale_selector: locale_selector.clone(),
+                    themes: theme_stack.clone(),
                 }))
                 // Resolve the request language (and in Path mode strip a
                 // /{lang} prefix) before any routing happens.
                 .wrap_fn(move |mut req, srv| {
-                    i18n::apply_request_locale(
-                        &request_selector,
-                        &request_known_langs,
-                        &mut req,
-                    );
+                    i18n::apply_request_locale(&request_selector, &request_known_langs, &mut req);
                     srv.call(req)
                 })
                 .wrap(NormalizePath::trim())
@@ -677,34 +714,26 @@ impl FrameworkApp {
             // checkout/container without any uploads yet doesn't log an
             // `actix_files` error on every worker at boot.
             let _ = std::fs::create_dir_all("./uploads");
-            app.service(uploads_service())
-                .service(web::scope("/_astro").route(
-                    "/{path:.*}",
-                    web::get().to(move |req: actix_web::HttpRequest| async move {
-                        if env == Env::Dev
-                            && let Ok(res) = forward_to_dev_server(&req).await
-                        {
-                            return Ok(res);
+            // Everything no route claimed: theme assets, child theme first
+            // (in dev, the themes' dev servers get the first try).
+            let assets = theme_stack.clone();
+            app.service(uploads_service()).default_service(web::to(
+                move |req: actix_web::HttpRequest| {
+                    let assets = assets.clone();
+                    async move {
+                        if env == Env::Dev {
+                            for server in assets.dev_servers() {
+                                if let Ok(res) = forward_to_dev_server(server, &req).await {
+                                    return Ok::<HttpResponse, actix_web::Error>(res);
+                                }
+                            }
                         }
                         let path = req.path().trim_start_matches('/');
-                        serve_from_dist(dist_dir, path, req.method().as_str())
-                    }),
-                ))
-                .default_service(web::to(move |req: actix_web::HttpRequest| async move {
-                    if env == Env::Dev
-                        && let Ok(res) = forward_to_dev_server(&req).await
-                    {
-                        return Ok(res);
+                        Ok(serve_asset(&assets, path, req.method().as_str())
+                            .unwrap_or_else(|_| HttpResponse::NotFound().finish()))
                     }
-
-                    let path = req.path().trim_start_matches('/');
-                    match serve_from_dist(dist_dir, path, req.method().as_str()) {
-                        Ok(res) => Ok(res),
-                        Err(_) => {
-                            Ok::<HttpResponse, actix_web::Error>(HttpResponse::NotFound().finish())
-                        }
-                    }
-                }))
+                },
+            ))
         })
         .bind(format!(
             "0.0.0.0:{}",
@@ -933,65 +962,11 @@ pub fn uploads_service() -> impl actix_web::dev::HttpServiceFactory {
         .service(actix_files::Files::new("", "./uploads"))
 }
 
-fn template_name(path: &str) -> String {
-    if path == "index.html" {
-        "index".to_string()
-    } else if let Some(stripped) = path.strip_suffix("/index.html") {
-        stripped.to_string()
-    } else if let Some(stripped) = path.strip_suffix(".html") {
-        stripped.to_string()
-    } else {
-        path.to_string()
-    }
-}
-
-// Shared by the boot-time loader (logs and skips a bad template) and
-// `testing::load_templates` (collects and returns every failure instead), so
-// the two never drift on the `index.html` -> `index` naming convention.
-pub(crate) fn walk_templates(
-    tera: &mut Tera,
-    dir: &Dir,
-    on_error: &mut dyn FnMut(&str, tera::Error),
-) {
-    for file in dir.files() {
-        if let Some(ext) = file.path().extension()
-            && ext == "html"
-        {
-            let Some(path) = file.path().to_str() else {
-                error!(
-                    "Skipping template with non-UTF-8 path: {}",
-                    file.path().display()
-                );
-                continue;
-            };
-            let path = path.replace('\\', "/");
-            let name = template_name(&path);
-
-            debug!("Registering template: {name}");
-            let Some(content) = file.contents_utf8() else {
-                error!("Skipping template with non-UTF-8 contents: {name}");
-                continue;
-            };
-            if let Err(err) = tera.add_raw_template(&name, content) {
-                on_error(&name, err);
-            }
-        }
-    }
-    for subd in dir.dirs() {
-        walk_templates(tera, subd, on_error);
-    }
-}
-
-// A bad template is logged and skipped rather than crashing the app at boot:
-// one broken page must not take down every other route.
-fn add_templates(tera: &mut Tera, dir: &Dir) {
-    walk_templates(tera, dir, &mut |name, err| {
-        error!("Skipping invalid template {name}: {err}");
-    });
-}
-
-async fn forward_to_dev_server(req: &actix_web::HttpRequest) -> actix_web::Result<HttpResponse> {
-    let url = format!("http://localhost:4321{}", req.uri());
+async fn forward_to_dev_server(
+    server: &str,
+    req: &actix_web::HttpRequest,
+) -> actix_web::Result<HttpResponse> {
+    let url = format!("{server}{}", req.uri());
     debug!("Proxying request to Astro dev server: {url}");
     let response = reqwest::get(&url).await.map_err(|e| {
         error!("Failed to proxy to Astro dev server: {e}");
@@ -1021,8 +996,8 @@ async fn forward_to_dev_server(req: &actix_web::HttpRequest) -> actix_web::Resul
     Ok(res.body(body))
 }
 
-fn serve_from_dist(
-    dist_dir: &Dir<'_>,
+fn serve_asset(
+    themes: &themes::ThemeStack,
     path: &str,
     method: &str,
 ) -> actix_web::Result<HttpResponse> {
@@ -1030,8 +1005,8 @@ fn serve_from_dist(
         return Ok(HttpResponse::MethodNotAllowed().finish());
     }
 
-    let file = dist_dir
-        .get_file(path)
+    let contents = themes
+        .asset(path)
         .ok_or_else(|| actix_web::error::ErrorNotFound("File not found"))?;
 
     let content_type = mime_guess::from_path(path)
@@ -1055,7 +1030,7 @@ fn serve_from_dist(
         .insert_header(("X-Content-Type-Options", "nosniff"))
         .insert_header(("X-Frame-Options", "DENY"))
         .insert_header(("Referrer-Policy", "strict-origin-when-cross-origin"))
-        .body(file.contents().to_vec()))
+        .body(contents.to_vec()))
 }
 
 // The `Result` wrapper is required by `ErrorHandlers::handler`'s signature.
@@ -1075,14 +1050,14 @@ where
             if is_logged_in {
                 ("error", StatusCode::NOT_FOUND)
             } else {
-                ("public_error", StatusCode::NOT_FOUND)
+                ("public/error", StatusCode::NOT_FOUND)
             }
         }
         _ => {
             if is_logged_in {
                 ("error", status)
             } else {
-                ("public_error", status)
+                ("public/error", status)
             }
         }
     };
@@ -1112,6 +1087,7 @@ where
             "error": display_error,
         });
 
+        data.inject_request_context(&req, &mut ctx);
         if let Some(injector) = &data.context_injector {
             injector(&req, &mut ctx);
         }
@@ -1137,8 +1113,18 @@ fn load_env_file() {
 mod tests {
     use super::*;
 
-    static TEST_DIST: Dir<'_> =
-        include_dir::include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/templates");
+    static BASE_THEME: Dir<'_> =
+        include_dir::include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/themes/base");
+    static CHILD_THEME: Dir<'_> =
+        include_dir::include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/themes/child");
+
+    fn test_stack() -> themes::ThemeStack {
+        testing::theme_stack([
+            themes::Theme::embedded(&BASE_THEME),
+            themes::Theme::embedded(&CHILD_THEME),
+        ])
+        .unwrap()
+    }
 
     #[test]
     fn validate_jwt_secret_enforces_minimum_length() {
@@ -1168,27 +1154,25 @@ mod tests {
         assert!(parse_env(Some("")) == Env::Prod);
     }
 
-    fn test_tera() -> Tera {
-        let mut tera = Tera::default();
-        tera.autoescape_on(vec![""]);
-        add_templates(&mut tera, &TEST_DIST);
-        tera
-    }
-
     #[test]
-    fn add_templates_registers_html_files_and_skips_broken_ones() {
-        let tera = test_tera();
+    fn theme_templates_register_by_path_and_broken_ones_are_skipped() {
+        let tera = test_stack().tera();
         let names: Vec<&str> = tera.get_template_names().collect();
         // `index.html` -> "index", `login/index.html` -> "login".
         assert!(names.contains(&"index"));
         assert!(names.contains(&"login"));
+        assert!(names.contains(&"@base/login"));
         // The syntactically broken template is skipped instead of panicking.
         assert!(!names.contains(&"broken"));
     }
 
     #[test]
-    fn load_templates_reports_broken_templates_instead_of_skipping_them() {
-        let err = testing::load_templates(&TEST_DIST).unwrap_err();
+    fn load_themes_reports_broken_templates_instead_of_skipping_them() {
+        let err = testing::load_themes([
+            themes::Theme::embedded(&BASE_THEME),
+            themes::Theme::embedded(&CHILD_THEME),
+        ])
+        .unwrap_err();
         assert!(
             err.contains("broken"),
             "error should name the broken template: {err}"
@@ -1196,45 +1180,63 @@ mod tests {
     }
 
     #[test]
-    fn load_templates_succeeds_when_every_template_parses() {
-        static OK_DIST: Dir<'_> =
-            include_dir::include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/templates/login");
-        let tera = testing::load_templates(&OK_DIST).unwrap();
+    fn load_themes_succeeds_when_every_template_parses() {
+        let ok = themes::Theme::new(themes::ThemeManifest {
+            name: "ok".into(),
+            parent: None,
+            version: None,
+            description: None,
+        })
+        .with_file("index.html", "hi {{ value }}");
+        let tera = testing::load_themes([ok]).unwrap();
         assert!(tera.get_template_names().any(|n| n == "index"));
     }
 
     #[test]
-    fn templates_escape_variables_by_default() {
-        let tera = test_tera();
-        let context = Context::from_serialize(serde_json::json!({
-            "value": "<script>alert(1)</script>",
-        }))
-        .unwrap();
+    fn child_theme_overrides_and_includes_the_parent_template() {
+        let tera = test_stack().tera();
+        let context =
+            Context::from_serialize(serde_json::json!({ "value": "<script>alert(1)</script>" }))
+                .unwrap();
 
         let html = tera.render("login", &context).unwrap();
+        assert!(html.contains("child login"));
+        assert!(
+            html.contains("<html><body>login"),
+            "parent template included: {html}"
+        );
+        // Autoescaping applies to every theme's templates.
         assert!(!html.contains("<script>alert(1)</script>"));
         assert!(html.contains("&lt;script&gt;"));
+        // Untouched templates come from the parent.
+        assert!(tera.render("index", &context).is_ok());
     }
 
     #[test]
-    fn serve_from_dist_serves_embedded_files_with_hardened_headers() {
-        let res = serve_from_dist(&TEST_DIST, "index.html", "GET").unwrap();
+    fn serve_asset_serves_theme_files_with_hardened_headers() {
+        let stack = test_stack();
+        let res = serve_asset(&stack, "_astro/app.css", "GET").unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         let headers = res.headers();
-        assert_eq!(headers.get("Content-Type").unwrap(), "text/html");
+        assert_eq!(headers.get("Content-Type").unwrap(), "text/css");
         assert_eq!(headers.get("X-Content-Type-Options").unwrap(), "nosniff");
         assert!(headers.get("Content-Security-Policy").is_some());
+        // Child assets are served too.
+        assert!(serve_asset(&stack, "custom.css", "GET").is_ok());
     }
 
     #[test]
-    fn serve_from_dist_rejects_non_read_methods() {
-        let res = serve_from_dist(&TEST_DIST, "index.html", "POST").unwrap();
+    fn serve_asset_rejects_non_read_methods() {
+        let res = serve_asset(&test_stack(), "_astro/app.css", "POST").unwrap();
         assert_eq!(res.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     #[test]
-    fn serve_from_dist_missing_file_is_an_error() {
-        assert!(serve_from_dist(&TEST_DIST, "no-such-file.html", "GET").is_err());
+    fn serve_asset_never_exposes_templates_or_the_manifest() {
+        let stack = test_stack();
+        assert!(serve_asset(&stack, "no-such-file.css", "GET").is_err());
+        assert!(serve_asset(&stack, "index.html", "GET").is_err());
+        assert!(serve_asset(&stack, "theme.json", "GET").is_err());
     }
 
     #[test]
@@ -1265,7 +1267,7 @@ mod tests {
     }
 
     /// Pins every Tera form the frontend's fse-ssr compiler emits
-    /// (see `starter/src/frontend/fse-ssr/runtime.ts`). If this test breaks
+    /// (see `fse-ssr/src/runtime.ts`). If this test breaks
     /// after a Tera upgrade, the emitter must be adapted too.
     #[test]
     fn fse_ssr_emitted_tera_grammar_renders() {

@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.1",
-    "astro": "5.17.1",
+    "astro": "^7.0.0",
     "fse-ssr": "file:../..",
     "fse-theme-default": "file:../../../fse-theme-default",
     "tailwindcss": "^4.3.1"

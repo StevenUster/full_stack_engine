@@ -17,10 +17,12 @@ sqlx = { version = "0.8.6", features = [
 ] }
 dotenv = "0.15.0"
 uuid = { version = "1.23.3", features = ["v4"] }
-full_stack_engine = "5.0.0"
+full_stack_engine = { version = "6.0.0", path = "../framework" }
+# The built default theme — the parent of this app's theme in theme/.
+fse-theme-default = { version = "0.2.0", path = "../fse-theme-default" }
 # The ORM runtime. Direct dependency because the query macros expand to
 # `::fse_orm::...` paths (same reason sqlx is a direct dependency).
-fse-orm = "0.4.0"
+fse-orm = { version = "0.4.0", path = "../fse-orm/runtime" }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 
 [profile.release]

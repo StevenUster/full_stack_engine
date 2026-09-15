@@ -1,0 +1,23 @@
+---
+/**
+ * One sidebar entry. Put an 18px icon in the default slot. Child themes use
+ * it for their own entries (see SidebarLinks.astro).
+ */
+import type { SsrValue } from "fse-ssr/ssr";
+
+interface Props {
+  href: string | SsrValue<string>;
+  label: string | SsrValue<string>;
+}
+
+const { href, label } = Astro.props;
+---
+
+<a
+  href={href}
+  data-nav-link
+  class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors text-secondary-700 hover:bg-secondary-100 hover:text-secondary-900 aria-[current=page]:bg-primary-50 aria-[current=page]:text-primary-800 aria-[current=page]:font-semibold"
+>
+  <span class="shrink-0 w-[18px] h-[18px] grid place-items-center"><slot /></span>
+  <span class="sidebar-label truncate">{label}</span>
+</a>

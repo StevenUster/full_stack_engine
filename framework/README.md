@@ -21,6 +21,7 @@ This repository contains two separate Cargo projects:
 
 - **Integrated Auth**: Built-in JWT and Argon2 password hashing. Is also pre-configured in the starter app.
 - **Template Engine**: Server-side rendering via Tera, authored as plain TypeScript — the starter's fse-ssr integration compiles typed `ssr<T>()` expressions in Astro templates to Tera at build time (no template syntax in frontend code), and the server injects each page's context as JSON for client-side code. Includes an Astro dev server proxy for rapid frontend development.
+- **Themes**: WordPress-style parent/child themes built with Astro or any other HTML generator — the framework layers the active theme's templates and assets over its parents at runtime (see [docs/themes.md](https://github.com/StevenUster/full_stack_engine/blob/main/docs/themes.md)); `fse-theme-default` provides a complete UI out of the box.
 - **Cron Scheduler**: Easy async job scheduling.
 - **Rate Limiting**: proxy-aware, per-client-IP rate limiting via Actix-governor — a generous site-wide limiter is applied to every request automatically (DDoS guard, tunable via `GLOBAL_RATE_LIMIT_*` env vars), plus stricter presets for auth/custom endpoints.
 - **Database**: [`fse-orm`](/fse-orm), a compile-time-checked ORM on top of SQLx — schema defined as plain structs, migrations generated (never hand-written), checked query macros plus a dynamic builder for runtime-shaped queries, Prisma-style relation eager-loading. See [Using the ORM](#using-the-orm).
@@ -33,7 +34,7 @@ These are the core rules the framework is built around. They apply both to chang
 
 2. **Secure and stable by default.** Every default the framework ships must be the safest and most robust option available — never the most convenient. If a setting can be insecure, its default is the secure value and loosening it is an explicit, opt-in decision by the app. This includes: autoescaped templates, `HttpOnly` + `SameSite=Strict` + `Secure` (prod) cookies, hardened response headers (CSP, `X-Content-Type-Options`, `X-Frame-Options`), and Argon2 password hashing.
 
-3. **Everything bundles into one executable.** The frontend (`dist/`) and locales are embedded via `include_dir!`, and migrations via `sqlx::migrate!()` (passed to `FrameworkApp::migrator`) — a built binary has no external `migrations/` or `locales/` directory to ship. The framework must not introduce runtime dependencies on external services or sidecar processes. Prefer simple, predictable behavior over configurability for its own sake.
+3. **Everything bundles into one executable.** Themes (built `dist/` folders) and locales are embedded via `include_dir!`, and migrations via `sqlx::migrate!()` (passed to `FrameworkApp::migrator`) — a built binary has no external `migrations/` or `locales/` directory to ship. The framework must not introduce runtime dependencies on external services or sidecar processes. Prefer simple, predictable behavior over configurability for its own sake.
 
 4. **Batteries included — where it makes sense.** Common needs (auth, mail, uploads, i18n, rate limiting, cron, error pages) live in the framework so apps don't re-implement them. A helper earns its place only if most apps want it and it can carry the secure default with it; niche or opinion-heavy concerns stay in the app.
 

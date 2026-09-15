@@ -257,6 +257,7 @@ mod tests {
             context_injector: None,
             locales: std::collections::HashMap::new(),
             locale_selector: crate::i18n::LocaleSelector::default(),
+            themes: std::sync::Arc::default(),
         })
     }
 

@@ -16,7 +16,7 @@ use starter::{AppData, Env, hash_password, insert};
 
 pub const JWT_SECRET: &str = "test-secret";
 
-/// Loads the embedded dist into a real `Tera` for tests. Unlike the
+/// Loads the app's theme stack into a real `Tera` for tests. Unlike the
 /// framework's own boot-time loader (which logs and skips a broken template
 /// so one bad page doesn't take the whole app down at runtime),
 /// `full_stack_engine::testing::load_templates` fails loudly with the full
@@ -24,7 +24,7 @@ pub const JWT_SECRET: &str = "test-secret";
 /// fse-ssr escaping bug) fails `cargo test`/CI instead of only surfacing as
 /// a request-time 500.
 pub fn test_tera() -> Tera {
-    full_stack_engine::testing::load_templates(&starter::DIST_DIR).expect("broken template(s) found")
+    full_stack_engine::testing::load_themes(starter::themes()).expect("broken template(s) found")
 }
 
 pub async fn test_app_data() -> web::Data<AppData> {
@@ -52,6 +52,9 @@ pub async fn test_app_data() -> web::Data<AppData> {
             "en",
         ),
         locale_selector: full_stack_engine::i18n::LocaleSelector::Hardcoded("en".into()),
+        themes: std::sync::Arc::new(
+            full_stack_engine::testing::theme_stack(starter::themes()).unwrap(),
+        ),
     })
 }
 
@@ -77,7 +80,9 @@ pub async fn seed_product(data: &web::Data<AppData>, slug: &str, status: &str) -
         name = format!("Product {slug}"),
         slug = slug.to_string(),
         price = 9.99,
-        status = status.parse::<starter::models::product::ProductStatus>().unwrap()
+        status = status
+            .parse::<starter::models::product::ProductStatus>()
+            .unwrap()
     )
     .await
     .unwrap();
@@ -90,7 +95,9 @@ pub fn next_peer() -> std::net::SocketAddr {
     use std::sync::atomic::{AtomicU32, Ordering};
     static N: AtomicU32 = AtomicU32::new(1);
     let n = N.fetch_add(1, Ordering::Relaxed);
-    format!("192.0.{}.{}:9999", n / 200, n % 200 + 1).parse().unwrap()
+    format!("192.0.{}.{}:9999", n / 200, n % 200 + 1)
+        .parse()
+        .unwrap()
 }
 
 /// The full production route stack, in production order: hand-written

@@ -6,6 +6,7 @@ pub use crate::{
     mail::send_mail,
     rate_limiter::{auth_rate_limiter, custom_rate_limiter, general_rate_limiter},
     structs::{DefaultRole, Role, User},
+    themes::{Theme, ThemeManifest},
     uploads::{UploadError, save_upload},
 };
 

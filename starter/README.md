@@ -1,6 +1,6 @@
 # Starter
 
-A starter app for the `full_stack_engine` framework: **the app is defined by the `#[model]` structs in `src/models/`** — each struct generates its table + migrations, its compile-time-checked ORM queries, and its admin CRUD endpoints and pages (list with search/filter/pagination, create/edit forms, delete), permission-gated and translated. Auth (login/register/email verification/password reset/settings/user admin) comes from the framework's built-in auth module, the design from the `fse-theme-default` theme. What's left in `services/` and `src/frontend/src/pages/` are **override examples**: a published-only public catalog, user-facing order flows, and a public JSON API with self-hosted Swagger docs.
+A starter app for the `full_stack_engine` framework: **the app is defined by the `#[model]` structs in `src/models/`** — each struct generates its table + migrations, its compile-time-checked ORM queries, and its admin CRUD endpoints and pages (list with search/filter/pagination, create/edit forms, delete), permission-gated and translated. Auth (login/register/email verification/password reset/settings/user admin) comes from the framework's built-in auth module, the design from the `fse-theme-default` theme. What's left in `services/` and the child theme in `theme/` are **override examples**: a published-only public catalog, user-facing order flows, and a public JSON API with self-hosted Swagger docs.
 
 ---
 
@@ -9,11 +9,11 @@ A starter app for the `full_stack_engine` framework: **the app is defined by the
 The rules every change to this app should respect:
 
 1. **Priorities, in order:** Security → Reliability → Speed → Readability. When they conflict, the earlier one wins.
-2. **One self-contained binary.** The Astro frontend and locales are embedded with `include_dir!`, and migrations with `sqlx::migrate!()` — a built binary carries them all and needs no `migrations/` or `locales/` directory beside it. No sidecar processes; persistent state lives only in the `data/` volume. Keep it simple and predictable.
+2. **One self-contained binary.** The themes (the `fse-theme-default` crate and the built `theme/`) and locales are embedded with `include_dir!`, and migrations with `sqlx::migrate!()` — a built binary carries them all and needs no `migrations/` or `locales/` directory beside it. No sidecar processes; persistent state lives only in the `data/` volume. Keep it simple and predictable.
 3. **Secure by default.** New options default to their safest value. Auth cookies stay `HttpOnly` + `SameSite=Strict` + `Secure` (prod). Secrets and tokens are never logged.
 4. **Every handler authorizes.** State-changing endpoints check role before acting. The public site and API expose only `published` products — never drafts/archived data or extra user PII.
 5. **Parameterized SQL only.** All user input goes through `sqlx` bind parameters; never string-formatted into a query.
-6. **Escaped templates.** Tera autoescaping is always on; `safe` is used only on pre-escaped values. Anything placed in `src/frontend/dist/` becomes a Tera template at boot, so raw `{{ }}` in static assets will crash startup.
+6. **Escaped templates.** Tera autoescaping is always on; `safe` is used only on pre-escaped values. Every `.html` file of the theme stack becomes a Tera template at boot (broken ones fail `cargo test`).
 7. **Forward-only migrations.** Add a new timestamped migration per schema change and run `cargo sqlx prepare` afterwards; never edit an applied migration.
 
 See [`CLAUDE.md`](./CLAUDE.md) for the detailed rationale behind each rule.
@@ -46,9 +46,13 @@ See [`CLAUDE.md`](./CLAUDE.md) for the detailed rationale behind each rule.
 - Read-only, unauthenticated, CORS-enabled JSON API (`/api/products`, `/api/products/{slug}`).
 - Self-hosted Swagger UI at `/api/docs`, spec at `/api/openapi.json` — no external/CDN requests.
 
-### Frontend
+### Frontend (themes)
 
-- Astro + React, Tailwind CSS, light/dark mode.
+- The UI comes from the `fse-theme-default` theme (a cargo crate). `theme/` is this app's **child theme** — an Astro project whose `theme.json` names the default theme as parent (see [docs/themes.md](../docs/themes.md)):
+  - `theme/src/pages/` — the app's own pages (public catalog, my-orders, API docs); a same-path page would override a parent page.
+  - `theme/src/components/SidebarLinks.astro` and `theme/src/styles/global.css` — override examples: extra sidebar links and a recolored palette, applied to every inherited page.
+  - Delete `theme/` (and its `.theme(...)` line in `src/lib.rs`) to run on the plain default theme, or point `parent` at another theme.
+- Tailwind CSS, light/dark mode.
 - Bilingual (English default, German) via `locales/en.json` / `locales/de.json`.
 
 ---
@@ -99,7 +103,7 @@ Make sure your `.env` file has:
 ENV=dev
 ```
 
-Then run the development server (starts both Rust backend and Astro frontend):
+Then run the development server (starts both the Rust backend and the theme's Astro dev server; builds `theme/` once if it has never been built):
 
 ```bash
 cargo run --bin dev
@@ -113,8 +117,8 @@ Alternatively, run them separately in two terminals:
 # Terminal 1: Rust backend with hot reload
 cargo watch -x run
 
-# Terminal 2: Astro frontend dev server
-cd src/frontend
+# Terminal 2: theme dev server
+cd theme
 bun dev
 ```
 

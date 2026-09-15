@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE \"orders\" SET \"product_id\" = ?, \"user_id\" = ?, \"quantity\" = ?, \"note\" = ?, \"status\" = ?, \"created_at\" = ? WHERE \"id\" = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "9424c123f6ad485ddbda1f556e4ffafde8672b0c1924aa3a6d0a4986938c43cd"
+}

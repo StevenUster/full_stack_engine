@@ -1,0 +1,5 @@
+{
+  "name": "starter",
+  "parent": "fse-theme-default",
+  "description": "The starter app's child theme: its own pages plus example overrides of the default theme."
+}

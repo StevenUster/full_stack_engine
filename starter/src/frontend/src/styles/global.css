@@ -1,9 +1,0 @@
-/*
-  The app's single Tailwind root. The design system comes from the theme;
-  put app-specific tokens/overrides below the imports.
-*/
-@import "tailwindcss";
-@import "fse-theme-default/styles/global.css";
-
-/* Classes used only inside theme/module sources still get generated. */
-@source "../../node_modules/fse-theme-default";

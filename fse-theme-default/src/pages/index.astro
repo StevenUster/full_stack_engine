@@ -1,0 +1,41 @@
+---
+/**
+ * Default home page: a dashboard linking every model the user may manage.
+ * Apps usually replace it (a child theme's own src/pages/index.astro).
+ */
+import { ssr } from "fse-ssr/ssr";
+import Card from "../components/Card.astro";
+import Header from "../components/Header.astro";
+import Layout from "../layouts/Layout.astro";
+import type { ShellContext } from "../types";
+
+const { t, nav, user, lang_prefix } = ssr<ShellContext>();
+---
+
+<Layout title={t.nav.home ?? "Home"}>
+  <main class="w-full max-w-5xl">
+    <Header>{t.nav.home ?? "Home"}</Header>
+
+    {!user && (
+      <Card>
+        <p class="text-sm text-secondary-600">{t.dashboard.signed_out ?? "Sign in to manage your data."}</p>
+        <div>
+          <a class="btn-primary" href={`${lang_prefix}/login`}>{t.nav.login ?? "Login"}</a>
+        </div>
+      </Card>
+    )}
+
+    {user && (
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {nav.map((item) => (
+          <a href={`${lang_prefix}${item.href}`}>
+            <Card accent="primary" hover>
+              <h2 class="text-lg font-bold text-secondary-900">{t.models[item.table].title ?? item.table}</h2>
+              <p class="text-sm text-secondary-500">{t.dashboard.manage ?? "Manage entries"}</p>
+            </Card>
+          </a>
+        ))}
+      </div>
+    )}
+  </main>
+</Layout>

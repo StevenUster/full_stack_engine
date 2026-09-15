@@ -1,0 +1,22 @@
+{
+  "name": "starter-theme",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@tailwindcss/vite": "^4.3.1",
+    "astro": "^7.0.0",
+    "fse-ssr": "file:../../fse-ssr",
+    "fse-theme-default": "file:../../fse-theme-default",
+    "swagger-ui-dist": "^5.32.8",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.9.3"
+  }
+}

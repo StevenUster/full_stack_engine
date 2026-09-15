@@ -18,13 +18,25 @@ use full_stack_engine::define_roles;
 pub use full_stack_engine::prelude::*;
 
 pub mod cronjobs;
-pub mod services;
 pub mod models;
+pub mod services;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Set html template directory
+// Themes: the default theme (a crate) + this app's child theme (theme/)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-pub static DIST_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/src/frontend/dist");
+/// The built child theme (`cd theme && bun run build`). Its `theme.json`
+/// names `fse-theme-default` as parent: templates and assets it doesn't
+/// have come from the parent at runtime.
+pub static THEME_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/theme/dist");
+
+/// Every theme the app installs; the child (the one nothing extends) is
+/// active. To run on the plain default theme instead, set `THEME=fse-theme-default`.
+pub fn themes() -> Vec<Theme> {
+    vec![
+        Theme::embedded(&fse_theme_default::DIST),
+        Theme::embedded(&THEME_DIR).dev_server("http://localhost:4321"),
+    ]
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Locale JSON, embedded into the binary
@@ -44,7 +56,11 @@ define_roles! {
 /// Builds and runs the application; `main.rs` is only a thin wrapper around
 /// this.
 pub async fn run() -> std::io::Result<()> {
-    FrameworkApp::new(&DIST_DIR)
+    let mut app = FrameworkApp::new();
+    for theme in themes() {
+        app = app.theme(theme);
+    }
+    app
         // Hand-written overrides/custom flows — registered first, so they
         // beat module and generated routes on a path conflict.
         .configure(services::configure)
@@ -55,7 +71,10 @@ pub async fn run() -> std::io::Result<()> {
         .models::<AppRole>()
         // App locale files layer over the framework's built-in translations;
         // pick ONE language strategy: Hardcoded, Domain or Path.
-        .locales(&LOCALES_DIR, full_stack_engine::i18n::LocaleSelector::Hardcoded("en".into()))
+        .locales(
+            &LOCALES_DIR,
+            full_stack_engine::i18n::LocaleSelector::Hardcoded("en".into()),
+        )
         .cronjobs(cronjobs::add_cronjobs)
         // Migrations are embedded in the binary at compile time.
         .migrator(sqlx::migrate!())
@@ -63,26 +82,14 @@ pub async fn run() -> std::io::Result<()> {
         // so it must not be caught by the site-wide per-IP limiter.
         .rate_limit_exempt_prefixes(["/api"])
         .global_context_injector(|req, value| {
-            // t/lang/i18n are injected automatically by the framework; this
-            // only adds the app's own conveniences on top.
+            // t/lang/i18n, `nav` (readable models) and `user` are injected
+            // by the framework; this only adds the app's own extras on top.
             if let Ok(claims) = read_jwt::<AppRole>(req)
                 && let Some(obj) = value.as_object_mut()
             {
                 obj.insert(
-                    "can_read_users".to_string(),
-                    serde_json::json!(claims.role.has_permission("users.read")),
-                );
-                obj.insert(
                     "can_read_products".to_string(),
                     serde_json::json!(claims.role.has_permission("products.read")),
-                );
-                obj.insert(
-                    "is_admin".to_string(),
-                    serde_json::json!(claims.role.is_admin()),
-                );
-                obj.insert(
-                    "user".to_string(),
-                    serde_json::to_value(&claims).unwrap_or(serde_json::json!({})),
                 );
             }
         })

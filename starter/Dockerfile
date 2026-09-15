@@ -1,8 +1,9 @@
-FROM oven/bun:1.3.8-alpine AS frontend-builder
-WORKDIR /app/frontend
-COPY src/frontend/package.json src/frontend/bun.lock ./
+FROM oven/bun:1.3.8-alpine AS theme-builder
+WORKDIR /app/theme
+COPY theme/package.json theme/bun.lock ./
 RUN bun install
-COPY src/frontend .
+COPY theme .
+COPY locales ../locales
 RUN bun run build
 
 FROM rust:1.93.0-slim AS backend-builder
@@ -13,7 +14,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
-COPY --from=frontend-builder /app/frontend/dist ./src/frontend/dist
+COPY --from=theme-builder /app/theme/dist ./theme/dist
 
 ENV SQLX_OFFLINE=true
 RUN cargo build --release
@@ -28,6 +29,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /app/target/release/starter ./starter
-# Migrations and locales are embedded in the binary — nothing else to copy.
+# Migrations, locales and both themes are embedded in the binary — nothing
+# else to copy.
 EXPOSE 8080
 CMD ["./starter"]

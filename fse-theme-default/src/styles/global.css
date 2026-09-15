@@ -1,0 +1,11 @@
+/*
+  The theme's Tailwind root, imported by the layout. A child theme replaces
+  this whole file by creating its own src/styles/global.css — typically:
+
+    @import "tailwindcss";
+    @import "fse-theme-default/src/styles/theme.css";
+    @source "../";
+    @theme { --color-primary-600: #1d4ed8; }   (overrides)
+*/
+@import "tailwindcss";
+@import "./theme.css";
