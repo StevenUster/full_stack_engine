@@ -1,0 +1,17 @@
+---
+/**
+ * Extension point: the logo shown in the sidebar, the mobile header and the
+ * auth pages. A child theme either replaces src/assets/logo.svg or
+ * overrides this file (e.g. separate light and dark images).
+ */
+import { Image } from "astro:assets";
+import logo from "../assets/logo.svg";
+
+interface Props {
+  class?: string;
+}
+
+const { class: className = "h-9 w-auto" } = Astro.props;
+---
+
+<Image src={logo} alt="Logo" class={className} />

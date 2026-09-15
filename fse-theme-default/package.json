@@ -1,6 +1,6 @@
 {
   "name": "fse-theme-default",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Default theme for full_stack_engine apps — a complete Astro project: app shell, design system, auth pages, emails and the generic metadata-driven CRUD pages. Extend it with a child theme.",
   "type": "module",
   "license": "MIT OR Apache-2.0",

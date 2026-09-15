@@ -34,7 +34,10 @@ its own `src/` — the parent's pages then use the child's version:
 
 - `src/layouts/Layout.astro` — the whole shell,
 - `src/components/SidebarLinks.astro` — app-specific sidebar entries (empty here),
-- `src/assets/logo.svg` — the logo,
+- `src/components/Logo.astro` — the logo in the sidebar, mobile header and
+  auth pages (or replace just `src/assets/logo.svg`),
+- `src/components/Head.astro` — extra `<head>` tags on every page (favicon,
+  fonts, meta tags),
 - `src/styles/global.css` — the Tailwind root (import `src/styles/theme.css`
   and override tokens after it).
 

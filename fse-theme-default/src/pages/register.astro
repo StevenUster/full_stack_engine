@@ -1,6 +1,7 @@
 ---
 import { ssr } from "fse-ssr/ssr";
 import Input from "../components/Input.astro";
+import Logo from "../components/Logo.astro";
 import Layout from "../layouts/Layout.astro";
 
 const { t, error } = ssr<{ error?: string }>();
@@ -13,7 +14,7 @@ const errors = t.errors as Record<string, string>;
       <!-- Logo -->
       <div class="flex justify-center mb-8">
         <a href="/">
-          <span class="text-2xl font-extrabold">⌂</span>
+          <Logo class="h-12 w-auto" />
         </a>
       </div>
 

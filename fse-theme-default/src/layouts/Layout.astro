@@ -6,11 +6,11 @@
  * to change the shell for every inherited page at once.
  */
 import "../styles/global.css";
-import { Image } from "astro:assets";
 import { ClientRouter } from "astro:transitions";
 import { ssr } from "fse-ssr/ssr";
 import type { SsrValue } from "fse-ssr/ssr";
-import logo from "../assets/logo.svg";
+import Head from "../components/Head.astro";
+import Logo from "../components/Logo.astro";
 import Sidebar from "../components/Sidebar.astro";
 
 interface Props {
@@ -28,7 +28,7 @@ const { lang } = ssr();
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width" />
     <meta name="generator" content={Astro.generator} />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <Head />
     <title>{title}</title>
     <!-- Filled by the server with the page's render context as JSON; read it
          client-side via pageProps() from fse-ssr/client. -->
@@ -73,7 +73,7 @@ const { lang } = ssr();
                 <line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line>
               </svg>
             </button>
-            <a href="/"><Image src={logo} alt="Logo" class="h-8 w-auto" /></a>
+            <a href="/"><Logo class="h-8 w-auto" /></a>
           </div>
         )}
         <slot />

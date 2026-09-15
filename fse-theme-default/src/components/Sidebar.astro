@@ -4,9 +4,8 @@
  * injects `nav` (the admin page of every model the user may read) and
  * `user`; app-specific links come from the SidebarLinks extension point.
  */
-import { Image } from "astro:assets";
 import { ssr } from "fse-ssr/ssr";
-import logo from "../assets/logo.svg";
+import Logo from "./Logo.astro";
 import NavLink from "./NavLink.astro";
 import SidebarLinks from "./SidebarLinks.astro";
 import type { ShellContext } from "../types";
@@ -34,7 +33,7 @@ const { t, nav, user, lang_prefix } = ssr<ShellContext>();
       class="sidebar-full-logo flex items-center gap-2 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary-500 rounded-md"
       href={`${lang_prefix}/`}
     >
-      <Image src={logo} alt="Logo" class="h-9 w-auto" />
+      <Logo class="h-9 w-auto" />
     </a>
 
     <button

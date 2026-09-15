@@ -1,5 +1,5 @@
 {
   "name": "fse-theme-default",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Default full_stack_engine theme: app shell, design system, auth pages, emails and the generic model CRUD pages."
 }
