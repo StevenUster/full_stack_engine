@@ -391,7 +391,7 @@ async fn send_token_email(
     }
 
     let body = data.render_email(template, &ctx).await.map_err(|e| {
-        log::error!("Failed to render {template}: {e}");
+        tracing::error!("Failed to render {template}: {e}");
         AppError::Internal("Failed to render email template".to_string())
     })?;
 
@@ -402,7 +402,7 @@ async fn send_token_email(
     let to = to.to_string();
     actix_web::rt::spawn(async move {
         if let Err(e) = crate::mail::send_mail(&to, &subject, &body).await {
-            log::error!("Failed to send {subject} email to {to}: {e}");
+            tracing::error!("Failed to send {subject} email to {to}: {e}");
         }
     });
     Ok(())

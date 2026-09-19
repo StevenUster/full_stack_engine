@@ -17,7 +17,13 @@ sqlx = { version = "0.8.6", features = [
 ] }
 dotenv = "0.15.0"
 uuid = { version = "1.23.3", features = ["v4"] }
-full_stack_engine = { version = "6.0.0", path = "../framework" }
+# `otel` turns on OTLP span export (over HTTP/protobuf, no tonic/Tower); it
+# stays dormant until `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so a local run pays
+# nothing for it. Add "sentry" here for error/panic reporting to a
+# Sentry-protocol backend (Sentry, GlitchTip, self-hosted).
+full_stack_engine = { version = "7.0.0", path = "../framework", features = [
+    "otel",
+] }
 # The built default theme — the parent of this app's theme in theme/.
 fse-theme-default = { version = "0.2.0", path = "../fse-theme-default" }
 # The ORM runtime. Direct dependency because the query macros expand to

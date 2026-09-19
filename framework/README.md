@@ -24,6 +24,7 @@ This repository contains two separate Cargo projects:
 - **Themes**: WordPress-style parent/child themes built with Astro or any other HTML generator — the framework layers the active theme's templates and assets over its parents at runtime (see [docs/themes.md](https://github.com/StevenUster/full_stack_engine/blob/main/docs/themes.md)); `fse-theme-default` provides a complete UI out of the box.
 - **Cron Scheduler**: Easy async job scheduling.
 - **Rate Limiting**: proxy-aware, per-client-IP rate limiting via Actix-governor — a generous site-wide limiter is applied to every request automatically (DDoS guard, tunable via `GLOBAL_RATE_LIMIT_*` env vars), plus stricter presets for auth/custom endpoints.
+- **Observability**: structured `tracing` logging (JSON in prod, pretty in dev), one span per request with OpenTelemetry HTTP conventions, a correlation id returned as `x-request-id`, and optional OTLP span export and Sentry/GlitchTip error reporting — all configured by environment variables, with query strings, headers and bodies never recorded. See [docs/observability.md](https://github.com/StevenUster/full_stack_engine/blob/main/docs/observability.md).
 - **Database**: [`fse-orm`](/fse-orm), a compile-time-checked ORM on top of SQLx — schema defined as plain structs, migrations generated (never hand-written), checked query macros plus a dynamic builder for runtime-shaped queries, Prisma-style relation eager-loading. See [Using the ORM](#using-the-orm).
 
 ## Design Principles
@@ -42,7 +43,9 @@ These are the core rules the framework is built around. They apply both to chang
 
 6. **Untrusted input stays untrusted.** Parameterize all SQL, validate every upload (size + type), keep public files (`uploads/`) separate from private ones (`data/`), and treat any user-supplied HTML that reaches a renderer as hostile.
 
-7. **Migrations are forward-only.** Schema changes are new, timestamped migrations run automatically at startup; applied migrations are never edited. Apps regenerate the SQLx offline cache (`fse prepare` — no `sqlx-cli` needed, see [Installing the CLI](#installing-the-cli)) after query changes.
+7. **Telemetry is observation, never a dependency and never a leak.** Observability must not be able to take an application down: a malformed `RUST_LOG`, an unknown `LOG_FORMAT` or an unreachable OTLP collector is reported and then ignored, and the app boots and serves. It must not become a second way to leak data either — the request span records the route and path but never a query string, header, cookie or body, because this framework passes single-use tokens in query strings. Application code emits `tracing` events and nothing else; which backend they reach is a deployment decision, so no vendor's SDK is ever called from a handler.
+
+8. **Migrations are forward-only.** Schema changes are new, timestamped migrations run automatically at startup; applied migrations are never edited. Apps regenerate the SQLx offline cache (`fse prepare` — no `sqlx-cli` needed, see [Installing the CLI](#installing-the-cli)) after query changes.
 
 ## Using the ORM
 
@@ -133,6 +136,19 @@ The starter includes a `dev` binary that launches both the Rust backend and the 
 ```bash
 cargo run --bin dev
 ```
+
+### 4. Logs and Telemetry
+Nothing to configure: dev logs at `debug` in colourised multi-line form, prod logs
+at `info` as one JSON object per line, and no telemetry leaves the process until an
+endpoint is set. To send traces somewhere:
+```bash
+docker run -p 4318:4318 -p 16686:16686 jaegertracing/all-in-one:latest
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run   # traces at :16686
+```
+Every knob (`LOG_LEVEL`, `LOG_FORMAT`, `RUST_LOG`, `SERVICE_VERSION`,
+`TELEMETRY_SAMPLE_RATIO`, `SENTRY_DSN`, ...) is documented in
+[`.example.env`](/starter/.example.env) and
+[docs/observability.md](https://github.com/StevenUster/full_stack_engine/blob/main/docs/observability.md).
 
 ## License
 

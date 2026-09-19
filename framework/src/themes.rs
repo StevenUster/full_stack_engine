@@ -32,9 +32,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use include_dir::Dir;
-use log::debug;
 use serde::{Deserialize, Serialize};
 use tera::Tera;
+use tracing::debug;
 
 /// The manifest file every built theme carries at its root.
 pub const MANIFEST_FILE: &str = "theme.json";
@@ -208,7 +208,7 @@ impl Theme {
             if let Ok(source) = std::str::from_utf8(bytes) {
                 Some((name, source))
             } else {
-                log::error!(
+                tracing::error!(
                     "Skipping template with non-UTF-8 contents: {}/{name}",
                     self.name()
                 );
@@ -411,7 +411,7 @@ impl ThemeStack {
         let mut tera = Tera::default();
         tera.autoescape_on(vec![""]);
         self.load_into(&mut tera, &mut |name, err| {
-            log::error!("Skipping invalid template {name}: {err}");
+            tracing::error!("Skipping invalid template {name}: {err}");
         });
         tera
     }
@@ -451,7 +451,7 @@ fn collect_embedded(dir: &'static Dir<'static>, out: &mut BTreeMap<String, Cow<'
         if let Some(path) = file.path().to_str() {
             out.insert(normalize(path), Cow::Borrowed(file.contents()));
         } else {
-            log::error!(
+            tracing::error!(
                 "Skipping theme file with non-UTF-8 path: {}",
                 file.path().display()
             );

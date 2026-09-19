@@ -10,7 +10,13 @@ use std::sync::Arc;
 /// right-most `X-Forwarded-For` entry (the address the proxy accepted the
 /// connection from, so prepended spoofed values are ignored), then `X-Real-IP`,
 /// then the socket peer address. IPv6 is bucketed per `/56` prefix.
-fn client_ip(req: &ServiceRequest) -> Result<IpAddr, SimpleKeyExtractionError<&'static str>> {
+///
+/// Shared with [`crate::observability`], so the `client.address` on a request's
+/// span is the same address the rate limiter keyed on — one answer to "who
+/// made this call" instead of two that disagree behind a proxy.
+pub(crate) fn client_ip(
+    req: &ServiceRequest,
+) -> Result<IpAddr, SimpleKeyExtractionError<&'static str>> {
     let forwarded = req
         .headers()
         .get("x-forwarded-for")

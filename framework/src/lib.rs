@@ -11,11 +11,12 @@ use actix_web::{
 };
 use dotenv::dotenv;
 use include_dir::Dir;
-use log::{debug, error, info};
 use sqlx::sqlite::SqlitePool;
 use std::{env, fs};
 use tera::{Context, Tera};
 use tokio_cron_scheduler::JobScheduler;
+use tracing::{debug, error, info};
+use tracing_actix_web::{RequestId, TracingLogger};
 
 pub mod auth;
 pub mod auth_module;
@@ -25,6 +26,7 @@ pub mod i18n;
 pub mod mail;
 pub mod models;
 pub mod modules;
+pub mod observability;
 pub mod prelude;
 pub mod rate_limiter;
 pub mod roles;
@@ -343,6 +345,8 @@ pub struct FrameworkApp {
     locales_dir: Option<&'static Dir<'static>>,
     locale_selector: i18n::LocaleSelector,
     modules: Vec<modules::ModuleDef>,
+    service_name: Option<String>,
+    service_version: Option<String>,
 }
 
 impl Default for FrameworkApp {
@@ -368,7 +372,41 @@ impl FrameworkApp {
             locales_dir: None,
             locale_selector: i18n::LocaleSelector::default(),
             modules: Vec::new(),
+            service_name: None,
+            service_version: None,
         }
+    }
+
+    /// The name this app reports as `service.name` on every span and log
+    /// record — what a telemetry backend groups by, and what tells two
+    /// services apart in one trace.
+    ///
+    /// Defaults to the `SERVICE_NAME` environment variable, then to the
+    /// executable's file name. Pass `env!("CARGO_PKG_NAME")` to pin it to the
+    /// crate name instead:
+    ///
+    /// ```ignore
+    /// FrameworkApp::new()
+    ///     .service_name(env!("CARGO_PKG_NAME"))
+    ///     .service_version(env!("CARGO_PKG_VERSION"))
+    /// ```
+    #[must_use]
+    pub fn service_name(mut self, name: impl Into<String>) -> Self {
+        self.service_name = Some(name.into());
+        self
+    }
+
+    /// The release this app reports as `service.version` — the thing that lets
+    /// an error backend say "started in v1.4.2" and a dashboard compare error
+    /// rates across deploys.
+    ///
+    /// Defaults to the `SERVICE_VERSION` environment variable, then to
+    /// `"unknown"`. In CI, prefer the commit SHA over the crate version, since
+    /// two builds of the same version are not the same binary.
+    #[must_use]
+    pub fn service_version(mut self, version: impl Into<String>) -> Self {
+        self.service_version = Some(version.into());
+        self
     }
 
     /// Installs a theme (see [`themes`]). Install a parent and its child and
@@ -563,8 +601,31 @@ impl FrameworkApp {
     // helpers would only scatter the order things happen in.
     #[allow(clippy::too_many_lines)]
     pub async fn run(mut self) -> std::io::Result<()> {
-        env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
-        load_env_file();
+        // The `.env` file is read *before* observability is configured, or
+        // `RUST_LOG`/`LOG_FORMAT`/`SENTRY_DSN` set there would be invisible —
+        // the logger used to be initialised first, which silently ignored
+        // every logging setting an app kept in its `.env`.
+        let env_file = load_env_file();
+        let env = parse_env(env::var("ENV").ok().as_deref());
+
+        let mut telemetry = observability::Settings::from_env(env);
+        if let Some(name) = self.service_name.take() {
+            telemetry.service_name = name;
+        }
+        if let Some(version) = self.service_version.take() {
+            telemetry.service_version = version;
+        }
+        // Held until `run` returns, so the exporter's last batch is flushed on
+        // shutdown instead of being dropped with the process.
+        let _telemetry_guard = observability::init(&telemetry);
+
+        // Reported here rather than where it happened: logging did not exist
+        // yet at that point.
+        if let Some(path) = env_file {
+            debug!(".env file loaded from: {}", path.display());
+        } else {
+            debug!("No .env file found, relying on system environment variables.");
+        }
 
         info!("Starting application...");
 
@@ -607,8 +668,6 @@ impl FrameworkApp {
         // filter), and logs and skips broken templates.
         let tera = theme_stack.tera();
         let theme_stack = std::sync::Arc::new(theme_stack);
-
-        let env = parse_env(env::var("ENV").ok().as_deref());
 
         let module_crons: Vec<modules::ModuleCronFn> =
             self.modules.iter().filter_map(|m| m.cronjobs).collect();
@@ -681,6 +740,34 @@ impl FrameworkApp {
                         .handler(StatusCode::UNAUTHORIZED, render_error_page)
                         .handler(StatusCode::FORBIDDEN, render_error_page),
                 )
+                // Echoes the request's correlation id back to the caller, so a
+                // user reporting "it broke" can quote the id that finds the
+                // exact request in the logs. Registered *outside*
+                // `ErrorHandlers`, because the error page is a fresh response
+                // and would drop a header set beneath it.
+                .wrap_fn(|req, srv| {
+                    let request_id = req.extensions().get::<RequestId>().copied();
+                    let fut = srv.call(req);
+                    async move {
+                        let mut res = fut.await?;
+                        if let Some(request_id) = request_id
+                            && let Ok(value) = request_id.to_string().parse()
+                        {
+                            res.headers_mut().insert(
+                                actix_web::http::header::HeaderName::from_static("x-request-id"),
+                                value,
+                            );
+                        }
+                        Ok(res)
+                    }
+                })
+                // One span per request, entered for the whole response
+                // including the body stream — so every log line inside a
+                // handler carries its `request_id`, `http.route` and (under
+                // the `otel` feature) `trace_id` without the handler doing
+                // anything. See `observability::FseRootSpan` for the fields
+                // and for what is deliberately never recorded.
+                .wrap(TracingLogger::<observability::FseRootSpan>::new())
                 .wrap(security_headers(env))
                 // Outermost layer: reject per-IP floods before any routing or
                 // request processing happens. Shared buckets across workers.
@@ -1033,6 +1120,15 @@ fn serve_asset(
         .body(contents.to_vec()))
 }
 
+/// Replaces an error response with the theme's error page.
+///
+/// Also the hand-off point for error reporting. The rendered page is a *new*
+/// response, so the failure's [`ErrorDetail`](observability::ErrorDetail) — and
+/// the `actix_web::Error` it came from — would be dropped here; instead the
+/// detail is recovered (from whatever `AppError::error_response` attached, or
+/// from the error the response still carries, or from the status itself) and
+/// re-attached to the page, where `FseRootSpan::on_request_end` logs it once
+/// with its full cause chain.
 // The `Result` wrapper is required by `ErrorHandlers::handler`'s signature.
 #[allow(clippy::unnecessary_wraps)]
 fn render_error_page<B>(res: ServiceResponse<B>) -> actix_web::Result<ErrorHandlerResponse<B>>
@@ -1062,18 +1158,32 @@ where
         }
     };
 
-    let error_msg = req.extensions().get::<String>().cloned();
-    if let Some(ref msg) = error_msg {
-        error!("Error [{status}]: {msg}");
-    }
+    // Previously this read `req.extensions().get::<String>()`, which was
+    // always `None`: `ResponseError::error_response` can only reach the
+    // *response*'s extensions. The detailed message never actually appeared on
+    // a dev error page.
+    let detail = res
+        .extensions()
+        .get::<observability::ErrorDetail>()
+        .cloned()
+        .or_else(|| {
+            res.error()
+                .map(|err| observability::ErrorDetail::from_display(err, status))
+        });
 
+    // Dev gets the real message to debug with; prod gets the status's
+    // canonical reason and nothing else, because the detailed message can
+    // name tables, hosts and file paths.
     let display_error = if data.env == Env::Dev {
-        error_msg.unwrap_or_else(|| {
-            final_status
-                .canonical_reason()
-                .unwrap_or("Unknown Error")
-                .to_string()
-        })
+        detail.as_ref().map_or_else(
+            || {
+                final_status
+                    .canonical_reason()
+                    .unwrap_or("Unknown Error")
+                    .to_string()
+            },
+            |d| d.log_message.clone(),
+        )
     } else {
         final_status
             .canonical_reason()
@@ -1081,10 +1191,18 @@ where
             .to_string()
     };
 
+    // The id the `x-request-id` header carries, so someone looking at the page
+    // can quote the one string that finds this request in the logs.
+    let request_id = req
+        .extensions()
+        .get::<RequestId>()
+        .map(std::string::ToString::to_string);
+
     Ok(ErrorHandlerResponse::Future(Box::pin(async move {
         let mut ctx = serde_json::json!({
             "status": final_status.as_u16(),
             "error": display_error,
+            "request_id": request_id,
         });
 
         data.inject_request_context(&req, &mut ctx);
@@ -1095,6 +1213,11 @@ where
         let res_template = data.render_template(template, &ctx).await;
         let mut res = res_template;
         *res.status_mut() = final_status;
+        // Carry the failure forward so the request span still reports it,
+        // even though this response is not the one that failed.
+        if let Some(detail) = detail {
+            res.extensions_mut().insert(detail);
+        }
 
         let res = ServiceResponse::new(req, res).map_into_right_body();
 
@@ -1102,11 +1225,14 @@ where
     })))
 }
 
-fn load_env_file() {
-    match dotenv() {
-        Ok(path) => debug!(".env file loaded from: {}", path.display()),
-        Err(_) => debug!("No .env file found, relying on system environment variables."),
-    }
+/// Loads the `.env` file, returning where it was found.
+///
+/// Returns the path rather than logging it, because this runs *before* the
+/// subscriber exists — `RUST_LOG` and the other logging settings live in that
+/// very file, so it has to be read first, and a log line emitted here would go
+/// nowhere. The caller reports it once logging is up.
+fn load_env_file() -> Option<std::path::PathBuf> {
+    dotenv().ok()
 }
 
 #[cfg(test)]

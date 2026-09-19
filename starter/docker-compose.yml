@@ -12,8 +12,23 @@ services:
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
-      - RUST_LOG=${RUST_LOG}
       - EMAIL_VERIFICATION_ENABLED=${EMAIL_VERIFICATION_ENABLED}
+      # Observability. All optional — see .example.env. Unset means: log at
+      # `info` as JSON to stdout (where the container runtime collects it) and
+      # export nothing. `:-` keeps compose from warning about unset variables.
+      - LOG_LEVEL=${LOG_LEVEL:-}
+      - LOG_FORMAT=${LOG_FORMAT:-}
+      - RUST_LOG=${RUST_LOG:-}
+      - SERVICE_NAME=${SERVICE_NAME:-}
+      # Set this to the deployed commit/tag so errors and traces can be tied
+      # to a release.
+      - SERVICE_VERSION=${SERVICE_VERSION:-}
+      - DEPLOY_ENV=${DEPLOY_ENV:-}
+      - TELEMETRY_ENABLED=${TELEMETRY_ENABLED:-}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+      - TELEMETRY_SAMPLE_RATIO=${TELEMETRY_SAMPLE_RATIO:-}
+      - SENTRY_DSN=${SENTRY_DSN:-}
     volumes:
       - starter:/app/data
 

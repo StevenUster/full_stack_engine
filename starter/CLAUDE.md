@@ -18,7 +18,9 @@ The example domain: a `Product` catalog (generated admin at `/admin/products`, h
 
 **Single, self-contained binary.** Both themes (`fse_theme_default::DIST`, `theme/dist`) and locales are embedded via `include_dir!`, migrations via `sqlx::migrate!()`. No runtime dependencies on external services or non-volume files.
 
-**Security defaults win.** Cookies stay `HttpOnly` + `SameSite=Strict` + `Secure` in prod. Never log secrets, tokens, password hashes, or full JWTs. Every hand-written state-changing endpoint verifies the caller's role (`AuthUser::require_permission`) and ownership where relevant; generated endpoints do this by convention. Public read endpoints expose **only** `published` products.
+**Security defaults win.** Cookies stay `HttpOnly` + `SameSite=Strict` + `Secure` in prod. Never log secrets, tokens, password hashes, or full JWTs — and note that the framework's request span deliberately records `url.path` but **never** the query string, because auth links carry single-use tokens there (`/reset-password?token=…`); don't add a field that reintroduces one, and don't put a secret in a path segment. Every hand-written state-changing endpoint verifies the caller's role (`AuthUser::require_permission`) and ownership where relevant; generated endpoints do this by convention. Public read endpoints expose **only** `published` products.
+
+**Observability is configured, not called.** Log with the prelude's `info!`/`warn!`/`error!` (these are `tracing`'s macros — structured fields work: `info!(order.id = id, "order placed")`), return an `AppError`, and stop. The framework opens one span per request, logs each failure exactly once with its full cause chain, echoes a correlation id as `x-request-id`, and forwards to OTLP/Sentry when those are configured. Never call a vendor SDK from a handler. When wrapping a foreign error, use `.context("…")` rather than `AppError::Internal(format!("…: {e}"))` — the former keeps the cause reachable via `source()`. See [../docs/observability.md](../docs/observability.md).
 
 **The ORM is the only data layer in app code — never write raw SQL.** Reads/writes use the checked query macros (`find!`, `find_one!`, `find_page!`, `count!`, `insert!`, `update!`, `delete_rows!`), the generated per-table methods, or the dynamic builder (`Product::find().filter(..)`) for runtime-shaped queries.
 
@@ -33,6 +35,10 @@ The example domain: a `Product` catalog (generated admin at `/admin/products`, h
 cargo run --bin dev          # run backend + frontend dev servers together
 cargo run                    # backend only
 cargo test                   # integration tests (incl. every template render-checked)
+
+LOG_FORMAT=json cargo run                         # see what prod will emit
+RUST_LOG=sqlx=debug cargo run                      # every SQL statement
+RUST_LOG=full_stack_engine::access=off cargo run   # drop the per-request access log
 ```
 
 ### Theme (Astro) — run from `theme/`
@@ -73,3 +79,5 @@ fse sync               # extract configured module frontends into .fse/modules/
 ## Deployment
 
 Multi-stage Dockerfile: Bun builds the child theme → Rust compiles the backend → slim runtime image. SQLite data persists via the `data/` volume.
+
+Logs go to stdout as JSON for the container runtime to collect. Set `SERVICE_VERSION` to the deployed commit SHA (two builds of `0.1.0` are not the same binary), and `OTEL_EXPORTER_OTLP_ENDPOINT` / `SENTRY_DSN` if those backends exist — every variable is listed in `.example.env` and passed through by `docker-compose.yml`.

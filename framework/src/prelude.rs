@@ -1,7 +1,7 @@
 pub use crate::{
     AppData, Env, FrameworkApp, RenderTplExt,
     auth::{AuthUser, create_jwt, hash_password, read_jwt, verify_password},
-    error::{AppError, AppResult, ResultExt},
+    error::{AppError, AppResult, ErrorContext, ResultExt},
     i18n::{inject_locale_context, load_locale},
     mail::send_mail,
     rate_limiter::{auth_rate_limiter, custom_rate_limiter, general_rate_limiter},
@@ -40,12 +40,26 @@ pub use actix_web::{
 pub use actix_files;
 pub use chrono;
 pub use include_dir;
-pub use log::{self, debug, error, info, warn};
+// Observability. The `debug!`/`info!`/`warn!`/`error!` names now resolve to
+// `tracing`'s macros rather than `log`'s: the call syntax is identical, so
+// existing handlers keep compiling, but each event is attached to the span of
+// the request it happened in and can carry structured fields:
+//
+//     info!(order.id = id, "order placed");
+//
+// `#[instrument]` puts a handler's own span on the trace, and `RequestId` is
+// the correlation id echoed in the `x-request-id` response header.
+//
+// `log` stays re-exported so `log::info!` paths in existing app code keep
+// working — those records are bridged into the same subscriber.
+pub use log;
 pub use reqwest;
 pub use serde::{self, Deserialize, Serialize};
 pub use serde_json::{self, json};
 pub use tera::{self, Context};
 pub use tokio_cron_scheduler;
+pub use tracing::{self, debug, error, info, instrument, trace, warn};
+pub use tracing_actix_web::{RequestId, RootSpan};
 pub use uuid;
 
 pub use std::convert::{TryFrom, TryInto};

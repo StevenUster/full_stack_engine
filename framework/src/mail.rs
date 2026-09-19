@@ -4,8 +4,8 @@ use lettre::{
     transport::smtp::authentication::Credentials,
     transport::smtp::client::{Tls, TlsParameters},
 };
-use log::error;
 use std::env;
+use tracing::error;
 
 /// Sends an HTML email via the SMTP server configured through `SMTP_HOST`
 /// (optionally `host:port`), `SMTP_USER` and `SMTP_PASS`.
@@ -27,7 +27,7 @@ pub async fn send_mail(
         return Err("SMTP configuration is missing".into());
     }
 
-    log::debug!("Sending mail to {to} via host {smtp_host}");
+    tracing::debug!("Sending mail to {to} via host {smtp_host}");
 
     let email = Message::builder()
         .from(smtp_user.parse()?)

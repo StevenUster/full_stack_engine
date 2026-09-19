@@ -1,10 +1,10 @@
 use chrono::Local;
-use log::{error, info};
 use std::env;
 use std::fs::{OpenOptions, create_dir_all};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio_cron_scheduler::{Job, JobScheduler, JobSchedulerError};
+use tracing::{error, info};
 
 /// How many per-run log files a cron job keeps under `logs/`. Every run writes
 /// `logs/<job>_<datetime>.log`; without a bound a frequent job fills the disk,

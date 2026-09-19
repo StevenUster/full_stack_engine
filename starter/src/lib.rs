@@ -61,6 +61,11 @@ pub async fn run() -> std::io::Result<()> {
         app = app.theme(theme);
     }
     app
+        // Identity on every log line, span and error report. Both are
+        // overridable by SERVICE_NAME/SERVICE_VERSION, which is how a release
+        // pipeline substitutes the commit SHA for the crate version.
+        .service_name(env!("CARGO_PKG_NAME"))
+        .service_version(env!("CARGO_PKG_VERSION"))
         // Hand-written overrides/custom flows — registered first, so they
         // beat module and generated routes on a path conflict.
         .configure(services::configure)

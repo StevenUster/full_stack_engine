@@ -1,6 +1,6 @@
 [package]
 name = "full_stack_engine"
-version = "6.0.0"
+version = "7.0.0"
 edition = "2024"
 description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
 license = "MIT OR Apache-2.0"
@@ -31,6 +31,45 @@ tokio-cron-scheduler = { version = "0.15.1", features = ["signal"] }
 tera = "1.20.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# ── Observability ────────────────────────────────────────────────────────────
+# `tracing` replaces `env_logger` as the front end: spans give every log line
+# the request it belongs to, and the same events can feed an OTLP exporter
+# without a second instrumentation pass.
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+# Actix's own middleware mechanism, not Tower: `TracingLogger` opens one root
+# span per request and keeps it entered across the whole response body.
+# `default-features = false` drops `emit_event_on_error`, whose `{:?}` dump of
+# every failed request would both double-log and risk leaking query details —
+# `observability::FseRootSpan` reports failures itself, with the error's full
+# source chain and nothing else.
+tracing-actix-web = { version = "0.7.22", default-features = false }
+# Optional (`otel` feature): OTLP export over HTTP/protobuf. Deliberately not
+# `grpc-tonic`, which would pull tonic and therefore Tower into an Actix app;
+# the HTTP transport reuses the `reqwest` already in this dependency tree.
+opentelemetry = { version = "0.32", default-features = false, features = [
+    "trace",
+], optional = true }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = [
+    "trace",
+], optional = true }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = [
+    "trace",
+    "http-proto",
+    "reqwest-blocking-client",
+], optional = true }
+tracing-opentelemetry = { version = "0.33", default-features = false, optional = true }
+# Optional (`sentry` feature): error/panic reporting to any Sentry-protocol
+# backend (Sentry, GlitchTip, self-hosted). Wired in as a `tracing` layer, so
+# no application code ever calls the vendor's API.
+sentry = { version = "0.49", default-features = false, features = [
+    "backtrace",
+    "contexts",
+    "panic",
+    "tracing",
+    "reqwest",
+    "native-tls",
+], optional = true }
 sqlx = { version = "0.8.6", features = [
     "sqlite",
     "chrono",
@@ -40,7 +79,11 @@ sqlx = { version = "0.8.6", features = [
 dotenv = "0.15.0"
 include_dir = "0.7.4"
 mime_guess = "2.0.5"
-env_logger = "0.11.8"
+# `log` stays a dependency even though the framework emits `tracing`: sqlx,
+# actix-web, lettre and reqwest all record through the `log` facade, and
+# `tracing-subscriber`'s `tracing-log` bridge funnels those records into the
+# same subscriber. Apps written against the old `log::info!` prelude exports
+# keep working unchanged.
 log = "0.4.29"
 rust-argon2 = "3.0.0"
 rand = "0.9.2"
@@ -57,6 +100,20 @@ lettre = { version = "0.11.19", features = [
 actix-multipart = "0.7.2"
 uuid = { version = "1.23.3", features = ["v4"] }
 
+[features]
+default = []
+# Export spans to any OTLP-compatible backend (collector, Tempo, Jaeger,
+# Honeycomb, ...). Configured entirely through the standard `OTEL_*`
+# environment variables — see `observability::Settings`.
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+# Report ERROR-level events and panics to a Sentry-compatible backend.
+sentry = ["dep:sentry"]
+
 [build-dependencies]
 # The build script creates the integration tests' scratch database from the
 # #[model] structs in tests/ (see build.rs).
@@ -71,3 +128,8 @@ tokio = { version = "1", features = ["macros", "rt"] }
 tempfile = "3"
 serde_json = "1.0"
 include_dir = "0.7.4"
+# `tests/observability_http.rs` mounts the real `TracingLogger` and captures
+# the spans it produces with a throwaway subscriber.
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+tracing-actix-web = { version = "0.7.22", default-features = false }
