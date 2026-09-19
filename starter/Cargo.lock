@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "fse-theme-default"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "include_dir",
 ]
