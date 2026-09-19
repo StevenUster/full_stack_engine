@@ -24,8 +24,11 @@ fn locales() -> HashMap<String, serde_json::Value> {
 fn app_data(selector: LocaleSelector) -> web::Data<AppData> {
     let mut t = tera::Tera::default();
     t.autoescape_on(vec![""]);
-    t.add_raw_template("probe", "{{ t.model_ui.save }}|{{ t.app_name }}|{{ lang }}|{{ lang_prefix }}")
-        .unwrap();
+    t.add_raw_template(
+        "probe",
+        "{{ t.model_ui.save }}|{{ t.app_name }}|{{ lang }}|{{ lang_prefix }}",
+    )
+    .unwrap();
     web::Data::new(AppData {
         tera: t,
         db: sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap(),
@@ -112,7 +115,9 @@ async fn domain_mode_switches_on_host() {
 
 #[actix_web::test]
 async fn path_mode_strips_prefix_and_sets_lang() {
-    let app = service!(LocaleSelector::Path { default: "en".into() });
+    let app = service!(LocaleSelector::Path {
+        default: "en".into()
+    });
 
     // Default language lives unprefixed.
     let body = body_of!(&app, test::TestRequest::get().uri("/probe"));
@@ -128,11 +133,8 @@ async fn path_mode_strips_prefix_and_sets_lang() {
     assert_eq!(body, "Enregistrer|Probe App|fr|&#x2F;fr");
 
     // The default language is never a prefix — /en/probe is a real 404.
-    let res = test::call_service(
-        &app,
-        test::TestRequest::get().uri("/en/probe").to_request(),
-    )
-    .await;
+    let res =
+        test::call_service(&app, test::TestRequest::get().uri("/en/probe").to_request()).await;
     assert_eq!(res.status().as_u16(), 404);
 
     // Query strings survive the rewrite.

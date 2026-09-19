@@ -428,10 +428,7 @@ fn template_name(data: &AppData, specific: &str, generic: &str) -> String {
 /// Query-string → [`ListQuery`]: `search`, `page`, `per_page` (clamped),
 /// `sort`, `dir=desc`, plus one param per `#[ui(filter)]` column.
 fn list_query(meta: &ModelMeta, params: &HashMap<String, String>) -> ListQuery {
-    let page = params
-        .get("page")
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(1);
+    let page = params.get("page").and_then(|p| p.parse().ok()).unwrap_or(1);
     let per_page = params
         .get("per_page")
         .and_then(|p| p.parse().ok())
@@ -508,9 +505,7 @@ fn list_context(
 /// humanized fallback.
 fn meta_context(meta: &'static ModelMeta, can_write: bool) -> Value {
     let column = |c: &fse_schema::ColumnDef| -> Value {
-        let f = meta
-            .ui_field(&c.name)
-            .expect("every column has a UiField");
+        let f = meta.ui_field(&c.name).expect("every column has a UiField");
         json!({
             "name": c.name,
             "widget": f.widget.as_str(),

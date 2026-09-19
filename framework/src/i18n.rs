@@ -180,7 +180,11 @@ pub fn apply_request_locale(
 /// `/de/products` → `("de", "/products")` when `de` is a known non-default
 /// language; `None` when the path carries no language prefix. The default
 /// language is never treated as a prefix — it lives unprefixed.
-fn split_lang_prefix(path: &str, known_langs: &[String], default: &str) -> Option<(String, String)> {
+fn split_lang_prefix(
+    path: &str,
+    known_langs: &[String],
+    default: &str,
+) -> Option<(String, String)> {
     let trimmed = path.strip_prefix('/')?;
     let (seg, rest) = trimmed
         .split_once('/')

@@ -97,7 +97,12 @@ async fn generated_admin_crud_honors_permissions() {
         .unwrap()
         .to_string();
     let id: i64 = location.rsplit('/').next().unwrap().parse().unwrap();
-    assert_eq!(count!(Product, &data.db, slug == "generated-product").await.unwrap(), 1);
+    assert_eq!(
+        count!(Product, &data.db, slug == "generated-product")
+            .await
+            .unwrap(),
+        1
+    );
 
     // ...validation errors re-render instead of writing (duplicate slug)...
     let req = test::TestRequest::post()

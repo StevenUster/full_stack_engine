@@ -8,8 +8,7 @@ use full_stack_engine::modules::ModuleDef;
 use include_dir::{Dir, include_dir};
 
 static APP_LOCALES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/locales");
-static MODULE_LOCALES: Dir<'_> =
-    include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/module_locales");
+static MODULE_LOCALES: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/tests/fixtures/module_locales");
 
 fn shop_module() -> ModuleDef {
     ModuleDef::new("shop")
@@ -56,7 +55,10 @@ async fn app_routes_shadow_module_routes() {
 async fn module_locales_layer_between_framework_and_app() {
     let module = shop_module();
     let locales = resolve_locales(
-        build_locales(&[module.locales.expect("shop module has locales")], Some(&APP_LOCALES)),
+        build_locales(
+            &[module.locales.expect("shop module has locales")],
+            Some(&APP_LOCALES),
+        ),
         "en",
     );
 

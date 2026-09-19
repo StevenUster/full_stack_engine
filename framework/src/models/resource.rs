@@ -76,7 +76,8 @@ pub type FormErrors = Vec<FieldError>;
 pub trait ModelResource: Send + Sync {
     fn list<'a>(&'a self, db: &'a Db, q: &'a ListQuery) -> BoxFuture<'a, DbResult<ListResult>>;
 
-    fn get<'a>(&'a self, db: &'a Db, id: i64) -> BoxFuture<'a, DbResult<Option<serde_json::Value>>>;
+    fn get<'a>(&'a self, db: &'a Db, id: i64)
+    -> BoxFuture<'a, DbResult<Option<serde_json::Value>>>;
 
     /// Look a row up by the `public_read` column. Always `None` for models
     /// without `public_read`.

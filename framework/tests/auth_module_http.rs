@@ -26,7 +26,9 @@ fn next_peer() -> std::net::SocketAddr {
     use std::sync::atomic::{AtomicU32, Ordering};
     static N: AtomicU32 = AtomicU32::new(1);
     let n = N.fetch_add(1, Ordering::Relaxed);
-    format!("192.0.{}.{}:9999", n / 200, n % 200 + 1).parse().unwrap()
+    format!("192.0.{}.{}:9999", n / 200, n % 200 + 1)
+        .parse()
+        .unwrap()
 }
 
 fn test_tera() -> tera::Tera {
@@ -46,7 +48,8 @@ fn test_tera() -> tera::Tera {
         "reset-password token={{ token }} error={{ error | default(value='') }}",
     )
     .unwrap();
-    t.add_raw_template("emails/verify", "VERIFY {{ verify_url }}").unwrap();
+    t.add_raw_template("emails/verify", "VERIFY {{ verify_url }}")
+        .unwrap();
     t.add_raw_template("emails/verify-email-change", "CHANGE {{ verify_url }}")
         .unwrap();
     t.add_raw_template(
@@ -54,9 +57,13 @@ fn test_tera() -> tera::Tera {
         "settings {{ current_email }} {{ email_error | default(value='') }} {{ email_success | default(value='') }}",
     )
     .unwrap();
-    t.add_raw_template("users", "users n={{ rows | length }} {% for r in rows %}{{ r.email }} {% endfor %}")
+    t.add_raw_template(
+        "users",
+        "users n={{ rows | length }} {% for r in rows %}{{ r.email }} {% endfor %}",
+    )
+    .unwrap();
+    t.add_raw_template("user", "user {{ email }} {{ role }}")
         .unwrap();
-    t.add_raw_template("user", "user {{ email }} {{ role }}").unwrap();
     t.add_raw_template("emails/password-reset", "RESET {{ reset_url }}")
         .unwrap();
     t
@@ -139,7 +146,10 @@ async fn register_login_logout_and_password_reset() {
             ("repeat_password", "different"),
         ]
     );
-    assert_eq!(body_string(res).await, "register error=passwords_mismatch success=");
+    assert_eq!(
+        body_string(res).await,
+        "register error=passwords_mismatch success="
+    );
 
     // Valid registration (verification disabled) goes straight to login.
     let res = post_form!(
@@ -188,7 +198,10 @@ async fn register_login_logout_and_password_reset() {
         "/login",
         [("email", "flow-a@test.dev"), ("password", "wrong-password")]
     );
-    assert_eq!(body_string(res).await, "login error=invalid_credentials success=");
+    assert_eq!(
+        body_string(res).await,
+        "login error=invalid_credentials success="
+    );
 
     // Correct password: redirect home with an HttpOnly session cookie.
     let res = post_form!(
@@ -218,7 +231,11 @@ async fn register_login_logout_and_password_reset() {
     assert!(cleared.starts_with("token=;"), "{cleared}");
 
     // Forgot password: unknown address gets the identical success page.
-    let res = post_form!(&app, "/forgot-password", [("email", "flow-nobody@test.dev")]);
+    let res = post_form!(
+        &app,
+        "/forgot-password",
+        [("email", "flow-nobody@test.dev")]
+    );
     assert_eq!(
         body_string(res).await,
         "forgot-password error= success=password_reset_sent"
@@ -253,7 +270,11 @@ async fn register_login_logout_and_password_reset() {
     let res = post_form!(
         &app,
         "/reset-password",
-        [("token", token.as_str()), ("password", "short"), ("repeat_password", "short")]
+        [
+            ("token", token.as_str()),
+            ("password", "short"),
+            ("repeat_password", "short")
+        ]
     );
     assert_eq!(res.status().as_u16(), 303);
     assert!(location_of(&res).contains("password_too_short"));
@@ -262,7 +283,11 @@ async fn register_login_logout_and_password_reset() {
     let res = post_form!(
         &app,
         "/reset-password",
-        [("token", "bogus"), ("password", "newpassword"), ("repeat_password", "newpassword")]
+        [
+            ("token", "bogus"),
+            ("password", "newpassword"),
+            ("repeat_password", "newpassword")
+        ]
     );
     assert!(location_of(&res).contains("invalid_token"));
 
@@ -271,7 +296,11 @@ async fn register_login_logout_and_password_reset() {
     let res = post_form!(
         &app,
         "/reset-password",
-        [("token", token.as_str()), ("password", "newpassword"), ("repeat_password", "newpassword")]
+        [
+            ("token", token.as_str()),
+            ("password", "newpassword"),
+            ("repeat_password", "newpassword")
+        ]
     );
     assert_eq!(location_of(&res), "/logout");
     let (reset_token, valid_after): (Option<String>, i64) = sqlx::query_as(
@@ -289,7 +318,10 @@ async fn register_login_logout_and_password_reset() {
         "/login",
         [("email", "flow-a@test.dev"), ("password", "longenough")]
     );
-    assert_eq!(body_string(res).await, "login error=invalid_credentials success=");
+    assert_eq!(
+        body_string(res).await,
+        "login error=invalid_credentials success="
+    );
     let res = post_form!(
         &app,
         "/login",
@@ -355,7 +387,10 @@ async fn email_verification_gate() {
             .to_request(),
     )
     .await;
-    assert_eq!(body_string(res).await, "login error= success=email_confirmed");
+    assert_eq!(
+        body_string(res).await,
+        "login error= success=email_confirmed"
+    );
 
     let res = post_form!(
         &app,
@@ -408,7 +443,10 @@ async fn settings_email_change_and_account_delete() {
     // Settings page needs auth.
     let res = test::call_service(
         &app,
-        test::TestRequest::get().uri("/settings").peer_addr(next_peer()).to_request(),
+        test::TestRequest::get()
+            .uri("/settings")
+            .peer_addr(next_peer())
+            .to_request(),
     )
     .await;
     assert_eq!(res.status().as_u16(), 302); // -> /login
@@ -520,7 +558,11 @@ async fn user_admin_permissions_and_escalation_guards() {
     // users.read gates the list.
     let res = test::call_service(
         &app,
-        test::TestRequest::get().uri("/users").peer_addr(next_peer()).cookie(plain.clone()).to_request(),
+        test::TestRequest::get()
+            .uri("/users")
+            .peer_addr(next_peer())
+            .cookie(plain.clone())
+            .to_request(),
     )
     .await;
     assert_eq!(res.status().as_u16(), 401);
@@ -591,13 +633,12 @@ async fn user_admin_permissions_and_escalation_guards() {
     )
     .await;
     assert_eq!(res.status().as_u16(), 302);
-    let (role, valid_after): (String, i64) = sqlx::query_as(
-        "SELECT role, sessions_valid_after FROM users WHERE id = ?",
-    )
-    .bind(target_id)
-    .fetch_one(&db)
-    .await
-    .unwrap();
+    let (role, valid_after): (String, i64) =
+        sqlx::query_as("SELECT role, sessions_valid_after FROM users WHERE id = ?")
+            .bind(target_id)
+            .fetch_one(&db)
+            .await
+            .unwrap();
     assert_eq!(role, "manager");
     assert!(valid_after > 0);
 

@@ -158,8 +158,14 @@ mod tests {
         assert_eq!(
             errors,
             vec![
-                FieldError { field: "b", code: "required" },
-                FieldError { field: "missing", code: "required" },
+                FieldError {
+                    field: "b",
+                    code: "required"
+                },
+                FieldError {
+                    field: "missing",
+                    code: "required"
+                },
             ]
         );
     }
@@ -176,10 +182,19 @@ mod tests {
             req_parse::<f64>(&f, "bad", "invalid_number", &mut errors),
             None
         );
-        assert_eq!(opt_parse::<i64>(&f, "absent", "invalid_number", &mut errors), Some(None));
+        assert_eq!(
+            opt_parse::<i64>(&f, "absent", "invalid_number", &mut errors),
+            Some(None)
+        );
         assert!(checkbox(&f, "cb"));
         assert!(!checkbox(&f, "absent"));
-        assert_eq!(errors, vec![FieldError { field: "bad", code: "invalid_number" }]);
+        assert_eq!(
+            errors,
+            vec![FieldError {
+                field: "bad",
+                code: "invalid_number"
+            }]
+        );
     }
 
     #[test]

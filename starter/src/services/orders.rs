@@ -105,7 +105,9 @@ pub async fn get_my_orders(
         })
         .collect();
 
-    Ok(req.render_tpl("my-orders", &crate::json!({ "rows": rows })).await)
+    Ok(req
+        .render_tpl("my-orders", &crate::json!({ "rows": rows }))
+        .await)
 }
 
 /// The products referenced by these orders, keyed by id.

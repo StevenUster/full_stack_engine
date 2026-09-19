@@ -201,9 +201,7 @@ async fn login_submit<R: Role>(
     // a wrong password (no timing-based account enumeration).
     let password_ok = verify_password(&form.password, hash);
 
-    let Some(user) =
-        user.filter(|u| password_ok && !R::from_role_str(&u.role).is_none())
-    else {
+    let Some(user) = user.filter(|u| password_ok && !R::from_role_str(&u.role).is_none()) else {
         return Ok(req
             .render_tpl("login", &json!({"error": "invalid_credentials"}))
             .await);
@@ -287,7 +285,9 @@ async fn register_submit(
     };
 
     if first_name.is_empty() || last_name.is_empty() {
-        return Ok(req.render_tpl("register", &render_error("missing_name")).await);
+        return Ok(req
+            .render_tpl("register", &render_error("missing_name"))
+            .await);
     }
     if form.password.len() < 8 {
         return Ok(req
@@ -300,7 +300,9 @@ async fn register_submit(
             .await);
     }
     if email.is_empty() || !email.contains('@') {
-        return Ok(req.render_tpl("register", &render_error("invalid_email")).await);
+        return Ok(req
+            .render_tpl("register", &render_error("invalid_email"))
+            .await);
     }
 
     let hashed_password =
@@ -500,10 +502,7 @@ struct ResetPasswordQuery {
     error: Option<String>,
 }
 
-async fn reset_password_form(
-    req: HttpRequest,
-    query: web::Query<ResetPasswordQuery>,
-) -> AppResult {
+async fn reset_password_form(req: HttpRequest, query: web::Query<ResetPasswordQuery>) -> AppResult {
     let Some(token) = &query.token else {
         return Ok(see_other("/"));
     };

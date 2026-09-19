@@ -43,7 +43,10 @@ async fn register_login_and_role_gates_work_end_to_end() {
 
     // Admin sees the users list (framework page, starter roles).
     let admin = login_cookie!(&app, "admin@test.dev", "password123");
-    let req = test::TestRequest::get().uri("/users").cookie(admin).to_request();
+    let req = test::TestRequest::get()
+        .uri("/users")
+        .cookie(admin)
+        .to_request();
     let res = test::call_service(&app, req).await;
     assert_eq!(res.status(), StatusCode::OK);
 }

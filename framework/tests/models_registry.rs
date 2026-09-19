@@ -135,7 +135,9 @@ fn model_expands_to_the_orm_table_derive() {
 /// races.
 #[tokio::test]
 async fn resource_crud_round_trip() {
-    let db = sqlx::SqlitePool::connect(env!("DATABASE_URL")).await.unwrap();
+    let db = sqlx::SqlitePool::connect(env!("DATABASE_URL"))
+        .await
+        .unwrap();
     Article::delete_where().execute(&db).await.unwrap();
     let r = models::model("articles").unwrap().resource;
 
@@ -160,7 +162,11 @@ async fn resource_crud_round_trip() {
     let id = r
         .create(
             &db,
-            &form(&[("title", "Hello World"), ("slug", "hello"), ("status", "draft")]),
+            &form(&[
+                ("title", "Hello World"),
+                ("slug", "hello"),
+                ("status", "draft"),
+            ]),
         )
         .await
         .unwrap()
@@ -193,7 +199,11 @@ async fn resource_crud_round_trip() {
     // Second row to make list filters observable.
     r.create(
         &db,
-        &form(&[("title", "Zebra"), ("slug", "zebra"), ("status", "published")]),
+        &form(&[
+            ("title", "Zebra"),
+            ("slug", "zebra"),
+            ("status", "published"),
+        ]),
     )
     .await
     .unwrap()
@@ -244,7 +254,11 @@ async fn resource_crud_round_trip() {
     r.update(
         &db,
         id,
-        &form(&[("title", "Hello Again"), ("slug", "hello"), ("status", "published")]),
+        &form(&[
+            ("title", "Hello Again"),
+            ("slug", "hello"),
+            ("status", "published"),
+        ]),
     )
     .await
     .unwrap()
@@ -255,7 +269,11 @@ async fn resource_crud_round_trip() {
 
     // update: stealing another row's slug is rejected.
     let errors = r
-        .update(&db, id, &form(&[("title", "X"), ("slug", "zebra"), ("status", "draft")]))
+        .update(
+            &db,
+            id,
+            &form(&[("title", "X"), ("slug", "zebra"), ("status", "draft")]),
+        )
         .await
         .unwrap()
         .unwrap_err();
