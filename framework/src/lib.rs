@@ -608,13 +608,14 @@ impl FrameworkApp {
         let env_file = load_env_file();
         let env = parse_env(env::var("ENV").ok().as_deref());
 
-        let mut telemetry = observability::Settings::from_env(env);
-        if let Some(name) = self.service_name.take() {
-            telemetry.service_name = name;
-        }
-        if let Some(version) = self.service_version.take() {
-            telemetry.service_version = version;
-        }
+        // The builder's identity is a *default*: `SERVICE_NAME`/`SERVICE_VERSION`
+        // from the environment win, so a release pipeline can stamp the commit
+        // SHA without the app editing code.
+        let telemetry = observability::Settings::from_env_with_defaults(
+            env,
+            self.service_name.take(),
+            self.service_version.take(),
+        );
         // Held until `run` returns, so the exporter's last batch is flushed on
         // shutdown instead of being dropped with the process.
         let _telemetry_guard = observability::init(&telemetry);

@@ -167,6 +167,11 @@ until an endpoint is configured.
 | `TELEMETRY_SAMPLE_RATIO` | `1.0` | Head sampling for traces with no parent. |
 | `SENTRY_DSN` | — | Enables error/panic reporting when set. |
 
+For the two service-identity variables the environment **wins** over the
+builder: an app bakes in `service_version(env!("CARGO_PKG_VERSION"))` and a
+release pipeline replaces it with the commit SHA by setting `SERVICE_VERSION`,
+without editing code.
+
 A malformed value never stops the app from booting: an unparseable `RUST_LOG`
 falls back to `info`, an unknown `LOG_FORMAT` falls back to the default, and an
 unreachable OTLP collector leaves the app running with logs only.

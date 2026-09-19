@@ -132,8 +132,8 @@ impl LogFormat {
 /// | `RUST_LOG` | — | Full `tracing` filter directives. Wins over `LOG_LEVEL`. |
 /// | `LOG_LEVEL` | `debug` (dev) / `info` (prod) | Level for the app's own code. |
 /// | `LOG_FORMAT` | `pretty` (dev) / `json` (prod) | `pretty`, `compact` or `json`. |
-/// | `SERVICE_NAME` | executable file name | `service.name` on every span. |
-/// | `SERVICE_VERSION` | `unknown` | `service.version`; set to the release/commit. |
+/// | `SERVICE_NAME` | [`crate::FrameworkApp::service_name`], else the executable file name | `service.name` on every span. |
+/// | `SERVICE_VERSION` | [`crate::FrameworkApp::service_version`], else `unknown` | `service.version`; set to the release/commit. |
 /// | `DEPLOY_ENV` | `development` / `production` | `deployment.environment.name`. |
 /// | `TELEMETRY_ENABLED` | on iff an OTLP endpoint is set | Master switch for span export. |
 /// | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Standard OTLP endpoint (`…/v1/traces` is appended). |
@@ -172,6 +172,23 @@ impl Settings {
     /// are invisible.
     #[must_use]
     pub fn from_env(env: Env) -> Self {
+        Self::from_env_with_defaults(env, None, None)
+    }
+
+    /// Like [`Settings::from_env`], with the identity the app declared in code
+    /// ([`crate::FrameworkApp::service_name`] /
+    /// [`crate::FrameworkApp::service_version`]) as the *fallback*.
+    ///
+    /// `SERVICE_NAME` and `SERVICE_VERSION` still win. That direction is the
+    /// point: an app bakes in `service_version(env!("CARGO_PKG_VERSION"))`, and
+    /// a release pipeline has to be able to replace it with the commit SHA
+    /// without editing code — two builds of `1.0.1` are not the same binary.
+    #[must_use]
+    pub fn from_env_with_defaults(
+        env: Env,
+        service_name: Option<String>,
+        service_version: Option<String>,
+    ) -> Self {
         let dev = env == Env::Dev;
         let var = |key: &str| {
             std::env::var(key)
@@ -197,8 +214,10 @@ impl Settings {
                     LogFormat::Json
                 },
             ),
-            service_name: var("SERVICE_NAME").unwrap_or_else(default_service_name),
-            service_version: var("SERVICE_VERSION").unwrap_or_else(|| "unknown".to_string()),
+            service_name: pick(var("SERVICE_NAME"), service_name, default_service_name),
+            service_version: pick(var("SERVICE_VERSION"), service_version, || {
+                "unknown".to_string()
+            }),
             deploy_env: var("DEPLOY_ENV")
                 .unwrap_or_else(|| if dev { "development" } else { "production" }.to_string()),
             // Exporting spans nowhere is the only sane default, and an
@@ -236,6 +255,16 @@ impl Settings {
         }
         directives
     }
+}
+
+/// Resolves one identity field: the environment wins, then what the app
+/// declared in code, then the built-in fallback.
+fn pick(
+    from_env: Option<String>,
+    from_app: Option<String>,
+    fallback: impl FnOnce() -> String,
+) -> String {
+    from_env.or(from_app).unwrap_or_else(fallback)
 }
 
 /// The executable's file name — a better `service.name` default than a fixed
@@ -929,6 +958,21 @@ mod tests {
                 "should parse: {directives}"
             );
         }
+    }
+
+    #[test]
+    fn service_identity_lets_the_environment_override_the_app() {
+        let fallback = || "from-fallback".to_string();
+        // A release pipeline's SERVICE_VERSION beats the version the app baked
+        // in at compile time — the whole reason the env var exists.
+        assert_eq!(
+            pick(Some("from-env".into()), Some("from-app".into()), fallback),
+            "from-env"
+        );
+        // Without one, the app's own value is used...
+        assert_eq!(pick(None, Some("from-app".into()), fallback), "from-app");
+        // ...and without that either, the built-in fallback.
+        assert_eq!(pick(None, None, fallback), "from-fallback");
     }
 
     #[test]
