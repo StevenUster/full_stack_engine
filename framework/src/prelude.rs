@@ -4,7 +4,7 @@ pub use crate::{
     config::{Config, SmtpConfig},
     error::{AppError, AppResult, ErrorContext, ResultExt},
     i18n::{inject_locale_context, load_locale},
-    mail::send_mail,
+    mail::{MailAttachment, send_mail, send_mail_with_attachments},
     rate_limiter::{auth_rate_limiter, custom_rate_limiter, general_rate_limiter},
     structs::{DefaultRole, Role, User},
     themes::{Theme, ThemeManifest},

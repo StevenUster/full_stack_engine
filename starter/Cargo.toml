@@ -29,7 +29,7 @@ uuid = { version = "1.23.3", features = ["v4"] }
 # stays dormant until `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so a local run pays
 # nothing for it. Add "sentry" here for error/panic reporting to a
 # Sentry-protocol backend (Sentry, GlitchTip, self-hosted).
-full_stack_engine = { version = "8.0.0", path = "../framework", features = [
+full_stack_engine = { version = "8.1.0", path = "../framework", features = [
     "otel",
 ] }
 # The built default theme — the parent of this app's theme in theme/.

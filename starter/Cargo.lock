@@ -1225,7 +1225,7 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "8.0.0"
+version = "8.1.0"
 dependencies = [
  "actix-files",
  "actix-governor",

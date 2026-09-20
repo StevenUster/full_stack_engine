@@ -1,6 +1,7 @@
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
     message::header::ContentType,
+    message::{MultiPart, SinglePart},
     transport::smtp::authentication::Credentials,
     transport::smtp::client::{Tls, TlsParameters},
 };
@@ -26,6 +27,48 @@ pub async fn send_mail(
     subject: &str,
     body: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    send_mail_with_attachments(cfg, to, subject, body, Vec::new()).await
+}
+
+/// One file attached to an outgoing mail.
+pub struct MailAttachment {
+    /// Shown to the recipient — keep it free of path separators.
+    pub filename: String,
+    /// e.g. `application/pdf`.
+    pub content_type: String,
+    pub bytes: Vec<u8>,
+}
+
+impl MailAttachment {
+    /// A PDF attachment, the common case (invoices, certificates, letters).
+    #[must_use]
+    pub fn pdf(filename: impl Into<String>, bytes: Vec<u8>) -> Self {
+        Self {
+            filename: filename.into(),
+            content_type: "application/pdf".to_string(),
+            bytes,
+        }
+    }
+}
+
+/// Sends an HTML email with files attached.
+///
+/// Exists so that an app needing to attach a generated PDF does not rebuild the
+/// SMTP transport itself. That matters beyond convenience: the transport is
+/// where the TLS policy lives (see [`build_transport`]), and a second copy of it
+/// in an app is a place for "required" to quietly become "opportunistic".
+///
+/// # Errors
+///
+/// Returns an error if no mailer is configured, if an address or content type
+/// does not parse, or if the SMTP conversation fails.
+pub async fn send_mail_with_attachments(
+    cfg: &Config,
+    to: &str,
+    subject: &str,
+    body: &str,
+    attachments: Vec<MailAttachment>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let smtp = cfg
         .smtp
         .as_ref()
@@ -33,14 +76,32 @@ pub async fn send_mail(
 
     // The recipient is logged, the credentials are not — `password` is a
     // `SecretString` and has no `Display` to accidentally interpolate.
-    tracing::debug!(smtp.host = %smtp.host, "sending mail to {to}");
+    tracing::debug!(
+        smtp.host = %smtp.host,
+        attachments = attachments.len(),
+        "sending mail to {to}"
+    );
 
-    let email = Message::builder()
+    let builder = Message::builder()
         .from(smtp.user.parse()?)
         .to(to.parse()?)
-        .subject(subject)
-        .header(ContentType::TEXT_HTML)
-        .body(body.to_string())?;
+        .subject(subject);
+
+    let email = if attachments.is_empty() {
+        builder
+            .header(ContentType::TEXT_HTML)
+            .body(body.to_string())?
+    } else {
+        let mut part = MultiPart::mixed().singlepart(SinglePart::html(body.to_string()));
+        for attachment in attachments {
+            let content_type = ContentType::parse(&attachment.content_type)?;
+            part = part.singlepart(
+                lettre::message::Attachment::new(attachment.filename)
+                    .body(attachment.bytes, content_type),
+            );
+        }
+        builder.multipart(part)?
+    };
 
     let mailer = build_transport(smtp)?;
 
