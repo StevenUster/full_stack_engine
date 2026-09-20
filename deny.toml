@@ -44,37 +44,20 @@ allow = [
     # licence, permissive, and what lets the runtime image ship without relying
     # on the system trust store for SMTP.
     "CDLA-Permissive-2.0",
-    # aws-lc-sys, reached through rustls's aws-lc-rs provider. Permissive and
-    # BoringSSL-derived; despite the name it is not the OpenSSL library and
-    # links nothing from the system.
-    "OpenSSL",
+    "MIT-0",             # aws-lc-sys, via rustls's aws-lc-rs provider
 ]
 confidence-threshold = 0.9
 
-# ⚠️  KNOWN LICENCE CONFLICT — not a rubber stamp.
-#
-# `actix-governor` is GPL-3.0-or-later (verified: its LICENSE file is the full
-# GPLv3). `full_stack_engine` publishes as `MIT OR Apache-2.0` and links it
-# unconditionally for the site-wide rate limiter, so as things stand the
-# combined work — and every binary built on the framework — is a GPLv3
-# derivative, which contradicts the declared licence.
-#
-# The underlying `governor` crate is MIT; only the thin Actix middleware around
-# it is GPL. The fix is therefore to implement that middleware in this repo over
-# `governor` directly (the framework already supplies its own key extractors,
-# which is most of what actix-governor provides), after which this exception
-# goes away.
-#
-# It is listed here so the rest of `cargo deny` is usable today, NOT because the
-# conflict is acceptable.
-# The starter is `publish = false` — a template to copy, not a crate to ship —
-# so it needs no licence of its own.
+# The starter and the apps built from it are `publish = false` — templates and
+# deployments, not crates to ship — so they need no licence of their own.
 [licenses.private]
 ignore = true
 
-[[licenses.exceptions]]
-name = "actix-governor"
-allow = ["GPL-3.0-or-later"]
+# No exceptions. The one that used to live here — `actix-governor`, which is
+# GPL-3.0-or-later and would have made every binary built on this MIT/Apache-2.0
+# framework a GPLv3 derivative — is gone: `src/rate_limiter.rs` is now Actix
+# middleware written directly over `governor` (MIT). If a GPL crate reappears,
+# this check is what will say so.
 
 [bans]
 # Several versions of the same crate bloat the binary and, for TLS and crypto,

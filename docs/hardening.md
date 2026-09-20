@@ -186,18 +186,47 @@ already defaults to rustls. Nothing in the tree links OpenSSL, which is why
 `starter/Dockerfile` no longer installs `pkg-config`, `libssl-dev` or `openssl`.
 `cargo deny`'s `bans` section keeps it that way.
 
-### ⚠ Known licence conflict
+### The licence conflict, resolved
 
-`actix-governor` is **GPL-3.0-or-later** (its `LICENSE` is the full GPLv3).
-`full_stack_engine` publishes as `MIT OR Apache-2.0` and links it unconditionally
-for the site-wide rate limiter, so as things stand the combined work — and every
-binary built on the framework — is a GPLv3 derivative, contradicting the declared
-licence.
+`cargo deny`'s first run found that **`actix-governor` is GPL-3.0-or-later** (its
+`LICENSE` is the full GPLv3), while this framework publishes as
+`MIT OR Apache-2.0`. Linking it unconditionally for the site-wide rate limiter
+made the combined work — and every binary built on the framework — a GPLv3
+derivative, contradicting the declared licence.
 
-The underlying `governor` crate is MIT; only the thin Actix middleware around it
-is GPL, and the framework already supplies its own key extractors, which is most
-of what `actix-governor` provides. The fix is to implement that middleware here
-over `governor` directly, after which the `deny.toml` exception goes away.
+Fixed in **9.0.0**: `src/rate_limiter.rs` is now Actix middleware written
+directly over [`governor`](https://docs.rs/governor), which is **MIT**. Only the
+Actix glue was ever GPL; the algorithm was always in `governor`, and the
+framework already supplied its own key extraction, which was most of that glue.
+The `deny.toml` exception is gone, so a GPL crate reappearing is a failing check
+rather than a footnote.
 
-**This is not resolved.** It is recorded so the rest of `cargo deny` is usable
-today, not because the conflict is acceptable.
+What the replacement does, and what it has to get right:
+
+- **Buckets are shared across workers.** Actix builds the middleware stack once
+  per worker thread, so a limiter created per worker would multiply the real
+  limit by the worker count. `shared_limiter` hands out an `Arc` from a
+  process-wide cache keyed by call site *and* rate — one bucket per endpoint per
+  client, however many workers there are. `one_call_site_yields_one_shared_limiter`
+  pins this.
+- **Exemption is server-decided.** `RequestKey::key` returns `Ok(None)` to skip
+  limiting, and the only implementation that does so matches the request path
+  against a list fixed at boot. Nothing a client sends can produce an exempt key.
+- **Key extraction failure rejects the request.** If no client address can be
+  determined the request gets a 500, not a free pass — failing open would turn a
+  transport misconfiguration into an unmetered endpoint.
+- **The key store is pruned.** A keyed limiter grows one entry per distinct
+  address, forever, which a scanner rotating addresses would turn into a slow
+  leak. `retain_recent` runs at most once a minute, on the request path, and only
+  drops buckets indistinguishable from fresh — so pruning can never grant extra
+  allowance.
+- **429 carries `Retry-After`**, rounded up, so a client obeying it does not
+  retry straight into another refusal. The body is plain text: a rejected request
+  must not cost a template render, which is the work being shed.
+
+Verified against a running server: the configured burst is honoured and the next
+request is refused with `Retry-After`, `/api` stays unmetered, `POST /login` is
+one per ten seconds, and a different `X-Forwarded-For` gets its own bucket.
+
+**Versions 8.1.0 and earlier still carry the GPL dependency.** Upgrading to
+9.0.0 is what resolves it for a downstream binary.

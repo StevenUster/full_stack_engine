@@ -1,6 +1,5 @@
 #![deny(warnings, unused_imports, dead_code, clippy::all, clippy::pedantic)]
 
-use actix_governor::Governor;
 use actix_web::{
     App, HttpMessage, HttpResponse, HttpServer,
     body::MessageBody,
@@ -842,7 +841,7 @@ impl FrameworkApp {
                 .wrap(security_headers())
                 // Outermost layer: reject per-IP floods before any routing or
                 // request processing happens. Shared buckets across workers.
-                .wrap(Governor::new(&global_rate_config));
+                .wrap(global_rate_config.clone());
 
             // Liveness/readiness probes, registered first so they exist even
             // if an app registers nothing. An app can still override either by

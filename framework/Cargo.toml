@@ -1,6 +1,6 @@
 [package]
 name = "full_stack_engine"
-version = "8.1.0"
+version = "9.0.0"
 edition = "2024"
 description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
 license = "MIT OR Apache-2.0"
@@ -26,7 +26,11 @@ fse-schema = { version = "0.4.0", path = "../fse-orm/schema" }
 inventory = "0.3"
 actix-web = "4.12.1"
 actix-files = "0.6.9"
-actix-governor = "0.10.0"
+# `governor` directly, not `actix-governor`: that wrapper is GPL-3.0-or-later,
+# which would make every binary built on this MIT/Apache-2.0 framework a GPLv3
+# derivative. The algorithm is in `governor` (MIT); the Actix middleware around
+# it lives in `src/rate_limiter.rs`.
+governor = "0.10.4"
 tokio-cron-scheduler = { version = "0.15.1", features = ["signal"] }
 tera = "1.20.1"
 serde = { version = "1.0", features = ["derive"] }

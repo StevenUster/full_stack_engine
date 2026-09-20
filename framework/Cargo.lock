@@ -43,18 +43,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "actix-governor"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a7ffa43d3e1e92518355ffbc82c146b5f0fe24fba87f19f405270da7a7b3c1e"
-dependencies = [
- "actix-http",
- "actix-web",
- "futures",
- "governor",
-]
-
-[[package]]
 name = "actix-http"
 version = "3.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1224,10 +1212,9 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "8.1.0"
+version = "9.0.0"
 dependencies = [
  "actix-files",
- "actix-governor",
  "actix-multipart",
  "actix-web",
  "chrono",
@@ -1236,6 +1223,7 @@ dependencies = [
  "fse-schema",
  "full_stack_engine_macros",
  "futures",
+ "governor",
  "include_dir",
  "insta",
  "inventory",
