@@ -18,6 +18,7 @@ use fse_schema::{ColumnDef, SqlType, TableDef};
 use std::sync::LazyLock;
 
 pub mod form;
+pub mod openapi;
 mod resource;
 mod routes;
 

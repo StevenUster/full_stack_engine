@@ -42,9 +42,12 @@ pub async fn test_app_data() -> web::Data<AppData> {
         env: Env::Prod,
         domain: "localhost".to_string(),
         protocol: "http".to_string(),
-        jwt_secret: JWT_SECRET.to_string(),
         smtp_from: String::new(),
         email_verification_enabled: false,
+        // The whole validated configuration, secrets included. `testing::config`
+        // fills in sane defaults so adding a setting to the framework doesn't
+        // break this file.
+        config: std::sync::Arc::new(full_stack_engine::testing::config(JWT_SECRET)),
         context_injector: None,
         // Same layering as production: framework base translations < app files.
         locales: full_stack_engine::i18n::resolve_locales(

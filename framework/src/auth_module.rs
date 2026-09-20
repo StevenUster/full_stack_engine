@@ -42,9 +42,11 @@ use actix_web::http::header::LOCATION;
 use actix_web::{HttpRequest, HttpResponse, web};
 use serde::Deserialize;
 use serde_json::json;
+use tracing::Instrument as _;
+use validator::{Validate, ValidationErrors};
 
 use crate::auth::{create_jwt, hash_password, verify_password};
-use crate::error::{AppError, AppResult};
+use crate::error::{AppError, AppResult, ErrorContext as _};
 use crate::modules::ModuleDef;
 use crate::rate_limiter::{auth_rate_limiter, custom_rate_limiter};
 use crate::structs::{Role, User};
@@ -222,7 +224,7 @@ async fn login_submit<R: Role>(
         is_verified: user.is_verified,
         verification_token: None,
     };
-    let jwt = create_jwt(&claims_user, &data.jwt_secret)
+    let jwt = create_jwt(&claims_user, data.jwt_secret())
         .map_err(|e| AppError::Internal(format!("JWT creation error: {e}")))?;
 
     Ok(HttpResponse::SeeOther()
@@ -256,13 +258,59 @@ async fn register_success(req: HttpRequest) -> HttpResponse {
     req.render_tpl("register-success", &json!({})).await
 }
 
-#[derive(Deserialize)]
+// The `message` on each rule is the template's i18n key, so the locale files
+// stay the single place the wording lives (see `locales/*.json`).
+#[derive(Deserialize, Validate)]
 struct RegisterForm {
+    #[validate(length(min = 1, message = "missing_name"))]
     first_name: String,
+    #[validate(length(min = 1, message = "missing_name"))]
     last_name: String,
+    // A real parser, not `contains('@')`: `a@`, `@b` and `a@b@c` were all
+    // accepted before, creating accounts whose verification mail could never
+    // be delivered.
+    #[validate(email(message = "invalid_email"))]
     email: String,
+    #[validate(length(min = 8, message = "password_too_short"))]
     password: String,
+    #[validate(must_match(other = "password", message = "passwords_mismatch"))]
     repeat_password: String,
+}
+
+impl RegisterForm {
+    /// The three fields echoed back into the form on a validation failure.
+    fn clone_fields(&self) -> Self {
+        self.normalized()
+    }
+
+    /// Trimmed, with the email lower-cased — validated and stored in this form,
+    /// so `"  "` is not a valid name and `A@B.com` and `a@b.com` are one
+    /// account.
+    fn normalized(&self) -> Self {
+        Self {
+            first_name: self.first_name.trim().to_string(),
+            last_name: self.last_name.trim().to_string(),
+            email: self.email.trim().to_lowercase(),
+            password: self.password.clone(),
+            repeat_password: self.repeat_password.clone(),
+        }
+    }
+}
+
+/// The first validation message, in a **declared** priority order.
+///
+/// `ValidationErrors` is a `HashMap`, so iterating it would show the user a
+/// different complaint on each submit when more than one field is wrong.
+fn first_error<'a>(errors: &'a ValidationErrors, order: &[&str]) -> &'a str {
+    let field_errors = errors.field_errors();
+    for field in order {
+        if let Some((_, errors)) = field_errors.iter().find(|(name, _)| *name == field)
+            && let Some(message) = errors.first().and_then(|e| e.message.as_deref())
+        {
+            return message;
+        }
+    }
+    "invalid_input"
 }
 
 async fn register_submit(
@@ -270,38 +318,38 @@ async fn register_submit(
     req: HttpRequest,
     form: web::Form<RegisterForm>,
 ) -> AppResult {
-    let first_name = form.first_name.trim().to_string();
-    let last_name = form.last_name.trim().to_string();
-    let email = form.email.trim().to_lowercase();
+    let form = form.normalized();
+    let RegisterForm {
+        first_name,
+        last_name,
+        email,
+        ..
+    } = form.clone_fields();
 
-    // Values echoed back into the form so the user doesn't retype them.
-    let render_error = |error: &str| {
-        json!({
-            "first_name": first_name,
-            "last_name": last_name,
-            "email": form.email,
-            "error": error,
-        })
-    };
-
-    if first_name.is_empty() || last_name.is_empty() {
+    if let Err(errors) = form.validate() {
+        // The order the user sees complaints in, kept explicit so it is stable
+        // across submits and matches how the form reads top to bottom.
+        let error = first_error(
+            &errors,
+            &[
+                "first_name",
+                "last_name",
+                "password",
+                "repeat_password",
+                "email",
+            ],
+        );
+        // Values echoed back into the form so the user doesn't retype them.
         return Ok(req
-            .render_tpl("register", &render_error("missing_name"))
-            .await);
-    }
-    if form.password.len() < 8 {
-        return Ok(req
-            .render_tpl("register", &render_error("password_too_short"))
-            .await);
-    }
-    if form.password != form.repeat_password {
-        return Ok(req
-            .render_tpl("register", &render_error("passwords_mismatch"))
-            .await);
-    }
-    if email.is_empty() || !email.contains('@') {
-        return Ok(req
-            .render_tpl("register", &render_error("invalid_email"))
+            .render_tpl(
+                "register",
+                &json!({
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "email": email,
+                    "error": error,
+                }),
+            )
             .await);
     }
 
@@ -392,21 +440,32 @@ async fn send_token_email(
         }
     }
 
-    let body = data.render_email(template, &ctx).await.map_err(|e| {
-        tracing::error!("Failed to render {template}: {e}");
-        AppError::Internal("Failed to render email template".to_string())
-    })?;
+    // `.context` keeps Tera's own explanation — which line, which missing
+    // variable — reachable through `source()`, and the request span logs the
+    // whole chain once.
+    let body = data
+        .render_email(template, &ctx)
+        .await
+        .context(format!("rendering the {template} email"))?;
 
     let subject = t[locale_section]["subject"]
         .as_str()
         .unwrap_or("Notification")
         .to_string();
     let to = to.to_string();
-    actix_web::rt::spawn(async move {
-        if let Err(e) = crate::mail::send_mail(&to, &subject, &body).await {
-            tracing::error!("Failed to send {subject} email to {to}: {e}");
+    let cfg = data.config.clone();
+    // Sending is detached so a slow SMTP server doesn't hold the response, but
+    // the task is instrumented with the current span: without this the
+    // "failed to send" line would arrive with no `request_id` and no way to
+    // tie it to the registration it belongs to.
+    actix_web::rt::spawn(
+        async move {
+            if let Err(e) = crate::mail::send_mail(&cfg, &to, &subject, &body).await {
+                tracing::error!("Failed to send {subject} email to {to}: {e}");
+            }
         }
-    });
+        .instrument(tracing::Span::current()),
+    );
     Ok(())
 }
 
@@ -552,20 +611,28 @@ async fn reset_password_submit(
     // Consuming the token clears it, and stamps `sessions_valid_after` so
     // any JWTs issued before the reset are invalidated. Expired tokens match
     // no row.
-    let updated = sqlx::query(
+    //
+    // `RETURNING id` so the user's cached session cutoff can be dropped:
+    // bumping the column alone would leave outstanding tokens working until the
+    // cache entry expired, and a password reset must revoke them now.
+    let reset_user_id: Option<i64> = sqlx::query_scalar(
         "UPDATE users SET password = ?, reset_token = NULL, \
          reset_token_expires_at = NULL, sessions_valid_after = ? \
-         WHERE reset_token = ? AND reset_token_expires_at > ?",
+         WHERE reset_token = ? AND reset_token_expires_at > ? \
+         RETURNING id",
     )
     .bind(&hashed_password)
     .bind(chrono::Utc::now().timestamp())
     .bind(&form.token)
     .bind(now())
-    .execute(&data.db)
-    .await?
-    .rows_affected();
+    .fetch_optional(&data.db)
+    .await?;
 
-    if updated == 0 {
+    if let Some(id) = reset_user_id {
+        crate::auth::invalidate_session_cache(id);
+    }
+
+    if reset_user_id.is_none() {
         return Ok(see_other(&format!(
             "/reset-password?token={}&error=invalid_token",
             form.token
@@ -632,7 +699,9 @@ async fn change_email_submit<R: Role>(
         Ok::<HttpResponse, AppError>(req.render_tpl("settings", &ctx).await)
     };
 
-    if new_email.is_empty() || !new_email.contains('@') {
+    // Same real parser as registration, so an address that can never receive
+    // the confirmation link is rejected before the change is staged.
+    if !validator::ValidateEmail::validate_email(&new_email) {
         return render_settings(json!({"email_error": "invalid_email"})).await;
     }
 
@@ -741,6 +810,7 @@ async fn verify_email_change(
     .bind(user_id)
     .execute(&data.db)
     .await?;
+    crate::auth::invalidate_session_cache(user_id);
 
     Ok(see_other("/logout"))
 }
@@ -796,6 +866,9 @@ async fn delete_account<R: Role>(data: web::Data<AppData>, user: AuthUser<R>) ->
         .bind(user.claims.sub)
         .execute(&data.db)
         .await?;
+    // A deleted user's outstanding tokens must stop working now, not when the
+    // cached "no such user" lookup expires.
+    crate::auth::invalidate_session_cache(user.claims.sub);
     Ok(see_other("/logout"))
 }
 
@@ -973,6 +1046,7 @@ async fn user_update<R: Role>(
         .bind(user_id)
         .execute(&data.db)
         .await?;
+    crate::auth::invalidate_session_cache(user_id);
 
     Ok(HttpResponse::Found()
         .append_header((LOCATION, "/users"))
@@ -996,5 +1070,6 @@ async fn user_delete<R: Role>(
         .bind(user_id)
         .execute(&data.db)
         .await?;
+    crate::auth::invalidate_session_cache(user_id);
     Ok(HttpResponse::Ok().finish())
 }

@@ -35,7 +35,9 @@ fn app_data(selector: LocaleSelector) -> web::Data<AppData> {
         env: Env::Prod,
         domain: String::new(),
         protocol: String::new(),
-        jwt_secret: "0123456789abcdef0123456789abcdef".into(),
+        config: std::sync::Arc::new(full_stack_engine::testing::config(
+            "0123456789abcdef0123456789abcdef",
+        )),
         smtp_from: String::new(),
         email_verification_enabled: false,
         context_injector: None,

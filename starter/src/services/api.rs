@@ -30,76 +30,116 @@ pub async fn get_docs(req: actix_web::HttpRequest) -> AppResult {
 /// `GET /api/openapi.json` — machine-readable `OpenAPI` 3.0 spec describing
 /// this API, so external consumers can import it into Swagger UI / Postman or
 /// generate a client.
+///
+/// Built in two halves, which is the pattern to copy:
+///
+/// * `models::openapi::spec` describes every `#[model(api)]` endpoint straight
+///   from the model registry — add `api` to a struct and it documents itself,
+///   with the right column names, types and nullability, and no chance of
+///   drifting from what the endpoint actually returns.
+/// * the hand-written routes below are declared explicitly, because generation
+///   cannot know them. `/api/products` here is an *override* (published rows
+///   only, `search`/`page` parameters), so its real contract differs from the
+///   generated one and has to be spelled out.
 #[get("/api/openapi.json")]
 pub async fn get_openapi_spec(data: web::Data<AppData>) -> AppResult {
-    let base_url = format!("{}://{}", data.protocol, data.domain);
+    use full_stack_engine::models::openapi;
 
-    Ok(json_ok(crate::json!({
-        "openapi": "3.0.3",
-        "info": {
-            "title": "Starter Public API",
-            "version": "1.0.0",
-            "description": "Read-only, unauthenticated access to the published product catalog."
-        },
-        "servers": [ { "url": base_url } ],
-        "paths": {
-            "/api/products": {
-                "get": {
-                    "summary": "List published products",
-                    "parameters": [
-                        { "name": "search", "in": "query", "schema": { "type": "string" } },
-                        { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Paginated list of products",
-                            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductList" } } }
-                        }
-                    }
-                }
-            },
-            "/api/products/{slug}": {
-                "get": {
-                    "summary": "Get a single published product",
-                    "parameters": [
-                        { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
-                    ],
-                    "responses": {
-                        "200": {
-                            "description": "Product detail",
-                            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Product" } } }
-                        },
-                        "404": { "description": "Product not found or not published" }
+    let base_url = data.config.base_url();
+    let mut spec = openapi::spec(&openapi::Info {
+        title: "Starter Public API",
+        version: env!("CARGO_PKG_VERSION"),
+        description: "Read-only, unauthenticated access to the published product catalog.",
+        base_url: &base_url,
+    });
+
+    // The two hand-written endpoints. Merged in rather than replacing the
+    // document, so flipping `api` on a model later adds its paths here without
+    // touching this function.
+    let hand_written = crate::json!({
+        "/api/products": {
+            "get": {
+                "summary": "List published products",
+                "operationId": "list_published_products",
+                "security": [],
+                "parameters": [
+                    { "name": "search", "in": "query", "schema": { "type": "string" } },
+                    { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Paginated list of products",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProductList" } } }
                     }
                 }
             }
         },
-        "components": {
-            "schemas": {
-                "Product": {
-                    "type": "object",
-                    "properties": {
-                        "id": { "type": "integer" },
-                        "name": { "type": "string" },
-                        "slug": { "type": "string" },
-                        "description": { "type": "string" },
-                        "price": { "type": "string" },
-                        "url": { "type": "string", "description": "Relative path to the public product page" }
-                    }
-                },
-                "ProductList": {
-                    "type": "object",
-                    "properties": {
-                        "products": { "type": "array", "items": { "$ref": "#/components/schemas/Product" } },
-                        "page": { "type": "integer" },
-                        "per_page": { "type": "integer" },
-                        "total_pages": { "type": "integer" },
-                        "total_count": { "type": "integer" }
+        "/api/products/{slug}": {
+            "get": {
+                "summary": "Get a single published product",
+                "operationId": "get_published_product",
+                "security": [],
+                "parameters": [
+                    { "name": "slug", "in": "path", "required": true, "schema": { "type": "string" } }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Product detail",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicProduct" } } }
+                    },
+                    "404": {
+                        "description": "Product not found or not published",
+                        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
                     }
                 }
             }
         }
-    })))
+    });
+
+    // The shapes those two hand-written endpoints actually return, which are
+    // narrower than the `Product` row (no `status`, no timestamps) — a public
+    // API exposing the whole row would be the bug this override exists to avoid.
+    let hand_written_schemas = crate::json!({
+        "PublicProduct": {
+            "type": "object",
+            "required": ["id", "name", "slug", "price", "url"],
+            "properties": {
+                "id": { "type": "integer", "format": "int64" },
+                "name": { "type": "string" },
+                "slug": { "type": "string" },
+                "description": { "type": "string", "nullable": true },
+                "price": { "type": "string" },
+                "url": { "type": "string", "description": "Relative path to the public product page" }
+            }
+        },
+        "ProductList": {
+            "type": "object",
+            "required": ["products", "page", "per_page", "total_pages", "total_count"],
+            "properties": {
+                "products": { "type": "array", "items": { "$ref": "#/components/schemas/PublicProduct" } },
+                "page": { "type": "integer" },
+                "per_page": { "type": "integer" },
+                "total_pages": { "type": "integer" },
+                "total_count": { "type": "integer" }
+            }
+        }
+    });
+
+    merge_objects(&mut spec["paths"], &hand_written);
+    merge_objects(&mut spec["components"]["schemas"], &hand_written_schemas);
+
+    Ok(json_ok(spec))
+}
+
+/// Copies `extra`'s keys into `target`, both of which are expected to be JSON
+/// objects. A shallow merge is all that's needed: the two halves of the spec
+/// contribute disjoint path and schema names.
+fn merge_objects(target: &mut crate::serde_json::Value, extra: &crate::serde_json::Value) {
+    if let (Some(target), Some(extra)) = (target.as_object_mut(), extra.as_object()) {
+        for (key, value) in extra {
+            target.insert(key.clone(), value.clone());
+        }
+    }
 }
 
 #[derive(Deserialize, Default)]

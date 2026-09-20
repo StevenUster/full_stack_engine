@@ -72,6 +72,11 @@ use crate::Env;
 /// touching the rest of the application's logging.
 pub const ACCESS_TARGET: &str = "full_stack_engine::access";
 
+/// Routes whose access-log line is emitted at `debug` instead of `info`. A
+/// container runtime probes these every few seconds; at `info` they would be
+/// the majority of a quiet service's log.
+pub const HEALTH_ROUTES: &[&str] = &["/healthz", "/readyz"];
+
 /// Noisy dependencies, quieted unless the operator asks for them. Each is a
 /// crate that logs per-query or per-connection at `info`/`debug`; at the
 /// framework's own default level they would bury the application's own
@@ -779,6 +784,16 @@ fn emit_access_event(
             duration_ms,
             cause = %cause,
             "request rejected"
+        );
+    } else if HEALTH_ROUTES.contains(&route) {
+        // Same fields, lower level: a probe is not news.
+        tracing::debug!(
+            target: ACCESS_TARGET,
+            route = %route,
+            status,
+            duration_ms,
+            cause = %cause,
+            "request completed"
         );
     } else {
         tracing::info!(

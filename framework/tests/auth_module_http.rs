@@ -76,7 +76,7 @@ fn app_data(db: SqlitePool, verification: bool) -> web::Data<AppData> {
         env: Env::Prod,
         domain: "test.dev".into(),
         protocol: "https".into(),
-        jwt_secret: SECRET.to_string(),
+        config: std::sync::Arc::new(full_stack_engine::testing::config(SECRET)),
         smtp_from: String::new(),
         email_verification_enabled: verification,
         context_injector: None,
@@ -518,6 +518,26 @@ async fn settings_email_change_and_account_delete() {
 
     // Deleting the account removes the row (session was revoked by the email
     // change, so mint a fresh one).
+    //
+    // `sessions_valid_after` has second granularity and a token is only
+    // accepted when its `iat` is strictly greater, so a session minted in the
+    // same second as the revocation is rejected — deliberately, so a token
+    // stolen during that second cannot outlive the revocation. A real user
+    // takes longer than a second to get back through /logout and /login; the
+    // test compresses that by stepping the cutoff back one second instead of
+    // sleeping.
+    let user_id: i64 =
+        sqlx::query_scalar("SELECT id FROM users WHERE email = 'settings-new@test.dev'")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    sqlx::query("UPDATE users SET sessions_valid_after = sessions_valid_after - 1 WHERE id = ?")
+        .bind(user_id)
+        .execute(&db)
+        .await
+        .unwrap();
+    full_stack_engine::auth::invalidate_session_cache(user_id);
+
     let me = session_for(&db, "settings-new@test.dev", AppRole::User).await;
     let res = test::call_service(
         &app,

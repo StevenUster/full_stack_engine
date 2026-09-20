@@ -2,6 +2,9 @@
 name = "starter"
 version = "0.1.0"
 edition = "2024"
+# A template to copy, not a crate to publish — and `cargo deny` treats an
+# unlicensed publishable crate as an error, correctly.
+publish = false
 
 [dependencies]
 ctrlc = "3.5.2"
@@ -9,19 +12,24 @@ actix-web = "4.14.0"
 actix-multipart = "0.7.2"
 actix-files = "0.6.10"
 serde = { version = "1.0", features = ["derive"] }
-sqlx = { version = "0.8.6", features = [
+sqlx = { version = "0.8.6", default-features = false, features = [
     "sqlite",
     "chrono",
     "runtime-tokio",
-    "tls-native-tls",
+    "macros",
+    "migrate",
+    # `tls-none`: SQLite is a local file, so sqlx never opens a TLS connection.
+    # Matches the framework and is what keeps OpenSSL out of the image.
+    "tls-none",
 ] }
-dotenv = "0.15.0"
+# `dotenvy`: the original `dotenv` is unmaintained (flagged by `cargo deny`).
+dotenvy = "0.15.7"
 uuid = { version = "1.23.3", features = ["v4"] }
 # `otel` turns on OTLP span export (over HTTP/protobuf, no tonic/Tower); it
 # stays dormant until `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so a local run pays
 # nothing for it. Add "sentry" here for error/panic reporting to a
 # Sentry-protocol backend (Sentry, GlitchTip, self-hosted).
-full_stack_engine = { version = "7.1.0", path = "../framework", features = [
+full_stack_engine = { version = "8.0.0", path = "../framework", features = [
     "otel",
 ] }
 # The built default theme — the parent of this app's theme in theme/.
@@ -30,6 +38,12 @@ fse-theme-default = { version = "0.2.0", path = "../fse-theme-default" }
 # `::fse_orm::...` paths (same reason sqlx is a direct dependency).
 fse-orm = { version = "0.4.0", path = "../fse-orm/runtime" }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+
+[dev-dependencies]
+# Snapshot tests for rendered pages: a template or context change that alters a
+# page shows up as a reviewable diff instead of passing silently.
+# `cargo insta review` to accept an intended change.
+insta = "1.48.0"
 
 [profile.release]
 lto = true

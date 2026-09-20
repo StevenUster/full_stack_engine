@@ -6,7 +6,8 @@ use argon2::Config;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::{RngCore, rng};
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 /// Hashes `password` with Argon2 and a fresh random 16-byte salt.
@@ -140,7 +141,7 @@ pub fn read_jwt<R: Role>(req: &HttpRequest) -> Result<Claims<R>, JwtError> {
     let data = req
         .app_data::<actix_web::web::Data<crate::AppData>>()
         .ok_or(JwtError::SecretNotSet)?;
-    let secret = &data.jwt_secret;
+    let secret = data.jwt_secret();
 
     let decoding_key = DecodingKey::from_secret(secret.as_bytes());
     let validation = Validation::new(jsonwebtoken::Algorithm::HS256);
@@ -152,6 +153,88 @@ pub fn read_jwt<R: Role>(req: &HttpRequest) -> Result<Claims<R>, JwtError> {
         })?;
 
     Ok(token_data.claims)
+}
+
+/// How long a user's session-revocation cutoff is trusted without re-reading
+/// it.
+///
+/// The window is the cost of the cache: a revoked session stays usable for at
+/// most this long. Five seconds keeps "log out everywhere", "password changed"
+/// and "role downgraded" effectively immediate from a human's point of view,
+/// while collapsing a per-request database round-trip into one read per user
+/// per five seconds. A logout also clears the entry outright, so the common
+/// case is not delayed at all.
+const SESSION_CUTOFF_TTL: Duration = Duration::from_secs(5);
+
+/// Cached `users.sessions_valid_after` values. `None` means "no such user",
+/// which is cached too — otherwise a flood of tokens for deleted users would
+/// hit the database on every request.
+type SessionCache = moka::sync::Cache<i64, Option<i64>>;
+
+fn session_cache() -> &'static SessionCache {
+    static CACHE: OnceLock<SessionCache> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        moka::sync::Cache::builder()
+            .max_capacity(10_000)
+            .time_to_live(SESSION_CUTOFF_TTL)
+            .build()
+    })
+}
+
+/// Drops a user's cached cutoff so their next request re-reads it.
+///
+/// # Invariant
+///
+/// **Every write to `users.sessions_valid_after`, and every deletion of a user,
+/// must be followed by this call.** Otherwise the revocation does not take
+/// effect until the cache entry expires, and "log out everywhere" silently
+/// becomes "log out everywhere within [`SESSION_CUTOFF_TTL`]" — a security
+/// guarantee quietly downgraded to a performance trade-off.
+///
+/// Prefer [`revoke_sessions`], which does both halves and cannot be
+/// half-called. This is public for the cases that must bump the column as part
+/// of a larger atomic statement (consuming a password-reset token, for
+/// instance), where splitting the write would be worse than calling this
+/// explicitly.
+pub fn invalidate_session_cache(user_id: i64) {
+    session_cache().invalidate(&user_id);
+}
+
+/// Revokes every outstanding session for `user_id`, effective immediately.
+///
+/// The single entry point worth using: it stamps `sessions_valid_after` *and*
+/// drops the cached cutoff, so there is no way to do one without the other.
+///
+/// # Errors
+///
+/// Returns the database error if the update fails. The cache is left alone in
+/// that case, which is the safe direction — the old cutoff is still the truth.
+pub async fn revoke_sessions(db: &sqlx::SqlitePool, user_id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE users SET sessions_valid_after = ? WHERE id = ?")
+        .bind(chrono::Utc::now().timestamp())
+        .bind(user_id)
+        .execute(db)
+        .await?;
+    invalidate_session_cache(user_id);
+    Ok(())
+}
+
+/// The user's session cutoff, from cache when fresh.
+///
+/// # Errors
+///
+/// Returns the database error if the lookup fails. A failure is *not* cached.
+async fn session_cutoff(db: &sqlx::SqlitePool, user_id: i64) -> Result<Option<i64>, sqlx::Error> {
+    if let Some(cached) = session_cache().get(&user_id) {
+        return Ok(cached);
+    }
+    let cutoff: Option<i64> =
+        sqlx::query_scalar("SELECT sessions_valid_after FROM users WHERE id = ?")
+            .bind(user_id)
+            .fetch_optional(db)
+            .await?;
+    session_cache().insert(user_id, cutoff);
+    Ok(cutoff)
 }
 
 #[derive(Debug)]
@@ -204,17 +287,25 @@ impl<R: Role> FromRequest for AuthUser<R> {
                 .app_data::<actix_web::web::Data<crate::AppData>>()
                 .ok_or_else(|| Error::from(AuthError::from(JwtError::SecretNotSet)))?;
 
-            let valid_after: Option<i64> =
-                sqlx::query_scalar("SELECT sessions_valid_after FROM users WHERE id = ?")
-                    .bind(claims.sub)
-                    .fetch_optional(&data.db)
-                    .await
-                    .map_err(actix_web::error::ErrorInternalServerError)?;
+            // Cached for `SESSION_CUTOFF_TTL`; this used to be a database
+            // round-trip on every authenticated request.
+            let valid_after = session_cutoff(&data.db, claims.sub)
+                .await
+                .map_err(actix_web::error::ErrorInternalServerError)?;
 
+            // Strictly greater, not `>=`. Both `iat` and the cutoff are whole
+            // seconds, and revocation stamps the cutoff with the current
+            // second — so `>=` accepted every token minted during that same
+            // second, meaning a stolen token issued in the same second as a
+            // password reset survived it. `>` revokes the cutoff second
+            // entirely: the cost is that a token minted in that same second is
+            // rejected even if it was issued just after the revocation, which
+            // fails closed rather than open.
+            //
             // A negative cutoff (shouldn't happen, but the column is signed)
             // is treated as "no cutoff".
             match valid_after {
-                Some(cutoff) if claims.iat >= u64::try_from(cutoff).unwrap_or(0) => {
+                Some(cutoff) if claims.iat > u64::try_from(cutoff).unwrap_or(0) => {
                     Ok(AuthUser { claims })
                 }
                 _ => Err(Error::from(AuthError::from(JwtError::Unauthorized))),
@@ -251,7 +342,7 @@ mod tests {
             env: crate::Env::Prod,
             domain: "localhost".to_string(),
             protocol: "http".to_string(),
-            jwt_secret: SECRET.to_string(),
+            config: std::sync::Arc::new(crate::testing::config(SECRET)),
             smtp_from: String::new(),
             email_verification_enabled: false,
             context_injector: None,
@@ -360,11 +451,16 @@ mod tests {
                 .unwrap();
         assert_eq!(user.claims.sub, 42);
 
-        // Bumping the cutoff past the token's iat revokes it immediately.
+        // Bumping the cutoff past the token's iat revokes it — but only once
+        // the cached cutoff is dropped, which is the invariant
+        // `invalidate_session_cache` documents. Written out here rather than
+        // hidden behind `revoke_sessions` because this is the path an app takes
+        // when it bumps the column inside a larger statement.
         sqlx::query("UPDATE users SET sessions_valid_after = 9999999999 WHERE id = 42")
             .execute(&pool)
             .await
             .unwrap();
+        invalidate_session_cache(42);
         assert!(
             AuthUser::<DefaultRole>::from_request(&req(), &mut actix_web::dev::Payload::None)
                 .await
@@ -376,6 +472,56 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        invalidate_session_cache(42);
+        assert!(
+            AuthUser::<DefaultRole>::from_request(&req(), &mut actix_web::dev::Payload::None)
+                .await
+                .is_err()
+        );
+    }
+
+    /// `revoke_sessions` is the pairing that cannot be half-done: one call
+    /// both stamps the column and drops the cache, so a caller cannot get the
+    /// database right and leave the revocation ineffective.
+    #[actix_web::test]
+    async fn revoke_sessions_takes_effect_without_a_second_call() {
+        use actix_web::FromRequest;
+
+        let pool = memory_pool().await;
+        sqlx::query(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, sessions_valid_after INTEGER NOT NULL DEFAULT 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO users (id, sessions_valid_after) VALUES (7, 0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let data = test_app_data(pool.clone());
+        let mut user = test_user();
+        user.id = 7;
+        let jwt = create_jwt(&user, SECRET).unwrap();
+        let req = || {
+            TestRequest::default()
+                .cookie(actix_web::cookie::Cookie::new("token", jwt.clone()))
+                .app_data(data.clone())
+                .to_http_request()
+        };
+
+        // Accepted, and the cutoff is now cached.
+        assert!(
+            AuthUser::<DefaultRole>::from_request(&req(), &mut actix_web::dev::Payload::None)
+                .await
+                .is_ok()
+        );
+
+        // One call, and the very next request is rejected — no waiting for the
+        // cache to expire. Note the token here was minted in the same second as
+        // the revocation: with the old `iat >= cutoff` comparison it would have
+        // survived, which is the hole this asserts is closed.
+        revoke_sessions(&pool, 7).await.unwrap();
         assert!(
             AuthUser::<DefaultRole>::from_request(&req(), &mut actix_web::dev::Payload::None)
                 .await

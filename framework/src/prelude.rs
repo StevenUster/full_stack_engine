@@ -1,6 +1,7 @@
 pub use crate::{
-    AppData, Env, FrameworkApp, RenderTplExt,
+    AppData, Env, FrameworkApp, RenderError, RenderTplExt,
     auth::{AuthUser, create_jwt, hash_password, read_jwt, verify_password},
+    config::{Config, SmtpConfig},
     error::{AppError, AppResult, ErrorContext, ResultExt},
     i18n::{inject_locale_context, load_locale},
     mail::send_mail,
@@ -60,6 +61,13 @@ pub use tera::{self, Context};
 pub use tokio_cron_scheduler;
 pub use tracing::{self, debug, error, info, instrument, trace, warn};
 pub use tracing_actix_web::{RequestId, RootSpan};
+// Secrets are `SecretString` (see `config`); `ExposeSecret` is what makes
+// reading one an explicit, reviewable call.
+pub use secrecy::{ExposeSecret, SecretString};
+// Declarative request validation: `#[derive(Validate)]` on a form struct plus
+// `form.validate()?` in the handler, instead of hand-rolled length and
+// `contains('@')` checks.
 pub use uuid;
+pub use validator::{self, Validate, ValidationError, ValidationErrors};
 
 pub use std::convert::{TryFrom, TryInto};

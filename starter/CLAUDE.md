@@ -20,7 +20,13 @@ The example domain: a `Product` catalog (generated admin at `/admin/products`, h
 
 **Security defaults win.** Cookies stay `HttpOnly` + `SameSite=Strict` + `Secure` in prod. Never log secrets, tokens, password hashes, or full JWTs — and note that the framework's request span deliberately records `url.path` but **never** the query string, because auth links carry single-use tokens there (`/reset-password?token=…`); don't add a field that reintroduces one, and don't put a secret in a path segment. Every hand-written state-changing endpoint verifies the caller's role (`AuthUser::require_permission`) and ownership where relevant; generated endpoints do this by convention. Public read endpoints expose **only** `published` products.
 
+**Configuration is read once, at boot.** Everything the app needs from the environment is validated by `full_stack_engine::config::Config` before the server starts, and *every* problem is reported together — never add an `env::var(...).expect(...)` in a handler or a helper. Secrets (`JWT_SECRET`, `SMTP_PASS`) are `SecretString`: read them with `data.jwt_secret()` / `.expose_secret()`, never store them in a plain `String`, and never put them in a struct that derives `Debug`. SMTP must be set as all three variables or none, and `EMAIL_VERIFICATION_ENABLED=true` without SMTP fails the boot on purpose.
+
 **Observability is configured, not called.** Log with the prelude's `info!`/`warn!`/`error!` (these are `tracing`'s macros — structured fields work: `info!(order.id = id, "order placed")`), return an `AppError`, and stop. The framework opens one span per request, logs each failure exactly once with its full cause chain, echoes a correlation id as `x-request-id`, and forwards to OTLP/Sentry when those are configured. Never call a vendor SDK from a handler. When wrapping a foreign error, use `.context("…")` rather than `AppError::Internal(format!("…: {e}"))` — the former keeps the cause reachable via `source()`. See [../docs/observability.md](../docs/observability.md).
+
+**Don't undo the response pipeline.** The framework compresses every response, serves fingerprinted `_astro/` assets as immutable, and in production replaces `script-src 'unsafe-inline'` with a per-request nonce that it stamps onto every `<script>` tag. Two things follow: never add an inline event handler (`onclick=`) to a template — a nonce cannot cover it and it will be blocked — and never put another language's translations (or any bulk data) into a page's render context, since the whole context ships to the client in `__fse-props__`. `tests/page_snapshots.rs` snapshots that payload; if it grows, that's the review signal.
+
+**Revoking a session means calling `revoke_sessions`.** The `sessions_valid_after` lookup is cached for 5 seconds, so writing that column with raw SQL leaves outstanding tokens working until the entry expires. Use `full_stack_engine::auth::revoke_sessions(db, user_id)`, or — if the write has to be part of a larger atomic statement — call `auth::invalidate_session_cache(user_id)` immediately after it.
 
 **The ORM is the only data layer in app code — never write raw SQL.** Reads/writes use the checked query macros (`find!`, `find_one!`, `find_page!`, `count!`, `insert!`, `update!`, `delete_rows!`), the generated per-table methods, or the dynamic builder (`Product::find().filter(..)`) for runtime-shaped queries.
 
@@ -35,6 +41,9 @@ The example domain: a `Product` catalog (generated admin at `/admin/products`, h
 cargo run --bin dev          # run backend + frontend dev servers together
 cargo run                    # backend only
 cargo test                   # integration tests (incl. every template render-checked)
+
+cargo deny check                                   # advisories, licences, no-OpenSSL
+cargo insta review                                 # accept intended page-snapshot changes
 
 LOG_FORMAT=json cargo run                         # see what prod will emit
 RUST_LOG=sqlx=debug cargo run                      # every SQL statement

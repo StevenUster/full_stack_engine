@@ -141,17 +141,9 @@ impl KeyExtractor for GlobalRateLimitKeyExtractor {
 /// `0` override, which is rejected in favour of the default).
 pub fn global_rate_limiter(
     exempt_prefixes: &[String],
+    limits: crate::config::RateLimitConfig,
 ) -> GovernorConfig<GlobalRateLimitKeyExtractor, NoOpMiddleware> {
-    let per_second = std::env::var("GLOBAL_RATE_LIMIT_PER_SECOND")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .filter(|n| *n > 0)
-        .unwrap_or(100);
-    let burst = std::env::var("GLOBAL_RATE_LIMIT_BURST")
-        .ok()
-        .and_then(|v| v.parse::<u32>().ok())
-        .filter(|n| *n > 0)
-        .unwrap_or(500);
+    let (per_second, burst) = (limits.per_second, limits.burst);
 
     GovernorConfigBuilder::default()
         .requests_per_second(per_second)

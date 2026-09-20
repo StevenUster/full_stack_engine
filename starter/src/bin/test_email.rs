@@ -64,7 +64,7 @@ impl Template {
 
 #[actix_web::main]
 async fn main() {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     let t: serde_json::Value = std::fs::read_to_string("locales/en.json")
         .ok()
@@ -99,7 +99,18 @@ async fn main() {
     let subject = TEMPLATE.subject(&t);
     println!("Sending \"{subject}\" to {TO_EMAIL} ...");
 
-    match send_mail(TO_EMAIL, &subject, &body).await {
+    // SMTP settings now come from the validated config rather than being read
+    // ad hoc at send time, so this reports a misconfiguration the same way the
+    // server would at boot.
+    let config = match full_stack_engine::config::Config::from_env() {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("{err}");
+            std::process::exit(1);
+        }
+    };
+
+    match send_mail(&config, TO_EMAIL, &subject, &body).await {
         Ok(()) => println!("Done \u{2014} email sent successfully."),
         Err(e) => {
             eprintln!("SMTP error: {e}");

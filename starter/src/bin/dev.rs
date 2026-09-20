@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 fn main() -> io::Result<()> {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     let env_mode = env::var("ENV").unwrap_or_else(|_| "prod".to_string());
     if env_mode != "dev" {

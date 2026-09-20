@@ -9,7 +9,7 @@ use actix_web::{
     middleware::{DefaultHeaders, ErrorHandlerResponse, ErrorHandlers, NormalizePath},
     web,
 };
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use include_dir::Dir;
 use sqlx::sqlite::SqlitePool;
 use std::{env, fs};
@@ -20,6 +20,7 @@ use tracing_actix_web::{RequestId, TracingLogger};
 
 pub mod auth;
 pub mod auth_module;
+pub mod config;
 pub mod cron;
 pub mod error;
 pub mod i18n;
@@ -52,10 +53,12 @@ pub enum Env {
 pub struct AppData {
     pub tera: Tera,
     pub db: SqlitePool,
+    /// Convenience mirrors of the matching [`config::Config`] fields, which is
+    /// the source of truth. Kept because handlers read them constantly and
+    /// they are immutable for the process's lifetime.
     pub env: Env,
     pub domain: String,
     pub protocol: String,
-    pub jwt_secret: String,
     pub smtp_from: String,
     pub email_verification_enabled: bool,
     pub context_injector: Option<std::sync::Arc<ContextInjectorFn>>,
@@ -68,11 +71,26 @@ pub struct AppData {
     /// The active theme and its ancestors (see [`themes`]). `tera` holds the
     /// stack's templates; this is kept for static assets and dev servers.
     pub themes: std::sync::Arc<themes::ThemeStack>,
+    /// The whole validated configuration, including the secrets (which are
+    /// [`secrecy::SecretString`] and so cannot be logged by accident).
+    pub config: std::sync::Arc<config::Config>,
+}
+
+impl AppData {
+    /// The JWT signing key.
+    ///
+    /// A method rather than a field so every read of the secret is a visible
+    /// call rather than a field access that could be swept into a `Debug`
+    /// print or a serialised context.
+    #[must_use]
+    pub fn jwt_secret(&self) -> &str {
+        self.config.jwt_secret()
+    }
 }
 
 impl AppData {
     /// Everything the framework puts into every page's context before the
-    /// app's own injector runs: `t`/`lang`/`lang_prefix`/`i18n` and an
+    /// app's own injector runs: `t`/`lang`/`lang_prefix` and an
     /// (empty unless [`FrameworkApp::models`] fills it) `nav` list, so theme
     /// layouts can always loop over it.
     pub fn inject_request_context(
@@ -120,8 +138,16 @@ impl AppData {
             .unwrap_or_else(|| serde_json::json!({}))
     }
 
-    /// Inserts `t`, `lang`, `lang_prefix` and `i18n` for the request's
-    /// resolved language — runs automatically before every `render_tpl`.
+    /// Inserts `t`, `lang` and `lang_prefix` for the request's resolved
+    /// language — runs automatically before every `render_tpl`.
+    ///
+    /// `t` is **one** language's tree, not all of them. Every page's render
+    /// context is also serialised into the page for client-side code (see
+    /// `inject_page_props`), and this used to insert an `i18n` key holding
+    /// *every* configured language's full translations: 16 KB per page in the
+    /// starter, 40 KB in a real app, referenced by no template and no client
+    /// script. Apps that genuinely need another language on the client should
+    /// fetch it, not ship it on every page.
     pub fn inject_request_locale(
         &self,
         req: &actix_web::HttpRequest,
@@ -137,7 +163,6 @@ impl AppData {
             serde_json::json!(self.lang_prefix(req)),
         );
         obj.insert("lang".to_string(), serde_json::json!(lang));
-        obj.insert("i18n".to_string(), serde_json::json!(self.locales.clone()));
     }
 }
 
@@ -271,21 +296,43 @@ impl AppData {
     ///
     /// # Errors
     ///
-    /// Returns a description of what failed (dev-server connection, context
-    /// serialization, or template rendering).
+    /// Returns a [`RenderError`] — a real error type rather than a `String`, so
+    /// a caller can attach context with
+    /// [`ErrorContext::context`](crate::error::ErrorContext::context) and keep
+    /// Tera's own explanation reachable through `source()`.
     pub async fn render_email<T: serde::Serialize>(
         &self,
         template_name: &str,
         context_data: &T,
-    ) -> Result<String, String> {
-        let context = Context::from_serialize(context_data)
-            .map_err(|e| format!("Context serialization error: {e}"))?;
+    ) -> Result<String, RenderError> {
+        let context = Context::from_serialize(context_data).map_err(RenderError::Context)?;
         let rendered = match self.dev_template(template_name).await {
             Some(tera) => tera.render(template_name, &context),
             None => self.tera.render(template_name, &context),
         };
-        rendered.map_err(|e| format!("Email template rendering error ({template_name}): {e}"))
+        rendered.map_err(|source| RenderError::Template {
+            template: template_name.to_string(),
+            source,
+        })
     }
+}
+
+/// Why a template could not be turned into HTML.
+///
+/// Tera's own message stays reachable as `source()`, so
+/// [`crate::observability::source_chain`] renders the whole explanation —
+/// which for a template error is the part that names the line and the missing
+/// variable.
+#[derive(Debug, thiserror::Error)]
+pub enum RenderError {
+    #[error("serializing the template context")]
+    Context(#[source] tera::Error),
+    #[error("rendering template `{template}`")]
+    Template {
+        template: String,
+        #[source]
+        source: tera::Error,
+    },
 }
 
 /// Placeholder emitted by the frontend layout. When present, it is filled
@@ -606,7 +653,17 @@ impl FrameworkApp {
         // the logger used to be initialised first, which silently ignored
         // every logging setting an app kept in its `.env`.
         let env_file = load_env_file();
-        let env = parse_env(env::var("ENV").ok().as_deref());
+
+        // `--healthcheck` turns the binary into its own probe and exits. This
+        // exists so a container image needs no `curl`: the runtime layer is
+        // `debian-slim` plus ca-certificates, and adding an HTTP client to it
+        // just to answer HEALTHCHECK would be a package (and its CVE stream)
+        // carried solely for that.
+        if env::args().skip(1).any(|arg| arg == "--healthcheck") {
+            return run_healthcheck().await;
+        }
+
+        let env = config::parse_env(env::var("ENV").ok().as_deref());
 
         // The builder's identity is a *default*: `SERVICE_NAME`/`SERVICE_VERSION`
         // from the environment win, so a release pipeline can stamp the commit
@@ -630,16 +687,18 @@ impl FrameworkApp {
 
         info!("Starting application...");
 
-        let domain = env::var("DOMAIN").expect("DOMAIN not set in .env file");
-        let protocol = env::var("PROTOCOL").expect("PROTOCOL not set in .env file");
-        let jwt_secret = env::var("JWT_SECRET").expect("JWT_SECRET not set in .env file");
-        if let Err(msg) = validate_jwt_secret(&jwt_secret) {
-            // Fail loudly at boot rather than sign tokens with a weak key.
-            panic!("{msg}");
-        }
-        let database_url = env::var("DATABASE_URL").expect("DATABASE_URL not set in .env file");
+        // One validated read of the whole environment. Every problem is
+        // reported together, so a fresh deployment is not fixed by rebooting
+        // once per missing variable (see `config`).
+        let cfg = std::sync::Arc::new(config::Config::from_env().unwrap_or_else(|err| {
+            // `error!` first so the failure reaches the log pipeline (and
+            // Sentry) in the same shape as any other, then panic to stop the
+            // boot.
+            error!("{err}");
+            panic!("{err}");
+        }));
 
-        let db_pool = init_db(&database_url, self.migrator.take()).await?;
+        let db_pool = init_db(&cfg, self.migrator.take()).await?;
 
         if let Some(startup_fn) = self.startup_fn.take() {
             startup_fn(db_pool.clone())
@@ -647,10 +706,7 @@ impl FrameworkApp {
                 .expect("Failed to run on_startup hook");
         }
 
-        let active_theme = env::var("THEME")
-            .ok()
-            .filter(|t| !t.is_empty())
-            .or_else(|| self.active_theme.take());
+        let active_theme = cfg.theme.clone().or_else(|| self.active_theme.take());
         let theme_stack =
             themes::ThemeStack::resolve(std::mem::take(&mut self.themes), active_theme.as_deref())
                 .unwrap_or_else(|err| panic!("Theme setup failed: {err}"));
@@ -672,7 +728,7 @@ impl FrameworkApp {
 
         let module_crons: Vec<modules::ModuleCronFn> =
             self.modules.iter().filter_map(|m| m.cronjobs).collect();
-        start_cron_scheduler(self.cronjobs_fn.take(), module_crons, &database_url).await;
+        start_cron_scheduler(self.cronjobs_fn.take(), module_crons, &cfg.database_url).await;
 
         let configure_fn = self.configure_fn.map(std::sync::Arc::new);
         let model_routes = self.model_routes.clone();
@@ -704,7 +760,7 @@ impl FrameworkApp {
         // whole process rather than per worker thread. Configured exempt
         // prefixes (e.g. a public `/api`) skip the limiter entirely.
         let global_rate_config =
-            rate_limiter::global_rate_limiter(&self.rate_limit_exempt_prefixes);
+            rate_limiter::global_rate_limiter(&self.rate_limit_exempt_prefixes, cfg.rate_limit);
 
         HttpServer::new(move || {
             let request_selector = locale_selector.clone();
@@ -713,14 +769,12 @@ impl FrameworkApp {
                 .app_data(web::Data::new(AppData {
                     tera: tera.clone(),
                     db: db_pool.clone(),
-                    env,
-                    domain: domain.clone(),
-                    protocol: protocol.clone(),
-                    jwt_secret: jwt_secret.clone(),
-                    smtp_from: env::var("SMTP_USER").unwrap_or_default(),
-                    email_verification_enabled: env::var("EMAIL_VERIFICATION_ENABLED")
-                        .unwrap_or_else(|_| "false".to_string())
-                        == "true",
+                    env: cfg.env,
+                    domain: cfg.domain.clone(),
+                    protocol: cfg.protocol.clone(),
+                    smtp_from: cfg.mail_from().to_string(),
+                    email_verification_enabled: cfg.email_verification_enabled,
+                    config: cfg.clone(),
                     context_injector: context_injector.clone(),
                     locales: locales.clone(),
                     locale_selector: locale_selector.clone(),
@@ -741,6 +795,16 @@ impl FrameworkApp {
                         .handler(StatusCode::UNAUTHORIZED, render_error_page)
                         .handler(StatusCode::FORBIDDEN, render_error_page),
                 )
+                // Mints this request's script nonce and attaches the matching
+                // Content-Security-Policy to whatever comes back. Outside
+                // `ErrorHandlers`, so the themed error page is covered by the
+                // same policy and carries the same nonce.
+                .wrap_fn(move |req, srv| {
+                    let nonce = ScriptNonce::generate();
+                    req.extensions_mut().insert(nonce.clone());
+                    let fut = srv.call(req);
+                    async move { apply_csp(env, nonce, fut.await?).await }
+                })
                 // Echoes the request's correlation id back to the caller, so a
                 // user reporting "it broke" can quote the id that finds the
                 // exact request in the logs. Registered *outside*
@@ -769,10 +833,23 @@ impl FrameworkApp {
                 // anything. See `observability::FseRootSpan` for the fields
                 // and for what is deliberately never recorded.
                 .wrap(TracingLogger::<observability::FseRootSpan>::new())
-                .wrap(security_headers(env))
+                // Compresses whatever the stack produced — pages, JSON, theme
+                // assets, error pages. Registered outside `ErrorHandlers` so
+                // the rendered error page is compressed too. Nothing was
+                // compressed before this: a 77 KB page went out as 77 KB even
+                // when the client asked for gzip.
+                .wrap(actix_web::middleware::Compress::default())
+                .wrap(security_headers())
                 // Outermost layer: reject per-IP floods before any routing or
                 // request processing happens. Shared buckets across workers.
                 .wrap(Governor::new(&global_rate_config));
+
+            // Liveness/readiness probes, registered first so they exist even
+            // if an app registers nothing. An app can still override either by
+            // claiming the same path in `configure`, since actix matches in
+            // registration order — but these come first precisely so a
+            // deployment always has something to probe.
+            app = app.configure(health_routes);
 
             if let Some(ref configure_fn) = configure_fn {
                 let cf = configure_fn.clone();
@@ -839,9 +916,10 @@ impl FrameworkApp {
 /// Panics on any database failure: booting without a working, migrated
 /// database would only fail later on the first request.
 async fn init_db(
-    database_url: &str,
+    cfg: &config::Config,
     embedded_migrator: Option<sqlx::migrate::Migrator>,
 ) -> std::io::Result<SqlitePool> {
+    let database_url = cfg.database_url.as_str();
     let db_file = database_url.trim_start_matches("sqlite:");
 
     if let Some(dir) = std::path::Path::new(db_file).parent() {
@@ -852,7 +930,28 @@ async fn init_db(
         fs::File::create(db_file)?;
     }
 
-    let db_pool = SqlitePool::connect(database_url)
+    // Pragmas belong on the *connect options*, not on one connection out of
+    // the pool: `foreign_keys` and `synchronous` are per-connection settings in
+    // SQLite, so running them once against the pool would configure whichever
+    // connection answered and leave the other nine alone. (sqlx already
+    // defaults `foreign_keys` on and a 5s busy timeout; both are set here
+    // explicitly so the guarantee is visible rather than inherited.)
+    //
+    // `synchronous = NORMAL` is the standard pairing with WAL: fsync happens at
+    // checkpoints instead of every commit. WAL keeps the database consistent
+    // across a process crash; only a host power loss can cost the last
+    // transactions, which is the accepted trade for an order-of-magnitude
+    // faster write path.
+    let connect_options = database_url
+        .parse::<sqlx::sqlite::SqliteConnectOptions>()
+        .expect("Failed to parse DATABASE_URL")
+        .foreign_keys(true)
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
+
+    let db_pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_with(connect_options)
         .await
         .expect("Failed to create database pool");
 
@@ -861,9 +960,7 @@ async fn init_db(
     let migrator = if let Some(migrator) = embedded_migrator {
         migrator
     } else {
-        let migrations_path =
-            env::var("MIGRATIONS_DIR").unwrap_or_else(|_| "./migrations".to_string());
-        sqlx::migrate::Migrator::new(std::path::Path::new(&migrations_path))
+        sqlx::migrate::Migrator::new(std::path::Path::new(&cfg.migrations_dir))
             .await
             .expect("Failed to load migrations")
     };
@@ -903,16 +1000,6 @@ async fn init_db(
         }
         conn.close().await.ok();
     }
-
-    sqlx::query("PRAGMA foreign_keys = 1;")
-        .execute(&db_pool)
-        .await
-        .expect("Failed to run PRAGMA foreign_keys = 1;");
-
-    sqlx::query("PRAGMA journal_mode=WAL;")
-        .execute(&db_pool)
-        .await
-        .expect("Failed to set WAL mode");
 
     Ok(db_pool)
 }
@@ -961,78 +1048,264 @@ async fn start_cron_scheduler(
     }
 }
 
-/// The shortest `JWT_SECRET` the app will boot with. HS256 signs and verifies
-/// with this exact byte string as the key, so its entropy is the only thing
-/// standing between an attacker and a forged token; below the 256-bit hash
-/// width a secret is brute-forceable offline. `openssl rand -base64 32`
-/// produces a 44-char value that clears this comfortably.
-const MIN_JWT_SECRET_LEN: usize = 32;
-
-/// Rejects a `JWT_SECRET` too short to be a safe HS256 key. Returns the
-/// human-facing reason on failure so the caller can fail the boot with it.
-fn validate_jwt_secret(secret: &str) -> Result<(), String> {
-    if secret.len() < MIN_JWT_SECRET_LEN {
-        return Err(format!(
-            "JWT_SECRET is too short ({} bytes): use at least {MIN_JWT_SECRET_LEN} \
-             (e.g. `openssl rand -base64 32`). A short secret makes HS256 tokens \
-             brute-forceable.",
-            secret.len(),
-        ));
-    }
-    Ok(())
-}
-
-/// Only an explicit `ENV=dev` opts into dev mode. Anything else — unset,
-/// "prod", or a typo like "production" — gets the hardened production
-/// behaviour (secure cookies, no dev-server proxy, no detailed error
-/// messages), so a misconfiguration fails safe.
-fn parse_env(value: Option<&str>) -> Env {
-    match value {
-        Some("dev") => Env::Dev,
-        _ => Env::Prod,
-    }
-}
-
-/// Hardened response headers applied to every response.
-fn security_headers(env: Env) -> DefaultHeaders {
-    let headers = DefaultHeaders::new()
+/// Hardened response headers applied to every response. The Content-Security-
+/// Policy is **not** here: it carries a per-request nonce in production, so it
+/// is built per response by [`content_security_policy`].
+fn security_headers() -> DefaultHeaders {
+    DefaultHeaders::new()
         .add(("X-Content-Type-Options", "nosniff"))
         .add(("X-Frame-Options", "DENY"))
-        .add(("Referrer-Policy", "strict-origin-when-cross-origin"));
+        .add(("Referrer-Policy", "strict-origin-when-cross-origin"))
+}
 
-    if env == Env::Dev {
-        headers.add((
-            "Content-Security-Policy",
-            "default-src 'self'; \
-             script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
-             style-src 'self' 'unsafe-inline'; \
-             font-src 'self'; \
-             img-src 'self' data:; \
-             object-src 'none'; \
-             connect-src 'self' ws://localhost:4321 http://localhost:4321 ws://127.0.0.1:4321 http://127.0.0.1:4321 ws://0.0.0.0:4321 http://0.0.0.0:4321; \
-             frame-ancestors 'none'; \
-             base-uri 'self'; \
-             form-action 'self';",
-        ))
-    } else {
-        // `script-src`/`style-src` keep `'unsafe-inline'` because Astro
-        // emits inline hydration scripts and inline styles; removing it
-        // would require a nonce threaded through the render pipeline.
-        // Everything else is locked down: no plugins (`object-src`), no
-        // framing, and self-only base/form targets.
-        headers.add((
-            "Content-Security-Policy",
-            "default-src 'self'; \
-             script-src 'self' 'unsafe-inline'; \
-             style-src 'self' 'unsafe-inline'; \
-             font-src 'self'; \
-             img-src 'self' data:; \
-             object-src 'none'; \
-             frame-ancestors 'none'; \
-             base-uri 'self'; \
-             form-action 'self';",
-        ))
+/// A per-request script nonce, put in the request's extensions so the renderer
+/// can stamp it onto every `<script>` tag of the page it is about to return.
+#[derive(Clone)]
+pub struct ScriptNonce(pub String);
+
+impl ScriptNonce {
+    /// 128 bits of randomness as hex — the minimum the CSP specification asks
+    /// for, and safe to drop straight into an HTML attribute without escaping.
+    ///
+    /// Public so an app writing its own middleware around
+    /// [`apply_csp`] can mint one the same way the framework does.
+    #[must_use]
+    pub fn generate() -> Self {
+        use rand::RngCore as _;
+        let mut bytes = [0u8; 16];
+        rand::rng().fill_bytes(&mut bytes);
+        // Hex rather than base64 to avoid a dependency; 32 chars, still 128
+        // bits of entropy, and attribute-safe by construction.
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            use std::fmt::Write as _;
+            let _ = write!(out, "{byte:02x}");
+        }
+        Self(out)
     }
+}
+
+/// The policy for one response.
+///
+/// In production `script-src` names the request's nonce instead of allowing
+/// `'unsafe-inline'`, which is the difference between "an injected `<script>`
+/// runs" and "an injected `<script>` is refused by the browser". Astro's
+/// inline hydration scripts keep working because the renderer stamps the same
+/// nonce onto each of them (see [`inject_script_nonce`]).
+///
+/// `style-src` keeps `'unsafe-inline'`. A nonce cannot cover `style="..."`
+/// attributes — those are governed by `style-src-attr` — and Astro and Tailwind
+/// both emit them, so removing it would break pages while buying far less than
+/// the script-side change does.
+///
+/// Dev keeps `'unsafe-inline'` and adds `'unsafe-eval'` plus the theme dev
+/// server's websocket: HMR needs both, and pages proxied straight from the dev
+/// server never pass through the renderer that applies nonces.
+fn content_security_policy(env: Env, nonce: &ScriptNonce) -> String {
+    if env == Env::Dev {
+        "default-src 'self'; \
+         script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
+         style-src 'self' 'unsafe-inline'; \
+         font-src 'self'; \
+         img-src 'self' data:; \
+         object-src 'none'; \
+         connect-src 'self' ws://localhost:4321 http://localhost:4321 ws://127.0.0.1:4321 http://127.0.0.1:4321 ws://0.0.0.0:4321 http://0.0.0.0:4321; \
+         frame-ancestors 'none'; \
+         base-uri 'self'; \
+         form-action 'self';"
+            .to_string()
+    } else {
+        format!(
+            "default-src 'self'; \
+             script-src 'self' 'nonce-{nonce}'; \
+             style-src 'self' 'unsafe-inline'; \
+             font-src 'self'; \
+             img-src 'self' data:; \
+             object-src 'none'; \
+             frame-ancestors 'none'; \
+             base-uri 'self'; \
+             form-action 'self';",
+            nonce = nonce.0
+        )
+    }
+}
+
+/// Attaches the request's Content-Security-Policy and, for HTML, stamps the
+/// nonce onto every `<script>` tag in the body.
+///
+/// One interception point for both halves of the same mechanism: a policy
+/// naming a nonce and a body carrying it must never disagree, and doing it here
+/// covers every HTML response — rendered pages, the themed error page, and
+/// pages proxied from a theme dev server — without the renderer or any handler
+/// knowing about CSP.
+#[doc(hidden)]
+pub async fn apply_csp<B>(
+    env: Env,
+    nonce: ScriptNonce,
+    res: ServiceResponse<B>,
+) -> Result<ServiceResponse<actix_web::body::BoxBody>, actix_web::Error>
+where
+    B: MessageBody + 'static,
+{
+    let header = actix_web::http::header::CONTENT_SECURITY_POLICY;
+    // An HTML body is the only kind that can contain a `<script>` tag, and
+    // rewriting anything else would corrupt it.
+    let is_html = res
+        .headers()
+        .get(actix_web::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/html"));
+    // Only when nothing more specific was set: the uploads mount serves a
+    // `sandbox` policy and `serve_asset` sets its own, and neither may be
+    // overwritten with a laxer one.
+    let set_policy = !res.headers().contains_key(&header);
+
+    if !is_html {
+        let mut res = res.map_into_boxed_body();
+        if set_policy && let Ok(value) = content_security_policy(env, &nonce).parse() {
+            res.headers_mut().insert(header, value);
+        }
+        return Ok(res);
+    }
+
+    let (req, res) = res.into_parts();
+    let (mut res, body) = res.into_parts();
+    // Pages are rendered into a complete `String` before they reach here, so
+    // collecting the body costs nothing it did not already cost.
+    // `B::Error` is only `Into<Box<dyn Error>>`, not `Display`, so it cannot be
+    // forwarded directly — a body that fails mid-collection becomes a plain 500.
+    let bytes = actix_web::body::to_bytes(body).await.map_err(|_| {
+        actix_web::error::ErrorInternalServerError("failed to read the response body")
+    })?;
+
+    let body = match std::str::from_utf8(&bytes) {
+        Ok(html) => actix_web::body::BoxBody::new(inject_script_nonce(html, &nonce)),
+        // Content-Type said HTML but the bytes are not UTF-8: pass them through
+        // untouched rather than mangle them.
+        Err(_) => actix_web::body::BoxBody::new(bytes),
+    };
+
+    if set_policy && let Ok(value) = content_security_policy(env, &nonce).parse() {
+        res.headers_mut().insert(header, value);
+    }
+    // The body length changed, so a stale Content-Length would truncate it.
+    res.headers_mut()
+        .remove(actix_web::http::header::CONTENT_LENGTH);
+
+    Ok(ServiceResponse::new(req, res.set_body(body)))
+}
+
+/// Adds `nonce="..."` to every `<script` opening tag that lacks one.
+///
+/// Run over the rendered HTML, so a theme's inline hydration scripts satisfy a
+/// nonce-based `script-src` without the theme knowing anything about CSP.
+/// Tags that already carry a nonce are left alone, and `<script` appearing in
+/// text is not matched because the following byte must be `>` or whitespace.
+///
+/// Note the policy keeps `'self'`, so `<script src="/_astro/...">` is allowed
+/// with or without the nonce; this exists for the *inline* ones.
+fn inject_script_nonce(html: &str, nonce: &ScriptNonce) -> String {
+    const TAG: &str = "<script";
+    if !html.contains(TAG) {
+        return html.to_string();
+    }
+    let attribute = format!(" nonce=\"{}\"", nonce.0);
+    let mut out = String::with_capacity(html.len() + 64);
+    let mut rest = html;
+    while let Some(at) = rest.find(TAG) {
+        let after_tag = at + TAG.len();
+        // `<scripting>` or `<scriptfoo` is not a script tag.
+        let boundary_ok = rest[after_tag..]
+            .chars()
+            .next()
+            .is_some_and(|c| c == '>' || c.is_whitespace());
+        out.push_str(&rest[..after_tag]);
+        if boundary_ok {
+            // Don't double-stamp a tag that already declares one.
+            let tag_end = rest[after_tag..]
+                .find('>')
+                .map_or(rest.len(), |i| after_tag + i);
+            if !rest[after_tag..tag_end].contains("nonce=") {
+                out.push_str(&attribute);
+            }
+        }
+        rest = &rest[after_tag..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Probes this app's own `/healthz` over loopback and reports the result as the
+/// process exit status — `Ok` for healthy, an error (exit code 1) otherwise.
+///
+/// Reads only `PORT`, so a broken configuration still yields a failing probe
+/// rather than a confusing configuration error.
+async fn run_healthcheck() -> std::io::Result<()> {
+    let port = env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(8080);
+    let url = format!("http://127.0.0.1:{port}/healthz");
+
+    let response = reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+        .map_err(|err| std::io::Error::other(format!("{url}: {err}")))?;
+
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "{url}: returned {}",
+            response.status()
+        )))
+    }
+}
+
+/// Liveness and readiness probes, for a container runtime or load balancer.
+///
+/// * `GET /healthz` — the process is up and serving. Touches nothing, so it
+///   stays honest about liveness: a failing database must not get the container
+///   killed and restarted, which would not fix anything.
+/// * `GET /readyz` — the process can do useful work. Runs `SELECT 1`, so a pool
+///   that cannot answer takes the instance out of rotation instead of serving
+///   errors to users. Returns `503` when it fails.
+///
+/// Both answer `text/plain` and are excluded from the access log (see
+/// [`observability::HEALTH_ROUTES`]) — a probe every few seconds would
+/// otherwise be most of the log.
+///
+/// Registered with `configure`, **not** as a `web::scope("")`: a scope with an
+/// empty prefix matches every path and answers 404 for anything it does not
+/// itself route, which shadows the app's own routes and the static-asset
+/// fallback. Two plain routes claim only the two paths they name.
+#[doc(hidden)]
+pub fn health_routes(cfg: &mut web::ServiceConfig) {
+    cfg.route(
+        "/healthz",
+        web::get().to(|| async { HttpResponse::Ok().content_type("text/plain").body("ok") }),
+    );
+    cfg.route(
+        "/readyz",
+        web::get().to(|data: web::Data<AppData>| async move {
+            match sqlx::query_scalar::<_, i64>("SELECT 1")
+                .fetch_one(&data.db)
+                .await
+            {
+                Ok(_) => HttpResponse::Ok().content_type("text/plain").body("ready"),
+                Err(err) => {
+                    // Logged, because an instance dropping out of rotation is
+                    // worth a line even though the response is terse.
+                    error!("readiness check failed: {err}");
+                    HttpResponse::ServiceUnavailable()
+                        .content_type("text/plain")
+                        .body("not ready")
+                }
+            }
+        }),
+    );
 }
 
 /// The `/uploads` static mount. Every response carries a `sandbox` CSP: the
@@ -1084,7 +1357,27 @@ async fn forward_to_dev_server(
     Ok(res.body(body))
 }
 
-fn serve_asset(
+/// How long a fingerprinted asset may be cached: the maximum a year, and
+/// `immutable` so a browser does not even revalidate it. Safe because the
+/// filename contains a hash of the contents — a changed file is a new URL.
+const IMMUTABLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+/// Everything else the theme serves. Short, and revalidated, because the URL
+/// stays the same when the file changes.
+const MUTABLE_CACHE_CONTROL: &str = "public, max-age=300, must-revalidate";
+
+/// True when the asset's URL contains a content hash, so its bytes can never
+/// change under the same name.
+///
+/// Astro emits `_astro/Layout.CwkyWajQ.css` — name, hash, extension. Matching
+/// the directory rather than trying to recognise a hash keeps this honest: a
+/// wrong guess here would either pin a mutable file for a year or throw away
+/// the caching on every hashed one.
+fn is_fingerprinted(path: &str) -> bool {
+    path.starts_with("_astro/") || path.contains("/_astro/")
+}
+
+#[doc(hidden)]
+pub fn serve_asset(
     themes: &themes::ThemeStack,
     path: &str,
     method: &str,
@@ -1101,8 +1394,18 @@ fn serve_asset(
         .first_raw()
         .unwrap_or("application/octet-stream");
 
+    // Without this every navigation re-downloaded every asset in full — a
+    // 44 KB stylesheet on each page load, with nothing telling the browser it
+    // was allowed to keep the copy it already had.
+    let cache_control = if is_fingerprinted(path) {
+        IMMUTABLE_CACHE_CONTROL
+    } else {
+        MUTABLE_CACHE_CONTROL
+    };
+
     Ok(HttpResponse::Ok()
         .content_type(content_type)
+        .insert_header((actix_web::http::header::CACHE_CONTROL, cache_control))
         .insert_header((
             "Content-Security-Policy",
             "default-src 'self'; \
@@ -1254,34 +1557,6 @@ mod tests {
     }
 
     #[test]
-    fn validate_jwt_secret_enforces_minimum_length() {
-        // Too short: rejected with a message that names the variable.
-        assert!(validate_jwt_secret("short").is_err());
-        assert!(validate_jwt_secret(&"x".repeat(MIN_JWT_SECRET_LEN - 1)).is_err());
-        assert!(
-            validate_jwt_secret("short")
-                .unwrap_err()
-                .contains("JWT_SECRET")
-        );
-        // Exactly the minimum and above: accepted.
-        assert!(validate_jwt_secret(&"x".repeat(MIN_JWT_SECRET_LEN)).is_ok());
-        // A real `openssl rand -base64 32` value clears it.
-        assert!(validate_jwt_secret("YmFzZTY0LWVuY29kZWQtc2VjcmV0LTMyLWJ5dGVzIQ==").is_ok());
-    }
-
-    #[test]
-    fn parse_env_only_explicit_dev_opts_into_dev_mode() {
-        assert!(parse_env(Some("dev")) == Env::Dev);
-        // Everything else fails safe to prod: unset, prod, typos, wrong case.
-        assert!(parse_env(None) == Env::Prod);
-        assert!(parse_env(Some("prod")) == Env::Prod);
-        assert!(parse_env(Some("production")) == Env::Prod);
-        assert!(parse_env(Some("development")) == Env::Prod);
-        assert!(parse_env(Some("DEV")) == Env::Prod);
-        assert!(parse_env(Some("")) == Env::Prod);
-    }
-
-    #[test]
     fn theme_templates_register_by_path_and_broken_ones_are_skipped() {
         let tera = test_stack().tera();
         let names: Vec<&str> = tera.get_template_names().collect();
@@ -1364,6 +1639,86 @@ mod tests {
         assert!(serve_asset(&stack, "no-such-file.css", "GET").is_err());
         assert!(serve_asset(&stack, "index.html", "GET").is_err());
         assert!(serve_asset(&stack, "theme.json", "GET").is_err());
+    }
+
+    #[test]
+    fn script_nonce_is_stamped_on_inline_scripts_only_once() {
+        let nonce = ScriptNonce("abc123".to_string());
+        // Bare inline script.
+        assert_eq!(
+            inject_script_nonce("<script>hydrate()</script>", &nonce),
+            r#"<script nonce="abc123">hydrate()</script>"#
+        );
+        // A tag with attributes keeps them.
+        assert_eq!(
+            inject_script_nonce(r#"<script type="module" src="/a.js"></script>"#, &nonce),
+            r#"<script nonce="abc123" type="module" src="/a.js"></script>"#
+        );
+        // Several tags all get it.
+        let out = inject_script_nonce("<script>a</script><script>b</script>", &nonce);
+        assert_eq!(out.matches(r#"nonce="abc123""#).count(), 2);
+    }
+
+    #[test]
+    fn script_nonce_leaves_non_script_tags_and_existing_nonces_alone() {
+        let nonce = ScriptNonce("abc123".to_string());
+        // A tag that merely starts with the same letters is not a script tag.
+        let html = "<scripting>x</scripting>";
+        assert_eq!(inject_script_nonce(html, &nonce), html);
+        // An already-nonced tag is not stamped twice (which would be invalid
+        // HTML and could shadow the real value).
+        let html = r#"<script nonce="other">x</script>"#;
+        assert_eq!(inject_script_nonce(html, &nonce), html);
+        // Nothing to do at all.
+        assert_eq!(inject_script_nonce("<p>hi</p>", &nonce), "<p>hi</p>");
+        // The word in text is not a tag.
+        assert_eq!(
+            inject_script_nonce("use a &lt;script&gt; tag", &nonce),
+            "use a &lt;script&gt; tag"
+        );
+    }
+
+    #[test]
+    fn production_csp_names_the_nonce_and_drops_unsafe_inline_scripts() {
+        let nonce = ScriptNonce("deadbeef".to_string());
+        let prod = content_security_policy(Env::Prod, &nonce);
+        assert!(
+            prod.contains("script-src 'self' 'nonce-deadbeef'"),
+            "{prod}"
+        );
+        // The whole point: an injected inline script is refused.
+        assert!(
+            !prod.contains("script-src 'self' 'unsafe-inline'"),
+            "prod script-src must not allow inline: {prod}"
+        );
+        // Styles keep it: a nonce cannot cover `style="..."` attributes.
+        assert!(prod.contains("style-src 'self' 'unsafe-inline'"), "{prod}");
+
+        // Dev keeps inline + eval for HMR, and never sees a nonce.
+        let dev = content_security_policy(Env::Dev, &nonce);
+        assert!(dev.contains("'unsafe-eval'"), "{dev}");
+        assert!(!dev.contains("nonce-"), "{dev}");
+    }
+
+    #[test]
+    fn each_request_gets_a_fresh_high_entropy_nonce() {
+        let a = ScriptNonce::generate();
+        let b = ScriptNonce::generate();
+        assert_ne!(a.0, b.0, "a reused nonce is no better than 'unsafe-inline'");
+        // 128 bits as hex.
+        assert_eq!(a.0.len(), 32);
+        assert!(a.0.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn only_fingerprinted_assets_are_cached_forever() {
+        // Astro's hashed output: the name changes when the bytes do.
+        assert!(is_fingerprinted("_astro/Layout.CwkyWajQ.css"));
+        assert!(is_fingerprinted("_astro/client.BhK2.js"));
+        // Everything else keeps its URL across edits, so it must revalidate.
+        assert!(!is_fingerprinted("favicon.ico"));
+        assert!(!is_fingerprinted("images/logo.svg"));
+        assert!(!is_fingerprinted("robots.txt"));
     }
 
     #[test]

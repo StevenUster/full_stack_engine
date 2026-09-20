@@ -1,0 +1,278 @@
+---
+source: tests/page_snapshots.rs
+expression: "{\n    let props = page_props(&html);\n    serde_json::to_string_pretty(&props).unwrap()\n}"
+---
+{
+  "is_logged_in": false,
+  "lang": "en",
+  "lang_prefix": "",
+  "nav": [],
+  "ordered": false,
+  "product": {
+    "description": "",
+    "id": 1,
+    "name": "Product snapshot-widget",
+    "price": "9.99",
+    "slug": "snapshot-widget"
+  },
+  "t": {
+    "common": {
+      "arrow_icon": "Arrow Icon",
+      "arrow_icon_desc": "Arrow icon of the select list",
+      "back_home": "Back to home",
+      "close_modal": "Close modal",
+      "error": "Error",
+      "na": "N/A",
+      "no_access": "No Access",
+      "no_access_desc": "You don't have access to this resource",
+      "save": "Save",
+      "send": "Send"
+    },
+    "dashboard": {
+      "manage": "Manage entries",
+      "signed_out": "Sign in to manage your data."
+    },
+    "errors": {
+      "already_current_email": "This is already your current email.",
+      "confirm_email": "Please confirm your email address first.",
+      "email_in_use": "This email address is already in use.",
+      "invalid_credentials": "Invalid credentials",
+      "invalid_email": "Invalid email address",
+      "invalid_token": "Invalid or expired link",
+      "missing_fields": "Please fill in all required fields.",
+      "missing_name": "Please enter your first and last name.",
+      "missing_token": "Missing token",
+      "no_pending_change": "No pending email change found.",
+      "password_too_short": "Password must be at least 8 characters long",
+      "passwords_mismatch": "Passwords do not match",
+      "send_email_failed": "Failed to send verification email.",
+      "slug_taken": "This slug is already taken. Please choose another one.",
+      "wrong_data": "Wrong data"
+    },
+    "filters": {
+      "all_roles": "All roles",
+      "apply": "Apply",
+      "clear": "Clear",
+      "label": "Filters",
+      "search": "Search",
+      "search_users": "Search by email..."
+    },
+    "forgot_password": {
+      "back_to_login": "Back to Login",
+      "description": "Enter your email address and we'll send you a link to reset your password.",
+      "email": "Your email",
+      "submit": "Send link",
+      "title": "Reset Password"
+    },
+    "form_errors": {
+      "invalid_datetime": "Enter a valid date and time.",
+      "invalid_number": "Enter a valid number.",
+      "invalid_option": "Choose a valid option.",
+      "invalid_value": "Enter a valid value.",
+      "not_supported": "This form has no editable fields.",
+      "not_unique": "This value is already taken.",
+      "required": "This field is required."
+    },
+    "login": {
+      "confirm_email": "Please confirm your email address first.",
+      "email": "Your email",
+      "forgot_password": "Forgot password?",
+      "invalid_credentials": "Invalid credentials",
+      "no_account": "Don't have an account?",
+      "password": "Your password",
+      "register": "Register",
+      "submit": "Log in",
+      "title": "Login"
+    },
+    "messages": {
+      "email_confirmed": "Email successfully confirmed. You can now log in.",
+      "email_updated": "Email address updated successfully.",
+      "email_verification_sent": "A verification email has been sent to your new address.",
+      "password_reset_sent": "A password reset email has been sent."
+    },
+    "model_ui": {
+      "back": "Back",
+      "cancel": "Cancel",
+      "confirm_delete": "Delete this entry?",
+      "delete": "Delete",
+      "edit": "Edit",
+      "entries": "entries",
+      "filter": "Filter",
+      "new": "New",
+      "next": "Next",
+      "prev": "Previous",
+      "save": "Save",
+      "search": "Search..."
+    },
+    "models": {
+      "orders": {
+        "fields": {
+          "created_at": "Created",
+          "note": "Note",
+          "product_id": "Product",
+          "quantity": "Quantity",
+          "status": "Status",
+          "user_id": "User"
+        },
+        "options": {
+          "cancelled": "Cancelled",
+          "fulfilled": "Fulfilled",
+          "pending": "Pending"
+        },
+        "title": "Orders"
+      },
+      "products": {
+        "fields": {
+          "created_at": "Created",
+          "description": "Description",
+          "name": "Name",
+          "price": "Price",
+          "slug": "Slug",
+          "status": "Status"
+        },
+        "options": {
+          "archived": "Archived",
+          "draft": "Draft",
+          "published": "Published"
+        },
+        "title": "Products"
+      }
+    },
+    "my_orders": {
+      "empty": "No orders placed yet."
+    },
+    "nav": {
+      "dark_mode": "Dark mode",
+      "home": "Home",
+      "light_mode": "Light mode",
+      "login": "Login",
+      "logout": "Logout",
+      "settings": "Settings",
+      "users": "Users"
+    },
+    "password_reset_email": {
+      "body": "You have requested to reset your password. Please click the button below to choose a new password:",
+      "cta": "Reset Password",
+      "fallback": "If the button doesn't work, please copy the following link into your browser:",
+      "footer": "If you did not request a password reset, you can safely ignore this email.",
+      "header": "Password Reset",
+      "subject": "Password Reset"
+    },
+    "products": {
+      "created_label": "Created",
+      "description": "Description",
+      "empty": "No products found.",
+      "login_to_order": "Log in to order",
+      "name": "Name",
+      "note": "Note (optional)",
+      "ordered": "Order placed! Track it from My Orders.",
+      "place_order": "Place Order",
+      "price_label": "Price",
+      "quantity": "Quantity",
+      "search_placeholder": "Search products...",
+      "slug": "Slug",
+      "slug_taken": "That slug is already in use.",
+      "status_label": "Status",
+      "status_options": {
+        "archived": "Archived",
+        "draft": "Draft",
+        "published": "Published"
+      },
+      "title": "Products"
+    },
+    "register": {
+      "email": "Your email",
+      "first_name": "First name",
+      "has_account": "Already have an account?",
+      "last_name": "Last name",
+      "login": "Login",
+      "password": "Your password",
+      "passwords_mismatch": "Passwords do not match!",
+      "repeat_password": "Repeat password",
+      "submit": "Register",
+      "title": "Register"
+    },
+    "register_success": {
+      "desc": "A confirmation link has been sent to your email address. Please click the link to verify your email before logging in.",
+      "header": "Check Your Inbox",
+      "return": "Return to Login",
+      "success": "You have successfully registered!",
+      "title": "Action Required: Verify Email"
+    },
+    "reset_password": {
+      "new_password": "New Password",
+      "repeat_new_password": "Repeat New Password",
+      "submit": "Change Password",
+      "title": "Reset Password"
+    },
+    "roles": {
+      "admin": "Administrator",
+      "manager": "Manager",
+      "none": "None",
+      "user": "User"
+    },
+    "settings": {
+      "account_security": "Account Security",
+      "cancel": "Cancel",
+      "change_email": "Change Email",
+      "delete_account": "Delete Account",
+      "delete_account_btn": "Yes, delete my account",
+      "delete_account_confirm": "Are you sure? Your account and all associated data will be permanently deleted.",
+      "delete_account_desc": "Permanently delete your account and all associated data.",
+      "delete_account_title": "Delete Account",
+      "email_address": "Email Address",
+      "email_desc": "The primary email address associated with your account.",
+      "name": "Name",
+      "new_email": "New Email Address",
+      "send_reset": "Send reset password email",
+      "title": "Settings",
+      "update_email_btn": "Update Email",
+      "update_email_title": "Update Email Address"
+    },
+    "sidebar": {
+      "dark_mode": "Dark Mode",
+      "index": "Home",
+      "light_mode": "Light Mode",
+      "login": "Login",
+      "logout": "Logout",
+      "my_orders": "My Orders",
+      "product_manager": "Product Manager",
+      "products": "Products",
+      "settings": "Settings",
+      "users": "Users"
+    },
+    "table": {
+      "cancel": "Cancel",
+      "delete_btn": "Delete",
+      "delete_confirm": "Are you sure you want to delete this?",
+      "delete_error": "Error occurred",
+      "delete_title": "Delete?"
+    },
+    "users": {
+      "actions": "Actions",
+      "created_at": "Created At",
+      "delete": "Delete",
+      "edit": "Edit",
+      "edit_title": "Edit User",
+      "email": "Email",
+      "role": "Role",
+      "title": "Users"
+    },
+    "verify_email": {
+      "body": "Thank you for registering. Please confirm your email address by clicking the following button:",
+      "cta": "Confirm Email",
+      "fallback": "If the button doesn't work, please copy the following link into your browser:",
+      "footer": "If you did not perform this registration, you can safely ignore this email.",
+      "header": "Welcome!",
+      "subject": "Email Verification"
+    },
+    "verify_email_change": {
+      "body": "You requested to change your email address. Please confirm your new email address by clicking the following button:",
+      "cta": "Confirm New Email",
+      "fallback": "If the button doesn't work, please copy the following link into your browser:",
+      "footer": "If you did not request this change, you can safely ignore this email. Your email address will not be changed.",
+      "header": "Confirm Your New Email",
+      "subject": "Confirm Your New Email"
+    }
+  }
+}

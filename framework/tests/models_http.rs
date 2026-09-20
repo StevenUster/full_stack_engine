@@ -111,7 +111,7 @@ fn app_data(db: SqlitePool) -> web::Data<AppData> {
         env: Env::Prod,
         domain: String::new(),
         protocol: String::new(),
-        jwt_secret: SECRET.to_string(),
+        config: std::sync::Arc::new(full_stack_engine::testing::config(SECRET)),
         smtp_from: String::new(),
         email_verification_enabled: false,
         context_injector: None,
