@@ -33,6 +33,14 @@
 //!
 //! Self-registered accounts get the role named `"user"`
 //! (`R::from_role_str("user")` decides what that means for the app).
+//!
+//! ## The first admin
+//!
+//! A freshly deployed app has an empty `users` table and no way to log in.
+//! The module closes that gap itself: if `ADMIN_EMAIL` and `ADMIN_PASSWORD`
+//! are set and no admin account exists yet, one is created at boot (see
+//! [`bootstrap_admin`]). Safe to leave the variables set permanently — once an
+//! admin exists it is a no-op.
 
 use std::sync::OnceLock;
 
@@ -61,7 +69,80 @@ const TOKEN_TTL_HOURS: i64 = 24;
 /// app's role enum from `define_roles!`.
 #[must_use]
 pub fn module<R: Role>() -> ModuleDef {
-    ModuleDef::new("auth").routes(mount::<R>)
+    ModuleDef::new("auth")
+        .routes(mount::<R>)
+        .on_startup(|db| Box::pin(bootstrap_admin::<R>(db)))
+}
+
+/// Creates the first admin account from `ADMIN_EMAIL`/`ADMIN_PASSWORD` when
+/// the app has none, so a fresh deployment can be logged into without a
+/// hand-written migration or a password hash committed to the repository.
+///
+/// Does nothing when either variable is unset, or when an account already
+/// holds an admin role — which makes it safe to leave configured forever, and
+/// means it cannot be used to resurrect access to an app whose admin was
+/// deliberately removed.
+///
+/// The role used is the first one `R::all()` reports as admin, so an app with
+/// several admin-ish roles gets the one it declared first.
+///
+/// # Errors
+///
+/// Returns an error if the password cannot be hashed or the database refuses
+/// the read or the insert — which fails the boot, rather than starting an app
+/// nobody can administer.
+pub async fn bootstrap_admin<R: Role>(
+    db: sqlx::SqlitePool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (Ok(email), Ok(password)) = (
+        std::env::var("ADMIN_EMAIL"),
+        std::env::var("ADMIN_PASSWORD"),
+    ) else {
+        return Ok(());
+    };
+    let email = email.trim().to_lowercase();
+    let Some(admin_role) = R::all().iter().find(|role| role.is_admin()) else {
+        tracing::warn!(
+            "ADMIN_EMAIL is set but no role reports `is_admin`; skipping admin bootstrap"
+        );
+        return Ok(());
+    };
+    if email.is_empty() || password.is_empty() {
+        tracing::warn!("ADMIN_EMAIL/ADMIN_PASSWORD are set but blank; skipping admin bootstrap");
+        return Ok(());
+    }
+
+    // Any existing admin, not specifically this email: the point is "can
+    // somebody administer this app", and re-running with a different address
+    // must not quietly mint a second superuser.
+    let admin_names: Vec<&str> = R::all()
+        .iter()
+        .filter(|role| role.is_admin())
+        .map(Role::as_str)
+        .collect();
+    let mut query = sqlx::QueryBuilder::new("SELECT COUNT(*) FROM users WHERE role IN (");
+    let mut separated = query.separated(", ");
+    for name in &admin_names {
+        separated.push_bind(*name);
+    }
+    separated.push_unseparated(")");
+    let existing: i64 = query.build_query_scalar().fetch_one(&db).await?;
+    if existing > 0 {
+        return Ok(());
+    }
+
+    let hashed = hash_password(&password)?;
+    sqlx::query("INSERT INTO users (email, password, role, is_verified) VALUES (?, ?, ?, 1)")
+        .bind(&email)
+        .bind(&hashed)
+        .bind(admin_role.as_str())
+        .execute(&db)
+        .await?;
+
+    // The address is not a secret and is what makes the line useful; the
+    // password is never logged.
+    tracing::info!("Bootstrapped the first admin account ({email}) from ADMIN_EMAIL");
+    Ok(())
 }
 
 fn mount<R: Role>(cfg: &mut web::ServiceConfig) {

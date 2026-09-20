@@ -21,17 +21,24 @@ pub mod auth;
 pub mod auth_module;
 pub mod config;
 pub mod cron;
+pub mod dev;
 pub mod error;
+pub mod filters;
+pub mod forms;
 pub mod i18n;
 pub mod mail;
 pub mod models;
 pub mod modules;
 pub mod observability;
+#[cfg(feature = "pdf")]
+pub mod pdf;
 pub mod prelude;
+pub mod qr;
 pub mod rate_limiter;
 pub mod roles;
 pub mod structs;
 pub mod testing;
+pub mod text;
 pub mod themes;
 pub mod uploads;
 
@@ -393,6 +400,8 @@ pub struct FrameworkApp {
     modules: Vec<modules::ModuleDef>,
     service_name: Option<String>,
     service_version: Option<String>,
+    api_docs: Option<std::sync::Arc<models::openapi::ApiDocs>>,
+    cors: Option<config::CorsConfig>,
 }
 
 impl Default for FrameworkApp {
@@ -420,7 +429,52 @@ impl FrameworkApp {
             modules: Vec::new(),
             service_name: None,
             service_version: None,
+            api_docs: None,
+            cors: None,
         }
+    }
+
+    /// Publishes the app's API documentation: `GET /api/openapi.json` (the
+    /// `OpenAPI` 3.0 document) and `GET /api/docs` (a browsable page for it).
+    ///
+    /// The document is generated from every `#[model(api)]` struct, so it
+    /// cannot drift from the endpoints those models actually expose. Routes
+    /// written by hand are described by passing their paths — merged over the
+    /// generated ones, so a hand-written entry replaces a generated path of
+    /// the same name.
+    ///
+    /// ```ignore
+    /// .api_docs(ApiDocs::new("Example API", env!("CARGO_PKG_VERSION"), "Public data.")
+    ///     .paths(json!({
+    ///         "/api/events": { "get": { "summary": "List events", "responses": { ... } } }
+    ///     })))
+    /// ```
+    ///
+    /// Both routes mount after [`FrameworkApp::configure`], so an app can
+    /// replace either by claiming the same path itself.
+    #[must_use]
+    pub fn api_docs(mut self, docs: models::openapi::ApiDocs) -> Self {
+        self.api_docs = Some(std::sync::Arc::new(docs));
+        self
+    }
+
+    /// The default cross-origin policy, used when `CORS_ALLOWED_ORIGINS` is
+    /// unset. The environment variable wins, so an operator can widen or
+    /// narrow access without a code change.
+    ///
+    /// Omit this and cross-origin requests are refused, which is what an app
+    /// without a public API wants.
+    ///
+    /// ```ignore
+    /// // a public, unauthenticated read API:
+    /// .cors(CorsConfig::Any)
+    /// // a named front end that may send the session cookie:
+    /// .cors(CorsConfig::Origins(vec!["https://app.example.com".into()]))
+    /// ```
+    #[must_use]
+    pub fn cors(mut self, cors: config::CorsConfig) -> Self {
+        self.cors = Some(cors);
+        self
     }
 
     /// The name this app reports as `service.name` on every span and log
@@ -662,6 +716,15 @@ impl FrameworkApp {
             return run_healthcheck().await;
         }
 
+        // `--hash-password <password>` prints an Argon2 hash and exits, for
+        // seeding an account by hand or fixing one in the database. A flag on
+        // the app's own binary rather than a `bin/hash_password.rs` every app
+        // copies — and it necessarily uses the same parameters the app
+        // verifies with, which a separate tool can drift away from.
+        if let Some(password) = flag_value("--hash-password") {
+            return run_hash_password(&password);
+        }
+
         let env = config::parse_env(env::var("ENV").ok().as_deref());
 
         // The builder's identity is a *default*: `SERVICE_NAME`/`SERVICE_VERSION`
@@ -697,7 +760,28 @@ impl FrameworkApp {
             panic!("{err}");
         }));
 
+        // The environment wins over the builder, the same way SERVICE_NAME
+        // does: an operator can change who may call the API without a deploy.
+        let cfg = match (&cfg.cors, self.cors.take()) {
+            (config::CorsConfig::Disabled, Some(from_builder)) => {
+                let mut owned = (*cfg).clone();
+                owned.cors = from_builder;
+                std::sync::Arc::new(owned)
+            }
+            _ => cfg,
+        };
+
         let db_pool = init_db(&cfg, self.migrator.take()).await?;
+
+        // Modules first: the auth module seeds the first admin here, and the
+        // app's own hook may well depend on an administrable app.
+        for module in &self.modules {
+            if let Some(startup) = module.on_startup {
+                startup(db_pool.clone())
+                    .await
+                    .unwrap_or_else(|e| panic!("Module `{}` startup failed: {e}", module.name));
+            }
+        }
 
         if let Some(startup_fn) = self.startup_fn.take() {
             startup_fn(db_pool.clone())
@@ -722,13 +806,23 @@ impl FrameworkApp {
         // suffix-based autoescape detection never matches; `ThemeStack::tera`
         // enables escaping for every template (raw HTML uses the `safe`
         // filter), and logs and skips broken templates.
-        let tera = theme_stack.tera();
+        let mut tera = theme_stack.tera();
+        // Locale-aware `date`/`datetime`/`time`/`number`/`currency`/`slugify`,
+        // so formatting lives in the template instead of in a per-app pile of
+        // `format_date_de` helpers. Bound to the app's default language; a
+        // multi-language theme passes `locale=lang` per call.
+        filters::register(
+            &mut tera,
+            self.locale_selector.default_lang(),
+            cfg.currency.clone(),
+        );
         let theme_stack = std::sync::Arc::new(theme_stack);
 
         let module_crons: Vec<modules::ModuleCronFn> =
             self.modules.iter().filter_map(|m| m.cronjobs).collect();
         start_cron_scheduler(self.cronjobs_fn.take(), module_crons, &cfg.database_url).await;
 
+        let api_docs = self.api_docs.clone();
         let configure_fn = self.configure_fn.map(std::sync::Arc::new);
         let model_routes = self.model_routes.clone();
         // Framework-provided context (nav/user) first, the app's injector
@@ -838,6 +932,10 @@ impl FrameworkApp {
                 // compressed before this: a 77 KB page went out as 77 KB even
                 // when the client asked for gzip.
                 .wrap(actix_web::middleware::Compress::default())
+                // Cross-origin access, off unless `CORS_ALLOWED_ORIGINS` says
+                // otherwise. Inside `security_headers` and the rate limiter, so
+                // a preflight is counted and hardened like any other request.
+                .wrap(cors_middleware(&cfg.cors))
                 .wrap(security_headers())
                 // Outermost layer: reject per-IP floods before any routing or
                 // request processing happens. Shared buckets across workers.
@@ -853,6 +951,13 @@ impl FrameworkApp {
             if let Some(ref configure_fn) = configure_fn {
                 let cf = configure_fn.clone();
                 app = app.configure(move |cfg| (cf)(cfg));
+            }
+
+            // API documentation, after the app's routes so an app can supply
+            // its own `/api/docs` page.
+            if let Some(ref docs) = api_docs {
+                let routes = models::openapi::routes(docs.clone());
+                app = app.configure(routes);
             }
 
             // Module routes mount after the app's (app wins on a path
@@ -1044,6 +1149,80 @@ async fn start_cron_scheduler(
         info!("Cron scheduler started.");
     } else {
         info!("No cronjobs. Cron scheduler not started.");
+    }
+}
+
+/// The value following `flag` on the command line, e.g.
+/// `--hash-password hunter2`.
+fn flag_value(flag: &str) -> Option<String> {
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == flag {
+            return args.next();
+        }
+        if let Some(value) = arg.strip_prefix(&format!("{flag}=")) {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+/// `--hash-password <password>`: prints an Argon2 hash for pasting into a
+/// database row, then exits.
+fn run_hash_password(password: &str) -> std::io::Result<()> {
+    match auth::hash_password(password) {
+        Ok(hash) => {
+            println!("{hash}");
+            Ok(())
+        }
+        Err(e) => Err(std::io::Error::other(format!("hashing failed: {e}"))),
+    }
+}
+
+/// Builds the CORS middleware for `config`.
+///
+/// [`config::CorsConfig::Disabled`] still returns a middleware — one that adds
+/// nothing — because Actix needs a single concrete type here, and a
+/// permissive-by-omission default would be the wrong way round.
+///
+/// [`FrameworkApp::run`] wraps this around the whole app. It is public so an
+/// app can also mount a *different* policy on one scope — a public `/api` that
+/// any origin may read, inside a site that is otherwise same-origin:
+///
+/// ```ignore
+/// cfg.service(
+///     web::scope("/api")
+///         .wrap(full_stack_engine::cors_middleware(&CorsConfig::Any))
+///         .service(public_feed),
+/// );
+/// ```
+pub fn cors_middleware(config: &config::CorsConfig) -> actix_cors::Cors {
+    match config {
+        // `Cors::default()` is the restrictive one: no origin is allowed, so
+        // no CORS headers are emitted and the browser's same-origin rule
+        // stands, exactly as if this middleware were absent.
+        config::CorsConfig::Disabled => actix_cors::Cors::default(),
+        config::CorsConfig::Any => actix_cors::Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .allow_any_header()
+            // Deliberately no `supports_credentials`: a wildcard origin with
+            // credentials is rejected by browsers, and permitting it would let
+            // any site read a logged-in user's data.
+            .max_age(3600),
+        config::CorsConfig::Origins(origins) => {
+            let mut cors = actix_cors::Cors::default()
+                .allow_any_method()
+                .allow_any_header()
+                // Named origins are an explicit trust decision, so a browser
+                // may send the session cookie with the request.
+                .supports_credentials()
+                .max_age(3600);
+            for origin in origins {
+                cors = cors.allowed_origin(origin);
+            }
+            cors
+        }
     }
 }
 

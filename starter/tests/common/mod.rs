@@ -24,7 +24,11 @@ pub const JWT_SECRET: &str = "test-secret";
 /// fse-ssr escaping bug) fails `cargo test`/CI instead of only surfacing as
 /// a request-time 500.
 pub fn test_tera() -> Tera {
-    full_stack_engine::testing::load_themes(starter::themes()).expect("broken template(s) found")
+    // `_localized`, not `load_themes`: the locale-aware filters (`date`,
+    // `currency`, …) are bound to the app's language here exactly as they are
+    // at boot, so a page renders in a test the way it will in production.
+    full_stack_engine::testing::load_themes_localized(starter::themes(), "en", None)
+        .expect("broken template(s) found")
 }
 
 pub async fn test_app_data() -> web::Data<AppData> {

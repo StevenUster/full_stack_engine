@@ -22,10 +22,14 @@
 //! }
 //! ```
 //!
-//! What it does *not* do: describe hand-written routes. An app that also exposes
-//! bespoke endpoints should merge them into the returned value, which is a plain
-//! [`serde_json::Value`] for exactly that reason.
+//! Hand-written routes are described by handing their paths to
+//! [`crate::FrameworkApp::api_docs`], which merges them into this document and
+//! mounts both `/api/openapi.json` and a browsable `/api/docs`. Before that
+//! existed, an app with a public API kept a second, hand-maintained `json!`
+//! spec beside the generated one — and the hand-written half drifts, because
+//! nothing fails when it does.
 
+use actix_web::{HttpResponse, web};
 use serde_json::{Value, json};
 
 use fse_schema::model::SqlType;
@@ -366,6 +370,166 @@ mod tests {
         assert!(
             private["responses"]["401"].is_object(),
             "an authenticated endpoint has to document its 401"
+        );
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Serving the document
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// What [`crate::FrameworkApp::api_docs`] needs to describe an app's API.
+///
+/// The model-derived half is generated; `paths` and `schemas` are where an app
+/// describes the routes it wrote by hand.
+#[derive(Clone)]
+pub struct ApiDocs {
+    pub title: String,
+    pub version: String,
+    pub description: String,
+    /// Hand-written paths, in `OpenAPI` `paths` shape:
+    /// `json!({ "/api/events": { "get": { ... } } })`. Merged over the
+    /// generated ones, so an entry here replaces a generated path of the same
+    /// name.
+    pub paths: Value,
+    /// Hand-written `components.schemas` entries, merged the same way.
+    pub schemas: Value,
+}
+
+impl ApiDocs {
+    /// A document with no hand-written routes — everything from the model
+    /// registry.
+    #[must_use]
+    pub fn new(
+        title: impl Into<String>,
+        version: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        Self {
+            title: title.into(),
+            version: version.into(),
+            description: description.into(),
+            paths: json!({}),
+            schemas: json!({}),
+        }
+    }
+
+    /// Adds hand-written paths, in `OpenAPI` `paths` shape.
+    #[must_use]
+    pub fn paths(mut self, paths: Value) -> Self {
+        self.paths = paths;
+        self
+    }
+
+    /// Adds hand-written `components.schemas` entries.
+    #[must_use]
+    pub fn schemas(mut self, schemas: Value) -> Self {
+        self.schemas = schemas;
+        self
+    }
+
+    /// The finished document for `base_url`.
+    #[must_use]
+    pub fn build(&self, base_url: &str) -> Value {
+        let mut doc = spec(&Info {
+            title: &self.title,
+            version: &self.version,
+            description: &self.description,
+            base_url,
+        });
+        merge_object(&mut doc["paths"], &self.paths);
+        merge_object(&mut doc["components"]["schemas"], &self.schemas);
+        doc
+    }
+}
+
+/// Shallow merge: `overlay`'s keys replace `target`'s.
+///
+/// Shallow on purpose. A path item is described as a whole — merging two
+/// halves of one operation would produce a document that is neither what the
+/// generator emitted nor what the app wrote.
+fn merge_object(target: &mut Value, overlay: &Value) {
+    let (Some(target), Some(overlay)) = (target.as_object_mut(), overlay.as_object()) else {
+        return;
+    };
+    for (key, value) in overlay {
+        target.insert(key.clone(), value.clone());
+    }
+}
+
+/// The HTML of the `/api/docs` page: Swagger UI pointed at
+/// `/api/openapi.json`.
+fn docs_page(title: &str) -> String {
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<link rel="stylesheet" href="{SWAGGER_CDN}/swagger-ui.css">
+</head>
+<body>
+<div id="swagger"></div>
+<script src="{SWAGGER_CDN}/swagger-ui-bundle.js" crossorigin></script>
+<script>
+  window.addEventListener('load', function () {{
+    SwaggerUIBundle({{ url: '/api/openapi.json', dom_id: '#swagger' }});
+  }});
+</script>
+</body>
+</html>"#,
+        title = tera::escape_html(title),
+    )
+}
+
+/// Pinned, not `@latest`: a documentation page is still a page that runs
+/// third-party JavaScript in a logged-in browser, and an unpinned URL is
+/// whatever that CDN serves tomorrow.
+const SWAGGER_CDN: &str = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.29.4";
+
+/// Mounts `GET /api/openapi.json` and `GET /api/docs`.
+///
+/// Both are plain routes registered after the app's own, so an app that wants
+/// a different docs page just claims `/api/docs` in its own `configure` — the
+/// same override rule as everywhere else.
+pub(crate) fn routes(docs: std::sync::Arc<ApiDocs>) -> impl Fn(&mut web::ServiceConfig) + Clone {
+    move |cfg: &mut web::ServiceConfig| {
+        let spec_docs = docs.clone();
+        cfg.route(
+            "/api/openapi.json",
+            web::get().to(move |data: web::Data<crate::AppData>| {
+                let docs = spec_docs.clone();
+                async move { HttpResponse::Ok().json(docs.build(&data.config.base_url())) }
+            }),
+        );
+
+        let page_title = docs.title.clone();
+        cfg.route(
+            "/api/docs",
+            web::get().to(move || {
+                let title = page_title.clone();
+                async move {
+                    HttpResponse::Ok()
+                        .content_type("text/html; charset=utf-8")
+                        // The app-wide policy allows scripts from `'self'`
+                        // only, which would blank this page. Set here rather
+                        // than widening the site policy: the exception is one
+                        // route wide, visible at the place it applies, and
+                        // `apply_csp` leaves a policy a handler already set.
+                        .insert_header((
+                            actix_web::http::header::CONTENT_SECURITY_POLICY,
+                            format!(
+                                "default-src 'self'; script-src 'self' {SWAGGER_CDN}; \
+                                 style-src 'self' 'unsafe-inline' {SWAGGER_CDN}; \
+                                 img-src 'self' data:; font-src 'self' {SWAGGER_CDN}; \
+                                 connect-src 'self'; object-src 'none'; \
+                                 frame-ancestors 'none'; base-uri 'self';"
+                            ),
+                        ))
+                        .body(docs_page(&title))
+                }
+            }),
         );
     }
 }

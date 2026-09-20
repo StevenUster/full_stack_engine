@@ -1,20 +1,20 @@
-//! Send a test email using a real email template rendered with fake data + real translations.
+//! Renders one of the app's email templates with sample data and real
+//! translations, and optionally sends it:
 //!
-//! Configure the two constants below, then run:
-//!   cargo run --bin test_email
+//!   cargo run --bin test_email                 # print the HTML
+//!   cargo run --bin test_email you@example.com # and send it
 //!
-//! Prerequisites:
-//!   - the theme is built (`bun run build` inside theme/) — the email renders
-//!     from the same theme stack the app uses (child over fse-theme-default)
-//!   - SMTP_* env vars set in .env
+//! Needs the theme built (`bun run build` in theme/), since the mail renders
+//! from the same theme stack the app serves pages from. Sending additionally
+//! needs SMTP_* in `.env`.
+//!
+//! Everything else — config validation, locale layering, theme loading, the
+//! SMTP transport — is `full_stack_engine::dev::preview_mail`.
 
-// ── Configure here ──────────────────────────────────────────────────────────
-const TO_EMAIL: &str = "you@example.com";
+use full_stack_engine::prelude::serde_json;
+
+/// Pick the template to preview.
 const TEMPLATE: Template = Template::Verify;
-// ────────────────────────────────────────────────────────────────────────────
-
-use full_stack_engine::mail::send_mail;
-use full_stack_engine::prelude::{serde_json, tera};
 
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
@@ -34,87 +34,52 @@ impl Template {
     }
 
     fn subject(self, t: &serde_json::Value) -> String {
-        let val = match self {
+        match self {
             Self::Verify => &t["verify_email"]["subject"],
             Self::VerifyEmailChange => &t["verify_email_change"]["subject"],
             Self::PasswordReset => &t["password_reset_email"]["subject"],
-        };
-        val.as_str().unwrap_or("Test Email").to_string()
+        }
+        .as_str()
+        .unwrap_or("Test Email")
+        .to_string()
     }
 
-    fn context(self, t: serde_json::Value) -> serde_json::Value {
-        let base_url = "https://example.com";
+    /// Sample data, in the shape the real sender passes.
+    fn context(self, t: &serde_json::Value, base_url: &str) -> serde_json::Value {
+        let token = "abc123testtoken";
         match self {
             Self::Verify => serde_json::json!({
                 "t": t,
-                "verify_url": format!("{base_url}/verify-email?token=abc123testtoken"),
-                "base_url": base_url,
+                "verify_url": format!("{base_url}/verify-email?token={token}"),
             }),
             Self::VerifyEmailChange => serde_json::json!({
                 "t": t,
-                "verify_url": format!("{base_url}/verify-email-change?token=abc123testtoken"),
+                "verify_url": format!("{base_url}/verify-email-change?token={token}"),
             }),
             Self::PasswordReset => serde_json::json!({
                 "t": t,
-                "reset_url": format!("{base_url}/reset-password?token=abc123testtoken"),
+                "reset_url": format!("{base_url}/reset-password?token={token}"),
             }),
         }
     }
 }
 
 #[actix_web::main]
-async fn main() {
-    dotenvy::dotenv().ok();
+async fn main() -> Result<(), String> {
+    let to = std::env::args().nth(1);
 
-    let t: serde_json::Value = std::fs::read_to_string("locales/en.json")
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
+    let html = full_stack_engine::dev::preview_mail(
+        starter::themes(),
+        "en",
+        Some(&starter::LOCALES_DIR),
+        TEMPLATE.path(),
+        |t, base_url| (TEMPLATE.subject(t), TEMPLATE.context(t, base_url)),
+        to.as_deref(),
+    )
+    .await?;
 
-    let tpl_name = TEMPLATE.path();
-    let tpl_engine = match full_stack_engine::testing::load_themes(starter::themes()) {
-        Ok(tera) => tera,
-        Err(e) => {
-            eprintln!("Failed to load the theme templates: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let ctx = match tera::Context::from_serialize(TEMPLATE.context(t.clone())) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Failed to build template context: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let body = match tpl_engine.render(tpl_name, &ctx) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("Template rendering failed: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let subject = TEMPLATE.subject(&t);
-    println!("Sending \"{subject}\" to {TO_EMAIL} ...");
-
-    // SMTP settings now come from the validated config rather than being read
-    // ad hoc at send time, so this reports a misconfiguration the same way the
-    // server would at boot.
-    let config = match full_stack_engine::config::Config::from_env() {
-        Ok(config) => config,
-        Err(err) => {
-            eprintln!("{err}");
-            std::process::exit(1);
-        }
-    };
-
-    match send_mail(&config, TO_EMAIL, &subject, &body).await {
-        Ok(()) => println!("Done \u{2014} email sent successfully."),
-        Err(e) => {
-            eprintln!("SMTP error: {e}");
-            std::process::exit(1);
-        }
+    if to.is_none() {
+        println!("{html}");
     }
+    Ok(())
 }

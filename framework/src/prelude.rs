@@ -1,15 +1,25 @@
 pub use crate::{
     AppData, Env, FrameworkApp, RenderError, RenderTplExt,
     auth::{AuthUser, create_jwt, hash_password, read_jwt, verify_password},
-    config::{Config, SmtpConfig},
+    config::{Config, CorsConfig, SmtpConfig},
     error::{AppError, AppResult, ErrorContext, ResultExt},
     i18n::{inject_locale_context, load_locale},
     mail::{MailAttachment, send_mail, send_mail_with_attachments},
     rate_limiter::{auth_rate_limiter, custom_rate_limiter, general_rate_limiter},
     structs::{DefaultRole, Role, User},
     themes::{Theme, ThemeManifest},
-    uploads::{UploadError, save_upload},
+    uploads::{UploadError, delete_upload, save_upload},
 };
+
+// Batteries the app would otherwise pick a crate for: form deserializers for
+// the shapes an HTML form actually submits, slug/URL-stripping text helpers,
+// and QR codes as inline `data:` URIs. Locale-aware date/number formatting is
+// a set of Tera filters instead — see `filters`, and use it from the template
+// rather than pre-formatting in Rust.
+pub use crate::{filters, forms, qr, text};
+// HTML -> PDF (the `pdf` feature): invoices, certificates, tickets.
+#[cfg(feature = "pdf")]
+pub use crate::pdf;
 
 // Struct-defined apps: `#[model(...)]` on a struct expands to
 // `#[derive(Table, Debug, Clone)]` plus a registration in the runtime model

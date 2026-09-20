@@ -20,6 +20,8 @@ The example domain: a `Product` catalog (generated admin at `/admin/products`, h
 
 **Security defaults win.** Cookies stay `HttpOnly` + `SameSite=Strict` + `Secure` in prod. Never log secrets, tokens, password hashes, or full JWTs — and note that the framework's request span deliberately records `url.path` but **never** the query string, because auth links carry single-use tokens there (`/reset-password?token=…`); don't add a field that reintroduces one, and don't put a secret in a path segment. Every hand-written state-changing endpoint verifies the caller's role (`AuthUser::require_permission`) and ownership where relevant; generated endpoints do this by convention. Public read endpoints expose **only** `published` products.
 
+**Don't pick a crate for something the framework ships.** Formatting a date or an amount is a Tera filter (`{{ x | date }}`, `{{ x | currency }}`), never a `format_date_de` helper in Rust. An optional number in a form is `forms::empty_as_none`, a slug is `text::slugify`, a link stripped from public free text is `text::strip_urls`, escaping outside a template is `tera::escape_html`, a QR code is `qr::svg_data_uri`, deleting an upload is `uploads::delete_upload`, CORS is `CORS_ALLOWED_ORIGINS`, and the `OpenAPI` document plus `/api/docs` are `.api_docs(...)`. See [../docs/batteries.md](../docs/batteries.md). Adding a dependency for one of these is the signal that something is being re-solved.
+
 **Configuration is read once, at boot.** Everything the app needs from the environment is validated by `full_stack_engine::config::Config` before the server starts, and *every* problem is reported together — never add an `env::var(...).expect(...)` in a handler or a helper. Secrets (`JWT_SECRET`, `SMTP_PASS`) are `SecretString`: read them with `data.jwt_secret()` / `.expose_secret()`, never store them in a plain `String`, and never put them in a struct that derives `Debug`. SMTP must be set as all three variables or none, and `EMAIL_VERIFICATION_ENABLED=true` without SMTP fails the boot on purpose.
 
 **Observability is configured, not called.** Log with the prelude's `info!`/`warn!`/`error!` (these are `tracing`'s macros — structured fields work: `info!(order.id = id, "order placed")`), return an `AppError`, and stop. The framework opens one span per request, logs each failure exactly once with its full cause chain, echoes a correlation id as `x-request-id`, and forwards to OTLP/Sentry when those are configured. Never call a vendor SDK from a handler. When wrapping a foreign error, use `.context("…")` rather than `AppError::Internal(format!("…: {e}"))` — the former keeps the cause reachable via `source()`. See [../docs/observability.md](../docs/observability.md).
@@ -40,6 +42,7 @@ The example domain: a `Product` catalog (generated admin at `/admin/products`, h
 ```bash
 cargo run --bin dev          # run backend + frontend dev servers together
 cargo run                    # backend only
+cargo run -- --hash-password 'pw'   # Argon2 hash, using the app's own parameters
 cargo test                   # integration tests (incl. every template render-checked)
 
 cargo deny check                                   # advisories, licences, no-OpenSSL

@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 
 use tera::Tera;
 
-use crate::config::{Config, RateLimitConfig};
+use crate::config::{Config, CorsConfig, RateLimitConfig};
 use crate::themes::{Theme, ThemeStack};
 
 /// A valid [`Config`] for tests, so a test that only cares about one handler
@@ -35,6 +35,8 @@ pub fn config(jwt_secret: &str) -> Config {
             per_second: 100,
             burst: 500,
         },
+        currency: None,
+        cors: CorsConfig::Disabled,
     }
 }
 
@@ -65,9 +67,33 @@ pub fn config(jwt_secret: &str) -> Config {
 /// active theme, …) or with one block per broken template — its name,
 /// Tera's error, and its full `source()` chain.
 pub fn load_themes(themes: impl IntoIterator<Item = Theme>) -> Result<Tera, String> {
+    load_themes_localized(themes, "en", None)
+}
+
+/// [`load_themes`], with the locale-aware filters (`date`, `currency`, …)
+/// bound to `lang` and `currency` instead of the neutral defaults.
+///
+/// Use this wherever a test renders a real page: `load_themes` formats dates
+/// as ISO and amounts without a symbol, which is *not* what the app will
+/// serve, and a page snapshot taken that way would not catch a formatting
+/// regression.
+///
+/// ```ignore
+/// full_stack_engine::testing::load_themes_localized(app::themes(), "de", Some("EUR"))
+/// ```
+///
+/// # Errors
+///
+/// As [`load_themes`].
+pub fn load_themes_localized(
+    themes: impl IntoIterator<Item = Theme>,
+    lang: &str,
+    currency: Option<&str>,
+) -> Result<Tera, String> {
     let stack = theme_stack(themes)?;
     let mut tera = Tera::default();
     tera.autoescape_on(vec![""]);
+    crate::filters::register(&mut tera, lang, currency.map(str::to_string));
     let mut errors = Vec::new();
     stack.load_into(&mut tera, &mut |name, err| {
         let mut msg = format!("{name}: {err}");

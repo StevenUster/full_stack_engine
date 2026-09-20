@@ -115,6 +115,34 @@ pub struct Config {
     pub smtp: Option<SmtpConfig>,
     pub email_verification_enabled: bool,
     pub rate_limit: RateLimitConfig,
+    /// `CURRENCY` — an ISO 4217 code (`EUR`, `USD`) used by the `currency`
+    /// Tera filter when a template names none. `None` renders amounts with
+    /// no symbol rather than guessing one.
+    pub currency: Option<String>,
+    /// `CORS_ALLOWED_ORIGINS` — see [`Config::cors`].
+    pub cors: CorsConfig,
+}
+
+/// Cross-origin access policy for the whole app (see
+/// [`crate::FrameworkApp::cors`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CorsConfig {
+    /// No CORS middleware at all: same-origin only, the browser's default and
+    /// the right answer for an app with no public API.
+    Disabled,
+    /// A specific list of origins, each a scheme+host(+port) such as
+    /// `https://example.com`. Credentials (cookies) are permitted, because a
+    /// named origin is a trust decision the operator made deliberately.
+    Origins(Vec<String>),
+    /// Any origin may read. The requesting origin is echoed back (with
+    /// `Vary: Origin`, so caches stay correct) rather than a literal `*` —
+    /// both allow the read, and the echo is the form that does not break a
+    /// shared cache.
+    ///
+    /// Credentials are **not** permitted in this mode, deliberately: allowing
+    /// cookies from anywhere would mean any site could read a logged-in user's
+    /// data. Use it for public, unauthenticated read APIs only.
+    Any,
 }
 
 impl std::fmt::Debug for Config {
@@ -136,6 +164,8 @@ impl std::fmt::Debug for Config {
                 &self.email_verification_enabled,
             )
             .field("rate_limit", &self.rate_limit)
+            .field("currency", &self.currency)
+            .field("cors", &self.cors)
             .finish()
     }
 }
@@ -242,6 +272,9 @@ impl Config {
             ),
         };
 
+        let cors = parse_cors(&var, &mut problems);
+        let currency = parse_currency(&var, &mut problems);
+
         if !problems.is_empty() {
             return Err(ConfigError { problems });
         }
@@ -259,6 +292,8 @@ impl Config {
             smtp,
             email_verification_enabled,
             rate_limit,
+            currency,
+            cors,
         })
     }
 
@@ -281,6 +316,66 @@ impl Config {
     pub fn jwt_secret(&self) -> &str {
         self.jwt_secret.expose_secret()
     }
+}
+
+/// `CORS_ALLOWED_ORIGINS`: unset means same-origin only, `*` means any origin,
+/// otherwise a comma-separated list of full origins.
+fn parse_cors(var: &dyn Fn(&str) -> Option<String>, problems: &mut Vec<String>) -> CorsConfig {
+    let Some(raw) = var("CORS_ALLOWED_ORIGINS") else {
+        return CorsConfig::Disabled;
+    };
+    if raw == "*" {
+        return CorsConfig::Any;
+    }
+    let origins: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|o| !o.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    // An origin is a scheme and a host, never a path: browsers compare it
+    // literally, so `https://example.com/` matches nothing and would silently
+    // allow no one — a misconfiguration that looks like working CORS.
+    for origin in &origins {
+        let Some(after_scheme) = origin
+            .strip_prefix("https://")
+            .or_else(|| origin.strip_prefix("http://"))
+        else {
+            problems.push(format!(
+                "CORS_ALLOWED_ORIGINS entry `{origin}` has no scheme; write the full \
+                 origin, e.g. `https://example.com`"
+            ));
+            continue;
+        };
+        if after_scheme.contains('/') {
+            problems.push(format!(
+                "CORS_ALLOWED_ORIGINS entry `{origin}` contains a path; an origin is \
+                 scheme + host + port only"
+            ));
+        }
+    }
+
+    if origins.is_empty() {
+        CorsConfig::Disabled
+    } else {
+        CorsConfig::Origins(origins)
+    }
+}
+
+/// `CURRENCY`: an ISO 4217 code, upper-cased.
+fn parse_currency(
+    var: &dyn Fn(&str) -> Option<String>,
+    problems: &mut Vec<String>,
+) -> Option<String> {
+    let code = var("CURRENCY")?.to_uppercase();
+    if code.len() != 3 || !code.chars().all(|c| c.is_ascii_alphabetic()) {
+        problems.push(format!(
+            "CURRENCY is `{code}`; expected a three-letter ISO 4217 code, e.g. `EUR`"
+        ));
+        return None;
+    }
+    Some(code)
 }
 
 /// All three SMTP variables or none. A half-configured mailer is the failure
@@ -573,5 +668,79 @@ mod tests {
         assert!(parse_env(Some("development")) == Env::Prod);
         assert!(parse_env(Some("DEV")) == Env::Prod);
         assert!(parse_env(Some("")) == Env::Prod);
+    }
+
+    #[test]
+    fn cors_is_off_unless_asked_for() {
+        // The default has to be the safe one: an app that never mentions CORS
+        // must not be readable cross-origin.
+        assert_eq!(load(&base()).unwrap().cors, CorsConfig::Disabled);
+
+        let mut vars = base();
+        vars.insert("CORS_ALLOWED_ORIGINS".into(), String::new());
+        assert_eq!(load(&vars).unwrap().cors, CorsConfig::Disabled);
+        // A list of nothing but separators is also nothing.
+        vars.insert("CORS_ALLOWED_ORIGINS".into(), " , , ".into());
+        assert_eq!(load(&vars).unwrap().cors, CorsConfig::Disabled);
+    }
+
+    #[test]
+    fn cors_accepts_a_wildcard_and_a_list() {
+        let mut vars = base();
+        vars.insert("CORS_ALLOWED_ORIGINS".into(), "*".into());
+        assert_eq!(load(&vars).unwrap().cors, CorsConfig::Any);
+
+        vars.insert(
+            "CORS_ALLOWED_ORIGINS".into(),
+            " https://a.example , http://localhost:3000 ".into(),
+        );
+        assert_eq!(
+            load(&vars).unwrap().cors,
+            CorsConfig::Origins(vec![
+                "https://a.example".into(),
+                "http://localhost:3000".into()
+            ])
+        );
+    }
+
+    #[test]
+    fn a_malformed_origin_fails_the_boot_rather_than_allowing_nobody() {
+        // Both shapes below are accepted by a naive parser and then match no
+        // browser's `Origin` header, so CORS silently does nothing — the worst
+        // outcome, because it looks configured.
+        let mut vars = base();
+        vars.insert("CORS_ALLOWED_ORIGINS".into(), "example.com".into());
+        let err = load(&vars).unwrap_err().to_string();
+        assert!(err.contains("no scheme"), "{err}");
+
+        vars.insert(
+            "CORS_ALLOWED_ORIGINS".into(),
+            "https://example.com/api".into(),
+        );
+        let err = load(&vars).unwrap_err().to_string();
+        assert!(err.contains("contains a path"), "{err}");
+    }
+
+    #[test]
+    fn currency_is_normalised_and_validated() {
+        let mut vars = base();
+        assert_eq!(load(&vars).unwrap().currency, None);
+
+        vars.insert("CURRENCY".into(), "eur".into());
+        assert_eq!(load(&vars).unwrap().currency.as_deref(), Some("EUR"));
+
+        vars.insert("CURRENCY".into(), "EUROS".into());
+        let err = load(&vars).unwrap_err().to_string();
+        assert!(err.contains("ISO 4217"), "{err}");
+    }
+
+    #[test]
+    fn the_secrets_stay_redacted_now_that_debug_prints_more_fields() {
+        let mut vars = base();
+        vars.insert("CORS_ALLOWED_ORIGINS".into(), "https://a.example".into());
+        vars.insert("CURRENCY".into(), "EUR".into());
+        let printed = format!("{:?}", load(&vars).unwrap());
+        assert!(!printed.contains("YmFzZTY0"), "{printed}");
+        assert!(printed.contains("<redacted>"), "{printed}");
     }
 }

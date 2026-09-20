@@ -83,6 +83,21 @@ pub async fn run() -> std::io::Result<()> {
         .cronjobs(cronjobs::add_cronjobs)
         // Migrations are embedded in the binary at compile time.
         .migrator(sqlx::migrate!())
+        // `/api/openapi.json` + a browsable `/api/docs`. The `#[model(api)]`
+        // half is generated from the model registry and cannot drift; the
+        // hand-written routes declare themselves next to their handlers.
+        .api_docs(
+            full_stack_engine::models::openapi::ApiDocs::new(
+                "Starter Public API",
+                env!("CARGO_PKG_VERSION"),
+                "Read-only, unauthenticated access to the published product catalog.",
+            )
+            .paths(services::api::openapi_paths())
+            .schemas(services::api::openapi_schemas()),
+        )
+        // The API is meant to be read cross-origin; the rest of the site is
+        // not. `CORS_ALLOWED_ORIGINS` overrides this without a deploy.
+        .cors(full_stack_engine::config::CorsConfig::Any)
         // The public JSON API is meant to be consumed by other servers/sites,
         // so it must not be caught by the site-wide per-IP limiter.
         .rate_limit_exempt_prefixes(["/api"])

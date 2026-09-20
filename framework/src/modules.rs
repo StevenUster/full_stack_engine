@@ -33,6 +33,15 @@ pub type ModuleCronFn = fn(
     Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>,
 >;
 
+/// A module's async boot hook — the module equivalent of
+/// [`crate::FrameworkApp::on_startup`]. A plain `fn` for the same reason as
+/// [`ModuleCronFn`].
+pub type ModuleStartupFn = fn(
+    SqlitePool,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>>>,
+>;
+
 /// Everything one module contributes at runtime. Constructed by the module
 /// crate's `pub fn module() -> ModuleDef` and handed to
 /// [`crate::FrameworkApp::module`].
@@ -48,6 +57,12 @@ pub struct ModuleDef {
     pub locales: Option<&'static Dir<'static>>,
     /// Scheduled jobs, started alongside the app's own.
     pub cronjobs: Option<ModuleCronFn>,
+    /// Runs once after migrations and before the server binds, for setup a
+    /// module needs against the real database — the auth module seeds the
+    /// first admin account here. Module hooks run before the app's
+    /// [`crate::FrameworkApp::on_startup`], so the app can rely on what they
+    /// created.
+    pub on_startup: Option<ModuleStartupFn>,
 }
 
 impl ModuleDef {
@@ -58,6 +73,7 @@ impl ModuleDef {
             routes: None,
             locales: None,
             cronjobs: None,
+            on_startup: None,
         }
     }
 
@@ -76,6 +92,12 @@ impl ModuleDef {
     #[must_use]
     pub fn cronjobs(mut self, cronjobs: ModuleCronFn) -> Self {
         self.cronjobs = Some(cronjobs);
+        self
+    }
+
+    #[must_use]
+    pub fn on_startup(mut self, on_startup: ModuleStartupFn) -> Self {
+        self.on_startup = Some(on_startup);
         self
     }
 }

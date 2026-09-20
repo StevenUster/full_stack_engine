@@ -1,62 +1,35 @@
-//! Public, unauthenticated JSON API for external sites — a self-hosted
-//! Swagger UI at `/api/docs` reading a spec from `/api/openapi.json`. Only
-//! data already shown on the public catalog is exposed here (`published`
-//! products); everything is CORS-enabled so it can be consumed cross-origin.
+//! Public, unauthenticated JSON API for external sites.
+//!
+//! Only data already shown on the public catalog is exposed (`published`
+//! products). Two framework pieces do the rest:
+//!
+//! * **Cross-origin access** is middleware, configured by
+//!   `CORS_ALLOWED_ORIGINS` (or `.cors(...)` in `lib.rs`) — not a header
+//!   pasted onto each response, which is how the `Vary: Origin` and the
+//!   preflight handler used to go missing.
+//! * **The spec and the docs page** are mounted by `.api_docs(...)`. The
+//!   `#[model(api)]` half is generated from the model registry; the two
+//!   hand-written endpoints below declare themselves in [`openapi_paths`],
+//!   because generation cannot know them.
 
 use crate::{
     AppData, AppResult, Deserialize,
     actix_web::{HttpResponse, get, web},
 };
 
-use super::RenderTplExt;
 use crate::models::product::{Product, ProductStatus};
 
 const PER_PAGE: i64 = 50;
 
-/// Attach permissive CORS headers so any external origin can read the data.
-fn json_ok(body: crate::serde_json::Value) -> HttpResponse {
-    HttpResponse::Ok()
-        .insert_header(("Access-Control-Allow-Origin", "*"))
-        .insert_header(("Access-Control-Allow-Methods", "GET, OPTIONS"))
-        .json(body)
-}
-
-/// `GET /api/docs` — self-hosted Swagger UI rendering the spec below.
-#[get("/api/docs")]
-pub async fn get_docs(req: actix_web::HttpRequest) -> AppResult {
-    Ok(req.render_tpl("api/docs", &crate::json!({})).await)
-}
-
-/// `GET /api/openapi.json` — machine-readable `OpenAPI` 3.0 spec describing
-/// this API, so external consumers can import it into Swagger UI / Postman or
-/// generate a client.
+/// The hand-written routes of this file, in `OpenAPI` `paths` shape.
 ///
-/// Built in two halves, which is the pattern to copy:
-///
-/// * `models::openapi::spec` describes every `#[model(api)]` endpoint straight
-///   from the model registry — add `api` to a struct and it documents itself,
-///   with the right column names, types and nullability, and no chance of
-///   drifting from what the endpoint actually returns.
-/// * the hand-written routes below are declared explicitly, because generation
-///   cannot know them. `/api/products` here is an *override* (published rows
-///   only, `search`/`page` parameters), so its real contract differs from the
-///   generated one and has to be spelled out.
-#[get("/api/openapi.json")]
-pub async fn get_openapi_spec(data: web::Data<AppData>) -> AppResult {
-    use full_stack_engine::models::openapi;
-
-    let base_url = data.config.base_url();
-    let mut spec = openapi::spec(&openapi::Info {
-        title: "Starter Public API",
-        version: env!("CARGO_PKG_VERSION"),
-        description: "Read-only, unauthenticated access to the published product catalog.",
-        base_url: &base_url,
-    });
-
-    // The two hand-written endpoints. Merged in rather than replacing the
-    // document, so flipping `api` on a model later adds its paths here without
-    // touching this function.
-    let hand_written = crate::json!({
+/// `/api/products` is an *override* of the generated endpoint — published rows
+/// only, with `search`/`page` — so its real contract differs from the
+/// generated one and has to be spelled out. Merged over the generated document
+/// by `.api_docs(...)`, so turning `api` on for another model later adds its
+/// paths without touching this.
+pub fn openapi_paths() -> crate::serde_json::Value {
+    crate::json!({
         "/api/products": {
             "get": {
                 "summary": "List published products",
@@ -94,12 +67,14 @@ pub async fn get_openapi_spec(data: web::Data<AppData>) -> AppResult {
                 }
             }
         }
-    });
+    })
+}
 
-    // The shapes those two hand-written endpoints actually return, which are
-    // narrower than the `Product` row (no `status`, no timestamps) — a public
-    // API exposing the whole row would be the bug this override exists to avoid.
-    let hand_written_schemas = crate::json!({
+/// What those two endpoints actually return — narrower than the `Product` row
+/// (no `status`, no timestamps). A public API exposing the whole row would be
+/// the bug this override exists to avoid.
+pub fn openapi_schemas() -> crate::serde_json::Value {
+    crate::json!({
         "PublicProduct": {
             "type": "object",
             "required": ["id", "name", "slug", "price", "url"],
@@ -123,23 +98,7 @@ pub async fn get_openapi_spec(data: web::Data<AppData>) -> AppResult {
                 "total_count": { "type": "integer" }
             }
         }
-    });
-
-    merge_objects(&mut spec["paths"], &hand_written);
-    merge_objects(&mut spec["components"]["schemas"], &hand_written_schemas);
-
-    Ok(json_ok(spec))
-}
-
-/// Copies `extra`'s keys into `target`, both of which are expected to be JSON
-/// objects. A shallow merge is all that's needed: the two halves of the spec
-/// contribute disjoint path and schema names.
-fn merge_objects(target: &mut crate::serde_json::Value, extra: &crate::serde_json::Value) {
-    if let (Some(target), Some(extra)) = (target.as_object_mut(), extra.as_object()) {
-        for (key, value) in extra {
-            target.insert(key.clone(), value.clone());
-        }
-    }
+    })
 }
 
 #[derive(Deserialize, Default)]
@@ -184,7 +143,7 @@ pub async fn get_products(
         })
         .collect();
 
-    Ok(json_ok(crate::json!({
+    Ok(HttpResponse::Ok().json(crate::json!({
         "products": rows,
         "page": page,
         "per_page": PER_PAGE,
@@ -205,7 +164,7 @@ pub async fn get_product_detail(data: web::Data<AppData>, path: web::Path<String
         _ => return Ok(HttpResponse::NotFound().finish()),
     };
 
-    Ok(json_ok(crate::json!({
+    Ok(HttpResponse::Ok().json(crate::json!({
         "id": product.id,
         "name": product.name,
         "slug": product.slug,

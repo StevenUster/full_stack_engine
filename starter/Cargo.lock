@@ -20,6 +20,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "actix-cors"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2aff07ada3254fc02618cb7850da91dceb23b5dbda53c6676ccbb28ba504f150"
+dependencies = [
+ "actix-utils",
+ "actix-web",
+ "derive_more 2.1.1",
+ "futures-util",
+ "log",
+ "once_cell",
+ "smallvec",
+]
+
+[[package]]
 name = "actix-files"
 version = "0.6.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1213,12 +1228,15 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "9.0.0"
+version = "9.1.0"
 dependencies = [
+ "actix-cors",
  "actix-files",
  "actix-multipart",
  "actix-web",
+ "base64 0.22.1",
  "chrono",
+ "ctrlc",
  "dotenvy",
  "fse-orm",
  "fse-schema",
@@ -1230,12 +1248,14 @@ dependencies = [
  "inventory",
  "jsonwebtoken",
  "lettre",
+ "linkify",
  "log",
  "mime_guess",
  "moka",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "qrcode",
  "rand 0.9.5",
  "reqwest",
  "rust-argon2",
@@ -2133,6 +2153,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "linkify"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92f9ae2f3d31697697311f016320fe984127e636b45cf5eb5c175b7eb103dadb"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2788,6 +2817,12 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quanta"
@@ -3742,19 +3777,13 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 name = "starter"
 version = "0.1.0"
 dependencies = [
- "actix-files",
- "actix-multipart",
  "actix-web",
- "chrono",
- "ctrlc",
- "dotenvy",
  "fse-orm",
  "fse-theme-default",
  "full_stack_engine",
  "insta",
  "serde",
  "sqlx",
- "uuid",
 ]
 
 [[package]]

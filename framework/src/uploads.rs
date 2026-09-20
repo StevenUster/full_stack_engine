@@ -112,6 +112,48 @@ pub fn save_upload(
     Ok(format!("/{target_dir}/{filename}"))
 }
 
+/// Deletes a file [`save_upload`] created, given the exact path it returned
+/// (e.g. `/uploads/avatars/42_<uuid>.png`).
+///
+/// Returns `true` if a file was removed. A path that does not name a file
+/// directly inside the `uploads/` tree is **ignored and reported as `false`**,
+/// never followed: the stored path usually arrives from a database column, and
+/// a column is only as trustworthy as everything that has ever written to it.
+///
+/// This exists because `save_upload` without a counterpart means every app
+/// writes its own `std::fs::remove_file(format!(...))`, and each copy has to
+/// rediscover that `..` and a nested path must be refused. That check belongs
+/// in one place.
+///
+/// Deletion is best effort: a file already gone, or one the process cannot
+/// remove, is `false` rather than an error. Callers delete an upload while
+/// clearing the column that referenced it, and a failure there must not
+/// abandon the row pointing at a file that may or may not exist.
+#[must_use]
+pub fn delete_upload(stored_path: &str) -> bool {
+    delete_upload_in(std::path::Path::new("uploads"), stored_path)
+}
+
+/// [`delete_upload`] against an explicit uploads root, so the path rules are
+/// testable without moving the process's working directory (which is global
+/// state and would race every other test in the binary).
+fn delete_upload_in(root: &std::path::Path, stored_path: &str) -> bool {
+    let Some(relative) = stored_path.trim().strip_prefix("/uploads/") else {
+        return false;
+    };
+    // `<dir>/<file>` exactly: one level, no traversal, no absolute escape.
+    // Anything else is a path this function did not write.
+    let mut segments = relative.split('/');
+    let (Some(dir), Some(file), None) = (segments.next(), segments.next(), segments.next()) else {
+        return false;
+    };
+    if dir.is_empty() || file.is_empty() || matches!(dir, "." | "..") || matches!(file, "." | "..")
+    {
+        return false;
+    }
+    std::fs::remove_file(root.join(dir).join(file)).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,6 +180,57 @@ mod tests {
     }
 
     const PNG_SIGNATURE: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0];
+
+    #[test]
+    fn delete_upload_refuses_anything_it_did_not_write() {
+        // Traversal, in the two places a path has segments.
+        assert!(!delete_upload("/uploads/../../etc/passwd"));
+        assert!(!delete_upload("/uploads/avatars/../../../etc/passwd"));
+        // Deeper than save_upload ever writes.
+        assert!(!delete_upload("/uploads/a/b/c.png"));
+        // Not under /uploads at all.
+        assert!(!delete_upload("/etc/passwd"));
+        assert!(!delete_upload("uploads/avatars/a.png"));
+        assert!(!delete_upload("/uploadsx/avatars/a.png"));
+        // Degenerate shapes.
+        assert!(!delete_upload(""));
+        assert!(!delete_upload("/uploads/"));
+        assert!(!delete_upload("/uploads/avatars"));
+        assert!(!delete_upload("/uploads//a.png"));
+        assert!(!delete_upload("/uploads/./a.png"));
+    }
+
+    #[test]
+    fn delete_upload_removes_the_file_it_is_given() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("avatars")).unwrap();
+        let file = root.path().join("avatars").join("7_abc.png");
+        std::fs::write(&file, PNG_SIGNATURE).unwrap();
+
+        assert!(delete_upload_in(root.path(), "/uploads/avatars/7_abc.png"));
+        assert!(!file.exists());
+        // Already gone: reported as `false`, not an error.
+        assert!(!delete_upload_in(root.path(), "/uploads/avatars/7_abc.png"));
+    }
+
+    #[test]
+    fn a_refused_path_is_never_followed() {
+        // The point of the path rules: prove nothing outside the root is
+        // touched, not merely that the call returns false.
+        let root = tempfile::tempdir().unwrap();
+        let outside = root.path().join("secret.txt");
+        std::fs::write(&outside, b"keep me").unwrap();
+        std::fs::create_dir_all(root.path().join("uploads")).unwrap();
+
+        assert!(!delete_upload_in(
+            &root.path().join("uploads"),
+            "/uploads/../secret.txt"
+        ));
+        assert!(
+            outside.exists(),
+            "traversal must not reach outside the root"
+        );
+    }
 
     #[test]
     fn rejects_empty_and_oversized_files() {

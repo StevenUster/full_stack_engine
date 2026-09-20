@@ -1,6 +1,6 @@
 [package]
 name = "full_stack_engine"
-version = "9.0.0"
+version = "9.1.0"
 edition = "2024"
 description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
 license = "MIT OR Apache-2.0"
@@ -135,6 +135,26 @@ moka = { version = "0.12.16", features = ["sync"] }
 # Declarative request validation, re-exported from the prelude. Replaces
 # hand-rolled `email.contains('@')` checks with a real parser.
 validator = { version = "0.21.0", features = ["derive"] }
+# ── Batteries ────────────────────────────────────────────────────────────────
+# CORS as Actix's own middleware (MIT OR Apache-2.0, checked). A public JSON
+# API needs it, and the hand-rolled `Access-Control-Allow-Origin: *` header it
+# replaces had neither `Vary: Origin` nor a preflight handler.
+actix-cors = "0.7.1"
+# URL detection for `text::strip_urls`: spam in user-visible free text is
+# moderated out, not merely escaped.
+linkify = "0.11.0"
+# QR codes as inline `data:` URIs (`qr`) — the only form that works inside a
+# generated PDF or an HTML email, neither of which can fetch a subresource.
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+base64 = "0.22.1"
+# `dev::run` spawns the theme dev server and the backend and has to stop both.
+ctrlc = "3.5.2"
+# Optional (`pdf` feature): headless-Chromium HTML -> PDF. Heavy, and needs a
+# Chromium in the runtime image, so it is off unless an app asks for it.
+chromiumoxide = { version = "0.9", default-features = false, features = [
+    "bytes",
+], optional = true }
+tokio = { version = "1", features = ["sync", "time", "rt"], optional = true }
 
 [features]
 default = []
@@ -149,6 +169,9 @@ otel = [
 ]
 # Report ERROR-level events and panics to a Sentry-compatible backend.
 sentry = ["dep:sentry"]
+# HTML -> PDF via headless Chromium (see `pdf`). Requires a Chromium binary at
+# runtime; point `CHROME` at it.
+pdf = ["dep:chromiumoxide", "dep:tokio"]
 
 [build-dependencies]
 # The build script creates the integration tests' scratch database from the

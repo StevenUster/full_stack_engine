@@ -25,9 +25,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(orders::get_my_orders);
     cfg.service(orders::post_cancel_my_order);
 
-    // Public JSON API + OpenAPI/Swagger (exposes published data only).
-    cfg.service(api::get_docs);
-    cfg.service(api::get_openapi_spec);
+    // Public JSON API (published data only). `/api/openapi.json` and
+    // `/api/docs` are mounted by `.api_docs(...)` in lib.rs.
     cfg.service(api::get_products);
     cfg.service(api::get_product_detail);
 }
