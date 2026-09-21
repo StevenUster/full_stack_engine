@@ -95,8 +95,10 @@ pub async fn run() -> std::io::Result<()> {
             .paths(services::api::openapi_paths())
             .schemas(services::api::openapi_schemas()),
         )
-        // The API is meant to be read cross-origin; the rest of the site is
-        // not. `CORS_ALLOWED_ORIGINS` overrides this without a deploy.
+        // The API is meant to be read cross-origin. Note this applies
+        // app-wide, not only to /api: `Any` never permits credentials, so a
+        // caller only ever sees the anonymous page its own server could fetch.
+        // `CORS_ALLOWED_ORIGINS` overrides this without a deploy.
         .cors(full_stack_engine::config::CorsConfig::Any)
         // The public JSON API is meant to be consumed by other servers/sites,
         // so it must not be caught by the site-wide per-IP limiter.

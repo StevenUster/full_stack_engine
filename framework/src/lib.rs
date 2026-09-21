@@ -471,6 +471,14 @@ impl FrameworkApp {
     /// // a named front end that may send the session cookie:
     /// .cors(CorsConfig::Origins(vec!["https://app.example.com".into()]))
     /// ```
+    ///
+    /// **This applies to the whole app, not just `/api`.** With
+    /// [`config::CorsConfig::Any`] every page becomes readable cross-origin —
+    /// anonymously, since that mode never permits credentials, so a caller
+    /// learns no more than its own server could by fetching the URL. It is
+    /// still a wider grant than most apps need: to allow one subtree only,
+    /// leave this unset and wrap [`cors_middleware`] around that
+    /// [`web::scope`] instead.
     #[must_use]
     pub fn cors(mut self, cors: config::CorsConfig) -> Self {
         self.cors = Some(cors);

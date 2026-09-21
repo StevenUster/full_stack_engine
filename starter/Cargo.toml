@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 # `otel` exports spans over OTLP when OTEL_EXPORTER_OTLP_ENDPOINT is set; add
 # "sentry" for error reporting. Everything else comes from the prelude.
-full_stack_engine = { version = "9.1.0", path = "../framework", features = ["otel"] }
+full_stack_engine = { version = "9.1.1", path = "../framework", features = ["otel"] }
 # The default theme; the app's child theme in theme/ extends it.
 fse-theme-default = { version = "0.2.0", path = "../fse-theme-default" }
 

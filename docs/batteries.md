@@ -169,8 +169,20 @@ An entry without a scheme, or with a path, is a **boot error**. Both forms are
 accepted by a naive parser and then match no browser, so CORS silently does
 nothing — the worst outcome, because it looks configured.
 
-For a different policy on one scope, `cors_middleware(&CorsConfig::Any)` can be
-wrapped around a `web::scope`.
+**The policy is app-wide.** `CorsConfig::Any` makes every page readable
+cross-origin, not only `/api`. That is not a data leak — the mode never permits
+credentials, so the caller sees the anonymous page its own server could have
+fetched, and `SameSite` cookies are untouched, so it is not a CSRF path either.
+It is still wider than most apps need. To allow one subtree only, leave the
+builder and the variable unset and wrap the middleware around that scope:
+
+```rust
+cfg.service(
+    web::scope("/api")
+        .wrap(full_stack_engine::cors_middleware(&CorsConfig::Any))
+        .service(public_feed),
+);
+```
 
 ## API documentation
 
