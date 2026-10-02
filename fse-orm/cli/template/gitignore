@@ -1,0 +1,10 @@
+/target
+/data
+/logs
+*.db
+*.db-shm
+*.db-wal
+.env
+!.example.env
+node_modules/
+.DS_Store

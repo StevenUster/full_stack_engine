@@ -1,0 +1,30 @@
+# fse configuration. `src/models/` holds the #[model] structs that ARE the
+# app; `fse migrate` generates migrations from them.
+
+[orm]
+tables_dir = "src/models"
+migrations_dir = "migrations"
+snapshot_path = ".fse/schema.json"
+database_url_env = "DATABASE_URL"
+
+# Columns the framework's auth module needs — add columns to `users` freely,
+# but keep these (`fse migrate` refuses a schema that drops one).
+[orm.required_columns]
+users = [
+    "id",
+    "email",
+    "password",
+    "role",
+    "first_name",
+    "last_name",
+    "is_verified",
+    "verification_token",
+    "verification_token_expires_at",
+    "reset_token",
+    "reset_token_expires_at",
+    "pending_email",
+    "email_change_token",
+    "email_change_token_expires_at",
+    "sessions_valid_after",
+    "created_at",
+]

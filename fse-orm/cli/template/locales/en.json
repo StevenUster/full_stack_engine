@@ -1,0 +1,12 @@
+{
+  "models": {
+    "notes": {
+      "title": "Notes",
+      "fields": {
+        "title": "Title",
+        "body": "Text",
+        "created_at": "Created"
+      }
+    }
+  }
+}

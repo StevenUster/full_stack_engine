@@ -1,22 +1,34 @@
-//! The `fse` binary. `fse init` (introspect an existing database into table
-//! structs + snapshot) lands in build-order step 5.
+//! The `fse` binary: scaffold an app (`fse new`), turn model changes into
+//! migrations (`fse migrate`), and list the app's routes (`fse routes`).
 
 use color_eyre::eyre::{Result, WrapErr};
 use fse_cli::config;
 use fse_cli::migrate::{self, MigrateOpts};
 use fse_cli::modules;
+use fse_cli::new::{self, NewOpts};
 use fse_cli::prepare;
 
 const HELP: &str = "\
-fse — schema-driven sqlx migrations, no sqlx-cli required
+fse — the full_stack_engine tool
 
 USAGE:
+    fse new <name> [--framework-path <repo>]
     fse migrate [--dry-run] [--yes] [--no-prepare]
     fse prepare
+    fse routes
     fse sync
 
+`fse new <name>` creates a ready-to-run app in ./<name> (a .env with a
+fresh secret included): then `cd <name> && fse migrate && cargo test`.
+--framework-path depends on a local framework checkout instead of the
+released crates.
+
+`fse routes` prints every generated route with its required permission,
+from the app's own binary (`cargo run -- --routes`), so it always matches
+the framework version the app uses.
+
 `fse migrate` is the one command for everything: it diffs the
-#[derive(Table)] structs in src/tables against the committed snapshot
+#[model]/#[derive(Table)] structs in src/models against the committed snapshot
 (.fse/schema.json), writes a plain sqlx migration, applies everything
 pending to the database from DATABASE_URL (env or .env), then refreshes
 the offline query cache (.sqlx/) — pass --no-prepare to skip that last
@@ -37,6 +49,20 @@ Configuration (all optional) lives in fse.toml under [orm]:
 tables_dir, migrations_dir, snapshot_path, database_url_env and
 [orm.required_columns] for framework-required table contracts.
 ";
+
+/// `cargo run -q -- <flag>` in the app: a flag the framework handles itself
+/// before booting (`--routes`).
+fn run_app(root: &std::path::Path, flag: &str) -> Result<()> {
+    let status = std::process::Command::new("cargo")
+        .args(["run", "--quiet", "--", flag])
+        .current_dir(root)
+        .status()
+        .wrap_err("cannot run cargo")?;
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    Ok(())
+}
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -63,6 +89,31 @@ fn main() -> Result<()> {
             let cfg = config::load(&root)?;
             prepare::run(&root, &cfg, None)?;
         }
+        Some("new") => {
+            let Some(name) = args.get(1).filter(|a| !a.starts_with('-')) else {
+                eprintln!("usage: fse new <name> [--framework-path <repo>]");
+                std::process::exit(2);
+            };
+            let framework_path = args
+                .iter()
+                .position(|a| a == "--framework-path")
+                .and_then(|i| args.get(i + 1))
+                .map(std::path::PathBuf::from);
+            let dir = new::run(
+                &root,
+                &NewOpts {
+                    name: name.clone(),
+                    framework_path,
+                },
+            )?;
+            println!(
+                "Created {}\n\nNext:\n    cd {name}\n    fse migrate      # create the database + .sqlx cache\n    \
+                 cargo test       # the example model's tests\n    cargo run        # http://localhost:8080\n\n\
+                 Agents: start with AGENTS.md.",
+                dir.display()
+            );
+        }
+        Some("routes") => run_app(&root, "--routes")?,
         Some("sync") => {
             let cfg = config::load(&root)?;
             modules::sync(&root, &cfg)?;

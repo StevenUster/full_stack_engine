@@ -128,11 +128,7 @@ pub async fn run(root: &Path, opts: &MigrateOpts) -> Result<MigrateOutcome> {
     Ok(outcome)
 }
 
-fn parse_tables(
-    root: &Path,
-    cfg: &OrmConfig,
-    external: &[fse_schema::TableDef],
-) -> Result<Schema> {
+fn parse_tables(root: &Path, cfg: &OrmConfig, external: &[fse_schema::TableDef]) -> Result<Schema> {
     let dir = root.join(&cfg.tables_dir);
     if !dir.exists() {
         bail!(
@@ -261,6 +257,14 @@ async fn apply_pending(
         .wrap_err("invalid database url")?
         .create_if_missing(true)
         .foreign_keys(false);
+    // A fresh app has no `data/` yet: create the database's directory, as
+    // the app itself does at boot.
+    if let Some(dir) = options.get_filename().parent()
+        && !dir.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(root.join(dir))
+            .wrap_err_with(|| format!("cannot create {}", dir.display()))?;
+    }
     let pool = sqlx::SqlitePool::connect_with(options)
         .await
         .wrap_err("cannot open database")?;
