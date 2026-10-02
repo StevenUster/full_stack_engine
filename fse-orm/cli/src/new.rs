@@ -20,7 +20,7 @@ const FILES: &[(&str, &str)] = &[
     ("Cargo.toml", include_str!("../template/Cargo.toml.tpl")),
     ("fse.toml", include_str!("../template/fse.toml")),
     (".gitignore", include_str!("../template/gitignore")),
-    (".example.env", include_str!("../template/example.env")),
+    (".example.env", include_str!("../template/env.example.tpl")),
     ("Dockerfile", include_str!("../template/Dockerfile.tpl")),
     ("AGENTS.md", include_str!("../template/AGENTS.md")),
     ("CLAUDE.md", include_str!("../template/CLAUDE.md")),
@@ -96,7 +96,7 @@ pub fn run(cwd: &Path, opts: &NewOpts) -> Result<PathBuf> {
 
     // A ready .env with a fresh secret, so `fse migrate` and `cargo run`
     // work immediately. Never committed (.gitignore).
-    let env = include_str!("../template/example.env").replace(
+    let env = include_str!("../template/env.example.tpl").replace(
         "JWT_SECRET=replace-me",
         &format!("JWT_SECRET={}", random_secret()?),
     );
