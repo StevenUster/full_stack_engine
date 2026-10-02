@@ -93,7 +93,7 @@ pub enum AppError {
     ///
     /// Prefer this over `Internal(format!("... {e}"))`: the cause stays
     /// reachable through `source()`, so
-    /// [`source_chain`](crate::observability::source_chain) can render the
+    /// [`crate::observability::source_chain`] can render the
     /// whole chain and a telemetry backend can group by the root cause rather
     /// than by a string that differs on every call site. Built through
     /// [`ErrorContext::context`] rather than by hand:

@@ -3,29 +3,61 @@
  * Generic create/edit form — one page serves both (the server passes
  * `is_new`). Widgets come from the column metadata; validation errors are
  * re-rendered per field with codes translated through the app's locales.
+ * Without `can_edit` (no write permission, or the model's hooks locked the
+ * row) the same form renders disabled and without a save button. An
+ * existing row also shows its allowed row actions and links to its nested
+ * models and link tables; a nested model links back to its parent row.
  */
 import { ssr } from "fse-ssr/ssr";
 import type { SsrValue } from "fse-ssr/ssr";
 import Layout from "../../layouts/Layout.astro";
 import type { ModelFormPage } from "../../types";
 
-const { t, lang_prefix, meta, row, errors, is_new } = ssr<ModelFormPage>();
+const { t, lang_prefix, meta, row, errors, is_new, can_edit, can_delete, actions, parent } =
+  ssr<ModelFormPage>();
 const title = t.models[meta.table].title ?? meta.table;
 const formErrors = t.form_errors as Record<string, SsrValue<string>>;
+const inputClass =
+  "w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500";
 ---
 
 <Layout title={title}>
   <main class="max-w-2xl">
+    {parent && (
+      <a class="mb-2 inline-block text-sm text-secondary-500 hover:text-secondary-800" href={`${lang_prefix}${parent.meta.base_path}/${parent.row.id}`}>
+        ← {parent.row[parent.meta.title_field]}
+      </a>
+    )}
     <div class="mb-6 flex items-center justify-between gap-4">
       <h1 class="section-title">{title}</h1>
       <a class="btn-ghost" href={`${lang_prefix}${meta.base_path}`}>{t.model_ui.back ?? "Back"}</a>
     </div>
+
+    {!is_new && meta.has_subpages && (
+      <nav class="mb-6 flex flex-wrap gap-2">
+        {meta.children.map((child) => (
+          <a class="btn-secondary" href={`${lang_prefix}${meta.base_path}/${row.id}/${child.segment}`}>
+            {t.models[child.table].title ?? child.table}
+          </a>
+        ))}
+        {meta.links.map((link) => (
+          <a class="btn-secondary" href={`${lang_prefix}${meta.base_path}/${row.id}/${link.segment}`}>
+            {t.models[link.table].title ?? link.table}
+          </a>
+        ))}
+      </nav>
+    )}
+
+    {!can_edit && !is_new && (
+      <p class="mb-4 text-sm text-secondary-500">{t.model_ui.read_only ?? "This entry is read-only."}</p>
+    )}
 
     <form
       method="post"
       action={is_new ? `${lang_prefix}${meta.base_path}/create` : `${lang_prefix}${meta.base_path}/${row.id}`}
       class="bg-white border border-secondary-200 rounded-xl p-6 flex flex-col gap-5"
     >
+      <fieldset disabled={!can_edit} class="contents">
       {meta.form_columns.map((col) => (
         <div>
           <label for={col.name} class="block text-sm font-medium mb-1.5">
@@ -33,29 +65,14 @@ const formErrors = t.form_errors as Record<string, SsrValue<string>>;
           </label>
 
           {col.widget === "textarea" && (
-            <textarea
-              id={col.name}
-              name={col.name}
-              rows="5"
-              required={col.required}
-              readonly={col.readonly}
-              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
-            >{row[col.name] ?? ""}</textarea>
+            <textarea id={col.name} name={col.name} rows="5" required={col.required} class={inputClass}>{row[col.name] ?? ""}</textarea>
           )}
           {col.widget === "json" && (
-            <textarea
-              id={col.name}
-              name={col.name}
-              rows="5"
-              class="w-full px-3 py-2 text-sm font-mono border border-secondary-200 rounded-lg bg-white"
-            >{row[col.name] ?? ""}</textarea>
+            <textarea id={col.name} name={col.name} rows="5" class={`${inputClass} font-mono`}>{row[col.name] ?? ""}</textarea>
           )}
           {col.widget === "select" && (
-            <select
-              id={col.name}
-              name={col.name}
-              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white"
-            >
+            <select id={col.name} name={col.name} required={col.required} class={inputClass}>
+              {!col.required && <option value="">—</option>}
               {col.options && col.options.map((option) => (
                 <option value={option} selected={row[col.name] === option}>
                   {t.models[meta.table].options[option] ?? option}
@@ -63,49 +80,38 @@ const formErrors = t.form_errors as Record<string, SsrValue<string>>;
               ))}
             </select>
           )}
+          {col.widget === "relation" && (
+            col.options ? (
+              <select id={col.name} name={col.name} required={col.required} class={inputClass}>
+                <option value="">{t.model_ui.choose ?? "Choose..."}</option>
+                {col.options.map((option) => (
+                  <option value={option.id} selected={row[col.name] === option.id}>{option.title}</option>
+                ))}
+              </select>
+            ) : (
+              <input id={col.name} type="number" name={col.name} value={row[col.name] ?? ""} required={col.required} class={inputClass} />
+            )
+          )}
           {col.widget === "checkbox" && (
-            <input
-              id={col.name}
-              type="checkbox"
-              name={col.name}
-              value="true"
-              checked={row[col.name]}
-              class="h-4 w-4 rounded border-secondary-300 accent-primary-600"
-            />
+            <input id={col.name} type="checkbox" name={col.name} value="true" checked={row[col.name]} class="h-4 w-4 rounded border-secondary-300 accent-primary-600" />
           )}
           {col.widget === "number" && (
-            <input
-              id={col.name}
-              type="number"
-              step="any"
-              name={col.name}
-              value={row[col.name] ?? ""}
-              required={col.required}
-              readonly={col.readonly}
-              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
-            />
+            <input id={col.name} type="number" step="any" name={col.name} value={row[col.name] ?? ""} required={col.required} class={inputClass} />
           )}
           {col.widget === "datetime" && (
-            <input
-              id={col.name}
-              type="datetime-local"
-              name={col.name}
-              value={row[col.name] ?? ""}
-              required={col.required}
-              readonly={col.readonly}
-              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white"
-            />
+            <input id={col.name} type="datetime-local" name={col.name} value={row[col.name] ?? ""} required={col.required} class={inputClass} />
+          )}
+          {col.widget === "date" && (
+            <input id={col.name} type="date" name={col.name} value={row[col.name] ?? ""} required={col.required} class={inputClass} />
+          )}
+          {col.widget === "email" && (
+            <input id={col.name} type="email" name={col.name} value={row[col.name] ?? ""} required={col.required} class={inputClass} />
+          )}
+          {col.widget === "url" && (
+            <input id={col.name} type="url" name={col.name} value={row[col.name] ?? ""} required={col.required} class={inputClass} />
           )}
           {col.widget === "text" && (
-            <input
-              id={col.name}
-              type="text"
-              name={col.name}
-              value={row[col.name] ?? ""}
-              required={col.required}
-              readonly={col.readonly}
-              class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
-            />
+            <input id={col.name} type="text" name={col.name} value={row[col.name] ?? ""} required={col.required} class={inputClass} />
           )}
 
           {errors.map((error) => error.field === col.name && (
@@ -115,13 +121,16 @@ const formErrors = t.form_errors as Record<string, SsrValue<string>>;
           ))}
         </div>
       ))}
+      </fieldset>
 
       <div class="flex items-center gap-3 pt-2">
-        <button type="submit" class="btn-primary">
-          {t.model_ui.save ?? "Save"}
-        </button>
+        {can_edit && (
+          <button type="submit" class="btn-primary">
+            {t.model_ui.save ?? "Save"}
+          </button>
+        )}
         <a class="btn-secondary" href={`${lang_prefix}${meta.base_path}`}>{t.model_ui.cancel ?? "Cancel"}</a>
-        {!is_new && !meta.no_delete && (
+        {can_delete && (
           <button
             type="button"
             class="btn-danger ml-auto"
@@ -134,6 +143,18 @@ const formErrors = t.form_errors as Record<string, SsrValue<string>>;
         )}
       </div>
     </form>
+
+    {actions.length > 0 && (
+      <div class="mt-4 flex flex-wrap gap-2">
+        {actions.map((action) => (
+          <form method="post" action={`${lang_prefix}${meta.base_path}/${row.id}/actions/${action}`}>
+            <button type="submit" class="btn-secondary">
+              {t.models[meta.table].actions[action] ?? action}
+            </button>
+          </form>
+        ))}
+      </div>
+    )}
   </main>
 
   <script>

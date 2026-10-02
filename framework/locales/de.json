@@ -11,7 +11,18 @@
     "prev": "Zurück",
     "next": "Weiter",
     "entries": "Einträge",
-    "confirm_delete": "Diesen Eintrag löschen?"
+    "confirm_delete": "Diesen Eintrag löschen?",
+    "choose": "Bitte wählen...",
+    "from": "von",
+    "to": "bis",
+    "linked": "Verknüpft",
+    "add_link": "Hinzufügen",
+    "remove_link": "Entfernen",
+    "no_links": "Noch nichts verknüpft.",
+    "search_to_add": "Suchen zum Hinzufügen...",
+    "no_entries": "Noch keine Einträge.",
+    "actions": "Aktionen",
+    "read_only": "Dieser Eintrag kann nicht geändert werden."
   },
   "form_errors": {
     "required": "Dieses Feld ist erforderlich.",
@@ -20,7 +31,13 @@
     "invalid_value": "Bitte einen gültigen Wert eingeben.",
     "invalid_datetime": "Bitte gültiges Datum und Uhrzeit eingeben.",
     "not_unique": "Dieser Wert ist bereits vergeben.",
-    "not_supported": "Dieses Formular hat keine bearbeitbaren Felder."
+    "not_supported": "Dieses Formular hat keine bearbeitbaren Felder.",
+    "invalid_email": "Bitte eine gültige E-Mail-Adresse eingeben.",
+    "invalid_url": "Bitte eine vollständige http(s)://-Adresse eingeben.",
+    "too_short": "Zu kurz.",
+    "too_long": "Zu lang.",
+    "too_small": "Zu klein.",
+    "too_large": "Zu groß."
   },
   "login": {
     "title": "Anmelden",

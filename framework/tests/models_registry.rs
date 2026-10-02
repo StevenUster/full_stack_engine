@@ -140,6 +140,8 @@ async fn resource_crud_round_trip() {
         .unwrap();
     Article::delete_where().execute(&db).await.unwrap();
     let r = models::model("articles").unwrap().resource;
+    let user = models::CurrentUser::new(1, &full_stack_engine::structs::DefaultRole::Admin);
+    let me = models::Access::user(&user);
 
     let form = |pairs: &[(&str, &str)]| -> models::FormData {
         pairs
@@ -150,7 +152,7 @@ async fn resource_crud_round_trip() {
 
     // Missing title + bad status: every error collected, nothing inserted.
     let errors = r
-        .create(&db, &form(&[("slug", "a"), ("status", "nope")]))
+        .create(&db, me, &form(&[("slug", "a"), ("status", "nope")]))
         .await
         .unwrap()
         .unwrap_err();
@@ -162,6 +164,7 @@ async fn resource_crud_round_trip() {
     let id = r
         .create(
             &db,
+            me,
             &form(&[
                 ("title", "Hello World"),
                 ("slug", "hello"),
@@ -176,6 +179,7 @@ async fn resource_crud_round_trip() {
     let errors = r
         .create(
             &db,
+            me,
             &form(&[("title", "Other"), ("slug", "hello"), ("status", "draft")]),
         )
         .await
@@ -185,7 +189,7 @@ async fn resource_crud_round_trip() {
     assert_eq!(errors[0].code, "not_unique");
 
     // get: visible columns as JSON, enum as stored string, body NULL.
-    let row = r.get(&db, id).await.unwrap().unwrap();
+    let row = r.get(&db, me, id).await.unwrap().unwrap().row;
     assert_eq!(row["title"], "Hello World");
     assert_eq!(row["status"], "draft");
     assert!(row["body"].is_null());
@@ -199,6 +203,7 @@ async fn resource_crud_round_trip() {
     // Second row to make list filters observable.
     r.create(
         &db,
+        me,
         &form(&[
             ("title", "Zebra"),
             ("slug", "zebra"),
@@ -215,7 +220,7 @@ async fn resource_crud_round_trip() {
         ..Default::default()
     };
 
-    let all = r.list(&db, &base).await.unwrap();
+    let all = r.list(&db, me, &base).await.unwrap();
     assert_eq!(all.total, 2);
     assert_eq!(all.total_pages(), 1);
 
@@ -223,7 +228,7 @@ async fn resource_crud_round_trip() {
         search: Some("hello".into()),
         ..base.clone()
     };
-    let searched = r.list(&db, &q).await.unwrap();
+    let searched = r.list(&db, me, &q).await.unwrap();
     assert_eq!(searched.total, 1);
     assert_eq!(searched.rows[0]["slug"], "hello");
 
@@ -231,7 +236,7 @@ async fn resource_crud_round_trip() {
         filters: vec![("status".into(), "published".into())],
         ..base.clone()
     };
-    let filtered = r.list(&db, &q).await.unwrap();
+    let filtered = r.list(&db, me, &q).await.unwrap();
     assert_eq!(filtered.total, 1);
     assert_eq!(filtered.rows[0]["slug"], "zebra");
 
@@ -241,18 +246,19 @@ async fn resource_crud_round_trip() {
         sort: Some("nope".into()),
         ..base.clone()
     };
-    assert_eq!(r.list(&db, &q).await.unwrap().total, 2);
+    assert_eq!(r.list(&db, me, &q).await.unwrap().total, 2);
 
     let q = models::ListQuery {
         sort: Some("title".into()),
         ..base.clone()
     };
-    let sorted = r.list(&db, &q).await.unwrap();
+    let sorted = r.list(&db, me, &q).await.unwrap();
     assert_eq!(sorted.rows[0]["title"], "Hello World");
 
     // update: same slug on the row itself is fine; new values land.
     r.update(
         &db,
+        me,
         id,
         &form(&[
             ("title", "Hello Again"),
@@ -263,7 +269,7 @@ async fn resource_crud_round_trip() {
     .await
     .unwrap()
     .unwrap();
-    let row = r.get(&db, id).await.unwrap().unwrap();
+    let row = r.get(&db, me, id).await.unwrap().unwrap().row;
     assert_eq!(row["title"], "Hello Again");
     assert_eq!(row["status"], "published");
 
@@ -271,6 +277,7 @@ async fn resource_crud_round_trip() {
     let errors = r
         .update(
             &db,
+            me,
             id,
             &form(&[("title", "X"), ("slug", "zebra"), ("status", "draft")]),
         )
@@ -280,9 +287,10 @@ async fn resource_crud_round_trip() {
     assert_eq!(errors[0].code, "not_unique");
 
     // delete.
-    assert_eq!(r.delete(&db, id).await.unwrap(), 1);
-    assert_eq!(r.delete(&db, id).await.unwrap(), 0);
-    assert!(r.get(&db, id).await.unwrap().is_none());
+    r.delete(&db, me, id).await.unwrap();
+    let gone = r.delete(&db, me, id).await.unwrap_err();
+    assert!(matches!(gone, models::AppError::NotFound(_)), "{gone:?}");
+    assert!(r.get(&db, me, id).await.unwrap().is_none());
 }
 
 #[test]

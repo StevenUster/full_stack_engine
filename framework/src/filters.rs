@@ -200,15 +200,7 @@ pub fn register(tera: &mut Tera, default_lang: &str, currency: Option<String>) {
     tera.register_filter(
         "number",
         move |value: &Value, args: &HashMap<String, Value>| {
-            let fmt = LocaleFormat::for_lang(locale_arg(args, &number_lang).as_str());
-            let Some(number) = as_f64(value) else {
-                return Ok(value.clone());
-            };
-            let precision = args.get("precision").and_then(Value::as_u64).map_or_else(
-                || natural_precision(number),
-                |p| usize::try_from(p).unwrap_or(2),
-            );
-            Ok(to_value(format_number(number, precision, &fmt))?)
+            format_number_value(value, args, &number_lang)
         },
     );
 
@@ -217,32 +209,7 @@ pub fn register(tera: &mut Tera, default_lang: &str, currency: Option<String>) {
     tera.register_filter(
         "currency",
         move |value: &Value, args: &HashMap<String, Value>| {
-            let fmt = LocaleFormat::for_lang(locale_arg(args, &currency_lang).as_str());
-            let Some(number) = as_f64(value) else {
-                return Ok(value.clone());
-            };
-            let precision = args
-                .get("precision")
-                .and_then(Value::as_u64)
-                .map_or(2, |p| usize::try_from(p).unwrap_or(2));
-            let amount = format_number(number, precision, &fmt);
-
-            let code = args
-                .get("code")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .or_else(|| default_currency.clone());
-            let Some(code) = code else {
-                // No currency configured and none passed: the formatted number
-                // alone, rather than inventing a symbol.
-                return Ok(to_value(amount)?);
-            };
-            let symbol = currency_symbol(&code);
-            Ok(to_value(if fmt.currency_after {
-                format!("{amount}\u{a0}{symbol}")
-            } else {
-                format!("{symbol}{amount}")
-            })?)
+            format_currency_value(value, args, &currency_lang, default_currency.as_deref())
         },
     );
 
@@ -252,6 +219,74 @@ pub fn register(tera: &mut Tera, default_lang: &str, currency: Option<String>) {
         };
         Ok(to_value(crate::text::slugify(text))?)
     });
+}
+
+/// Formats `value` the way the `kind` filter would (`date`, `datetime`,
+/// `time`, `number`, `currency`) for `lang` — the server-side twin of the
+/// Tera filters, used for `#[ui(format = ...)]` columns so a page gets a
+/// ready `{col}_display` string. Unknown kinds and values that don't parse
+/// come back unchanged.
+#[must_use]
+pub fn format(kind: &str, value: &Value, lang: &str, currency: Option<&str>) -> Value {
+    let args = HashMap::new();
+    let out = match kind {
+        "date" => format_temporal(value, &args, lang, Part::Date),
+        "datetime" => format_temporal(value, &args, lang, Part::DateTime),
+        "time" => format_temporal(value, &args, lang, Part::Time),
+        "number" => format_number_value(value, &args, lang),
+        "currency" => format_currency_value(value, &args, lang, currency),
+        _ => Ok(value.clone()),
+    };
+    out.unwrap_or_else(|_| value.clone())
+}
+
+fn format_number_value(
+    value: &Value,
+    args: &HashMap<String, Value>,
+    default_lang: &str,
+) -> Result<Value, Error> {
+    let fmt = LocaleFormat::for_lang(locale_arg(args, default_lang).as_str());
+    let Some(number) = as_f64(value) else {
+        return Ok(value.clone());
+    };
+    let precision = args.get("precision").and_then(Value::as_u64).map_or_else(
+        || natural_precision(number),
+        |p| usize::try_from(p).unwrap_or(2),
+    );
+    Ok(to_value(format_number(number, precision, &fmt))?)
+}
+
+fn format_currency_value(
+    value: &Value,
+    args: &HashMap<String, Value>,
+    default_lang: &str,
+    default_currency: Option<&str>,
+) -> Result<Value, Error> {
+    let fmt = LocaleFormat::for_lang(locale_arg(args, default_lang).as_str());
+    let Some(number) = as_f64(value) else {
+        return Ok(value.clone());
+    };
+    let precision = args
+        .get("precision")
+        .and_then(Value::as_u64)
+        .map_or(2, |p| usize::try_from(p).unwrap_or(2));
+    let amount = format_number(number, precision, &fmt);
+
+    let code = args
+        .get("code")
+        .and_then(Value::as_str)
+        .or(default_currency);
+    let Some(code) = code else {
+        // No currency configured and none passed: the formatted number
+        // alone, rather than inventing a symbol.
+        return Ok(to_value(amount)?);
+    };
+    let symbol = currency_symbol(code);
+    Ok(to_value(if fmt.currency_after {
+        format!("{amount}\u{a0}{symbol}")
+    } else {
+        format!("{symbol}{amount}")
+    })?)
 }
 
 #[derive(Copy, Clone)]

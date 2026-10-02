@@ -43,7 +43,7 @@
 //! 2. The default builder takes the client IP from
 //!    `realip_remote_addr()`, which trusts the *left-most* `X-Forwarded-For`
 //!    entry and is therefore client-spoofable. [`FseRootSpan`] reuses
-//!    [`crate::rate_limiter::client_ip`], which reads the right-most entry.
+//!    `rate_limiter::client_ip`, which reads the right-most entry.
 //!
 //! # What is deliberately never recorded
 //!
@@ -149,7 +149,7 @@ impl LogFormat {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     /// `tracing` filter directives, already merged (see
-    /// [`Settings::filter_directives`]).
+    /// `Settings::filter_directives`).
     pub filter: String,
     pub format: LogFormat,
     pub service_name: String,

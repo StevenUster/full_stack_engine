@@ -222,14 +222,23 @@ fn schema_ref(meta: &ModelMeta) -> Value {
 
 /// One model's row schema, from its columns.
 ///
-/// `hidden` columns are included: `#[ui(hidden)]` keeps a column out of the
-/// generated *pages*, not out of the JSON the API returns, and a spec that
-/// disagreed with the response would be worse than none.
+/// Hidden columns (`#[ui(hidden)]`, json/blob, secret-looking names) are
+/// left out, exactly as the generated rows leave them out — the schema
+/// describes what the API returns.
 fn row_schema(meta: &ModelMeta) -> Value {
     let mut properties = serde_json::Map::new();
     let mut required = Vec::new();
 
     for column in &meta.table.columns {
+        // Private columns never reach the public API; an authenticated API
+        // documents them too, but one schema serves both, so the public
+        // shape is the documented one.
+        let hidden = meta
+            .ui_field(&column.name)
+            .is_some_and(|f| f.hidden || (f.private && meta.ui.public_read.is_some()));
+        if hidden && !column.primary_key {
+            continue;
+        }
         properties.insert(column.name.clone(), column_schema(column));
         if !column.nullable {
             required.push(Value::String(column.name.clone()));

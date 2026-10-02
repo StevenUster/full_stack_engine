@@ -106,23 +106,83 @@ pub fn create_jwt<R: Role>(
     user: &crate::structs::User<R>,
     secret: &str,
 ) -> Result<String, JwtError> {
+    create_session_jwt(user.id, &user.role, secret)
+}
+
+/// Signs a session JWT for `user_id` with `role`, valid for one hour — the
+/// same token [`create_jwt`] makes, without needing a full `User`.
+///
+/// # Errors
+///
+/// As [`create_jwt`].
+pub fn create_session_jwt<R: Role>(
+    user_id: i64,
+    role: &R,
+    secret: &str,
+) -> Result<String, JwtError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(JwtError::ExpirationError)?
         .as_secs();
-    let expiration = now + 3600;
-
     let claims = Claims {
-        sub: user.id,
-        role: user.role.clone(),
-        exp: expiration,
+        sub: user_id,
+        role: role.clone(),
+        exp: now + 3600,
         iat: now,
     };
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|_| JwtError::JwtEncodingError)
+}
 
-    let header = Header::default();
-    let encoding_key = EncodingKey::from_secret(secret.as_bytes());
+/// The session cookie carrying `jwt`: `HttpOnly`, `SameSite=Strict` (the
+/// framework's CSRF defence — a cross-site form never carries it), `Secure`
+/// outside development, one hour. The only way app code should set the
+/// `token` cookie.
+#[must_use]
+pub fn token_cookie(data: &crate::AppData, jwt: String) -> actix_web::cookie::Cookie<'static> {
+    actix_web::cookie::Cookie::build("token", jwt)
+        .path("/")
+        .same_site(actix_web::cookie::SameSite::Strict)
+        .secure(data.env != crate::Env::Dev)
+        .max_age(actix_web::cookie::time::Duration::hours(1))
+        .http_only(true)
+        .finish()
+}
 
-    encode(&header, &claims, &encoding_key).map_err(|_| JwtError::JwtEncodingError)
+/// A fresh session cookie for `user_id` with `role` — e.g. after an app flow
+/// changed the user's role and the token must say so:
+///
+/// ```ignore
+/// Ok(HttpResponse::SeeOther()
+///     .append_header((LOCATION, "/"))
+///     .cookie(auth::session_cookie(&data, user.id, &AppRole::Runner)?)
+///     .finish())
+/// ```
+///
+/// # Errors
+///
+/// As [`create_jwt`].
+pub fn session_cookie<R: Role>(
+    data: &crate::AppData,
+    user_id: i64,
+    role: &R,
+) -> Result<actix_web::cookie::Cookie<'static>, JwtError> {
+    Ok(token_cookie(
+        data,
+        create_session_jwt(user_id, role, data.jwt_secret())?,
+    ))
+}
+
+/// The cookie that ends a session (empty, expired, same attributes).
+#[must_use]
+pub fn logout_cookie(data: &crate::AppData) -> actix_web::cookie::Cookie<'static> {
+    let mut cookie = token_cookie(data, String::new());
+    cookie.set_max_age(actix_web::cookie::time::Duration::seconds(0));
+    cookie
 }
 
 /// Reads and validates the JWT from the request's `token` cookie.
@@ -188,7 +248,7 @@ fn session_cache() -> &'static SessionCache {
 /// **Every write to `users.sessions_valid_after`, and every deletion of a user,
 /// must be followed by this call.** Otherwise the revocation does not take
 /// effect until the cache entry expires, and "log out everywhere" silently
-/// becomes "log out everywhere within [`SESSION_CUTOFF_TTL`]" — a security
+/// becomes "log out everywhere within `SESSION_CUTOFF_TTL`" — a security
 /// guarantee quietly downgraded to a performance trade-off.
 ///
 /// Prefer [`revoke_sessions`], which does both halves and cannot be

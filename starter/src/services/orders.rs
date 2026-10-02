@@ -1,8 +1,8 @@
-//! Override example #2: user-facing order flows next to a generated model.
-//! Moderation (list/filter/fulfil/cancel/delete) is the generated CRUD at
-//! `/admin/orders`; what lives here is what generation can't know — placing
-//! an order against a *published* product, "my orders", and cancelling only
-//! your *own pending* order (the ownership check is in the update filter).
+//! The custom-flow example: the customer's side of orders, next to the
+//! generated `/admin/orders`. What lives here is what generation can't know
+//! — placing an order against a *published* product, "my orders", and
+//! cancelling only your *own pending* order (the ownership check is in the
+//! update filter).
 //!
 //! Related rows here are fetched with a second query over the collected ids
 //! (`Col::in_` on the dynamic builder) and stitched in Rust, rather than
@@ -55,7 +55,7 @@ pub async fn post_place_order(
     .await?;
 
     Ok(HttpResponse::Found()
-        .append_header(("Location", format!("/products/{slug}?ordered=1")))
+        .append_header(("Location", "/my-orders"))
         .finish())
 }
 

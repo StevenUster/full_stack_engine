@@ -3,50 +3,55 @@
 //! the auth module runs with the starter's roles, and registered users get
 //! the "user" role with no admin access.
 
-mod common;
-
-use actix_web::http::StatusCode;
-use actix_web::test;
-use common::{next_peer, seed_user, test_app_data};
+use full_stack_engine::testing::{TEST_PASSWORD, TestApp};
+use starter::AppRole;
 
 #[actix_web::test]
 async fn register_login_and_role_gates_work_end_to_end() {
-    let data = test_app_data().await;
-    seed_user(&data, "admin@test.dev", "password123", "admin").await;
-    let app = test_app!(data);
+    let app = TestApp::new(starter::app()).await;
+    let admin = app.user("admin@test.dev", AppRole::Admin).await;
 
-    // Register through the auth module (urlencoded form).
-    let req = test::TestRequest::post()
-        .uri("/register")
-        .peer_addr(next_peer())
-        .set_form([
+    // Register through the auth module.
+    let res = app
+        .post("/register")
+        .form(&[
             ("first_name", "New"),
             ("last_name", "User"),
             ("email", "new@test.dev"),
             ("password", "password123"),
             ("repeat_password", "password123"),
         ])
-        .to_request();
-    let res = test::call_service(&app, req).await;
-    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        .send()
+        .await;
+    assert_eq!(res.status, 303);
 
-    // The fresh account logs in and holds the self-registration role...
-    let cookie = login_cookie!(&app, "new@test.dev", "password123");
+    // The fresh account logs in through the real form...
+    let res = app
+        .post("/login")
+        .form(&[("email", "new@test.dev"), ("password", "password123")])
+        .send()
+        .await;
+    assert_eq!(res.status, 303, "login should succeed");
+    let cookie = res
+        .headers
+        .get("set-cookie")
+        .and_then(|v| v.to_str().ok())
+        .unwrap();
+    assert!(cookie.contains("HttpOnly") && cookie.contains("SameSite=Strict"));
 
-    // ...which has no user administration access.
-    let req = test::TestRequest::get()
-        .uri("/users")
-        .cookie(cookie.clone())
-        .to_request();
-    let res = test::call_service(&app, req).await;
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    // ...and TestApp users log in with TEST_PASSWORD.
+    let res = app
+        .post("/login")
+        .form(&[("email", "admin@test.dev"), ("password", TEST_PASSWORD)])
+        .send()
+        .await;
+    assert_eq!(res.status, 303);
 
-    // Admin sees the users list (framework page, starter roles).
-    let admin = login_cookie!(&app, "admin@test.dev", "password123");
-    let req = test::TestRequest::get()
-        .uri("/users")
-        .cookie(admin)
-        .to_request();
-    let res = test::call_service(&app, req).await;
-    assert_eq!(res.status(), StatusCode::OK);
+    // Self-registered accounts have no user administration access; admins do.
+    let newcomer = app.user("new@test.dev", AppRole::User).await;
+    assert_eq!(
+        app.get("/users").as_user(&newcomer).send().await.status,
+        404
+    );
+    assert_eq!(app.get("/users").as_user(&admin).send().await.status, 200);
 }

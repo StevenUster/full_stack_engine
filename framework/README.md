@@ -6,153 +6,144 @@
 
 <br/>
 
-# My Rust Framework
+# full_stack_engine
 
-A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera.
-
-## Repository Structure
-
-This repository contains two separate Cargo projects:
-
-- **[`/framework`](/framework)**: The core framework code.
-- **[`/starter`](/starter)**: A complete template application. Use this to start your own project!
-
-## Features
-
-- **Integrated Auth**: Built-in JWT and Argon2 password hashing. Is also pre-configured in the starter app.
-- **Template Engine**: Server-side rendering via Tera, authored as plain TypeScript — the starter's fse-ssr integration compiles typed `ssr<T>()` expressions in Astro templates to Tera at build time (no template syntax in frontend code), and the server injects each page's context as JSON for client-side code. Includes an Astro dev server proxy for rapid frontend development.
-- **Themes**: WordPress-style parent/child themes built with Astro or any other HTML generator — the framework layers the active theme's templates and assets over its parents at runtime (see [docs/themes.md](https://github.com/StevenUster/full_stack_engine/blob/main/docs/themes.md)); `fse-theme-default` provides a complete UI out of the box.
-- **Cron Scheduler**: Easy async job scheduling.
-- **Rate Limiting**: proxy-aware, per-client-IP rate limiting — Actix middleware over `governor` — a generous site-wide limiter is applied to every request automatically (DDoS guard, tunable via `GLOBAL_RATE_LIMIT_*` env vars), plus stricter presets for auth/custom endpoints.
-- **Hardening & performance**: gzip/brotli on every response, immutable caching for fingerprinted theme assets, a per-request CSP nonce replacing `script-src 'unsafe-inline'` in production, liveness/readiness probes, and one validated read of the whole environment at boot (all problems reported together; secrets are `SecretString` and cannot be logged). `cargo deny` gates advisories, licences and the no-OpenSSL rule. See [docs/hardening.md](https://github.com/StevenUster/full_stack_engine/blob/main/docs/hardening.md).
-- **Observability**: structured `tracing` logging (JSON in prod, pretty in dev), one span per request with OpenTelemetry HTTP conventions, a correlation id returned as `x-request-id`, and optional OTLP span export and Sentry/GlitchTip error reporting — all configured by environment variables, with query strings, headers and bodies never recorded. See [docs/observability.md](https://github.com/StevenUster/full_stack_engine/blob/main/docs/observability.md).
-- **Batteries**: the things an app used to pick a crate and write glue for — locale-aware Tera filters (`date`, `datetime`, `currency`, `number`, `slugify`), form deserializers for the shapes an HTML form really submits (`""` for an empty number, untrimmed strings, comma decimals), slugs and URL-stripping for public free text, QR codes as inline `data:` URIs (including SEPA GiroCode), CORS, the first-admin bootstrap, a published `OpenAPI` document with a browsable `/api/docs`, the `cargo run --bin dev` runner, `--hash-password`, and optional headless-Chromium HTML→PDF. See [docs/batteries.md](https://github.com/StevenUster/full_stack_engine/blob/main/docs/batteries.md).
-- **Database**: [`fse-orm`](/fse-orm), a compile-time-checked ORM on top of SQLx — schema defined as plain structs, migrations generated (never hand-written), checked query macros plus a dynamic builder for runtime-shaped queries, Prisma-style relation eager-loading. See [Using the ORM](#using-the-orm).
-
-## Design Principles
-
-These are the core rules the framework is built around. They apply both to changes in `/framework` and to apps built on top of it.
-
-1. **Priorities, in order: Security → Reliability → Speed → Readability.** When two goals conflict, the earlier one wins. A faster or cleaner solution never justifies a weaker security or correctness guarantee.
-
-2. **Secure and stable by default.** Every default the framework ships must be the safest and most robust option available — never the most convenient. If a setting can be insecure, its default is the secure value and loosening it is an explicit, opt-in decision by the app. This includes: autoescaped templates, `HttpOnly` + `SameSite=Strict` + `Secure` (prod) cookies, hardened response headers (CSP, `X-Content-Type-Options`, `X-Frame-Options`), and Argon2 password hashing.
-
-3. **Everything bundles into one executable.** Themes (built `dist/` folders) and locales are embedded via `include_dir!`, and migrations via `sqlx::migrate!()` (passed to `FrameworkApp::migrator`) — a built binary has no external `migrations/` or `locales/` directory to ship. The framework must not introduce runtime dependencies on external services or sidecar processes. Prefer simple, predictable behavior over configurability for its own sake.
-
-4. **Batteries included — where it makes sense.** Common needs (auth, mail, uploads, i18n, rate limiting, cron, error pages) live in the framework so apps don't re-implement them. A helper earns its place only if most apps want it and it can carry the secure default with it; niche or opinion-heavy concerns stay in the app.
-
-5. **Cross-cutting safety belongs in the framework, not the app.** Security and reliability guarantees that every app needs — token expiry, session/JWT invalidation, proxy-aware rate-limit keying, safe template loading that logs and skips a bad template instead of crashing at boot — should be solved once here so every downstream app inherits them.
-
-6. **Untrusted input stays untrusted.** Parameterize all SQL, validate every upload (size + type), keep public files (`uploads/`) separate from private ones (`data/`), and treat any user-supplied HTML that reaches a renderer as hostile.
-
-7. **Telemetry is observation, never a dependency and never a leak.** Observability must not be able to take an application down: a malformed `RUST_LOG`, an unknown `LOG_FORMAT` or an unreachable OTLP collector is reported and then ignored, and the app boots and serves. It must not become a second way to leak data either — the request span records the route and path but never a query string, header, cookie or body, because this framework passes single-use tokens in query strings. Application code emits `tracing` events and nothing else; which backend they reach is a deployment decision, so no vendor's SDK is ever called from a handler.
-
-8. **Migrations are forward-only.** Schema changes are new, timestamped migrations run automatically at startup; applied migrations are never edited. Apps regenerate the SQLx offline cache (`fse prepare` — no `sqlx-cli` needed, see [Installing the CLI](#installing-the-cli)) after query changes.
-
-## Using the ORM
-
-The framework ships an ORM (`fse-orm`, re-exported from the prelude) built directly on `sqlx` — it generates real `sqlx::query!`-based code, so every query stays compile-time checked against your actual database schema. There is no runtime-built SQL in the primary API.
-
-### 1. Define tables as structs
-
-Each `#[derive(Table)]` struct in `src/tables/` **is** a table:
+A full-stack Rust web framework (actix-web, SQLite, server-rendered pages)
+designed for **AI agents to build secure apps with few tokens**: an app is
+mostly a set of annotated structs, and the safe thing is the default thing.
 
 ```rust
-#[derive(Table, Debug, Clone)]
-#[orm(unique(user_id, run_id))]      // composite UNIQUE INDEX
-pub struct Registration {
+#[model(owner = author_id, public_read = slug, api, hooks)]
+pub struct Article {
     pub id: i64,
     #[orm(references(User, on_delete = cascade))]
-    pub user_id: i64,
-    #[orm(relation = user_id)]        // joinable via include:, not a DB column
-    pub user: Option<User>,
-    #[orm(default = false)]
-    pub completed: bool,
-    #[orm(default = now)]
-    pub created_at: chrono::NaiveDateTime,
+    pub author_id: i64,
+    #[ui(list, search, max = 120)]
+    pub title: String,
+    #[orm(unique)]
+    #[ui(slug_from = title)]
+    pub slug: String,
+    #[ui(textarea)]
+    pub body: Option<String>,
+    #[orm(default = "draft")]
+    #[ui(list, filter)]
+    pub status: Status,
+}
+
+impl ModelHooks for Article {
+    fn public_scope() -> Option<Cond> {
+        Some(Article::STATUS.eq(Status::Published))
+    }
 }
 ```
 
-Common field attributes: `primary_key`, `references(Target, on_delete = cascade|set_null|restrict)`, `unique`, `index`, `text` (open-ended string enum, no CHECK), `json`, `default = ...`. Struct-level `#[orm(unique(col_a, col_b))]` / `#[orm(index(col_a, col_b))]` cover multi-column constraints — both always compile to `CREATE [UNIQUE] INDEX`, never an inline table constraint, so adding or dropping one is a plain index change, never a table rebuild.
+That is a complete feature: the table and its migrations, compile-time
+checked queries, an admin UI (list, search, filter, create, edit, delete)
+where authors only ever see their own articles, public pages and a JSON API
+that only show published ones, validation, permissions
+(`articles.read`/`articles.write`) and translations.
 
-### 2. Generate migrations — never write them by hand
-
-```bash
-fse migrate              # diff src/tables against the committed snapshot, generate + apply, refresh .sqlx/
-fse migrate --dry-run     # preview the pending change without writing anything
-fse migrate --no-prepare  # skip the .sqlx/ refresh step
-fse prepare               # just refresh .sqlx/, e.g. after editing a query without touching the schema
-```
-
-`fse` (from `fse-cli`) parses your structs, diffs them against `.fse/schema.json`, and writes a plain timestamped `sqlx` migration, then refreshes the offline query cache (`.sqlx/`) itself — no `sqlx-cli` install required, `fse` is the only tool you need. If a schema shape isn't representable by a struct/field attribute yet, the fix is to extend the ORM — never to hand-author a migration file as a workaround.
-
-#### Installing the CLI
+## Quick start
 
 ```bash
 cargo install fse-cli
+fse new my-app && cd my-app
+fse migrate        # database + query cache
+cargo test         # the example model, tested over the real stack
+cargo run          # http://localhost:8080
 ```
 
-This installs the `fse` binary. It's the only tool needed for schema/migration/query-cache workflows — there's nothing else to install.
+Every app contains an
+**[`AGENTS.md`](https://github.com/StevenUster/full_stack_engine/blob/main/starter/AGENTS.md)**
+— the complete guide for agents and people: the workflow, every model option
+and hook, the generated routes and page contexts, how to write the rare
+custom handler, testing, and the security rules. It is the documentation to
+read.
 
-### 3. Query
+## What a model can declare
 
-Compile-time checked, for the common cases:
+- **Pages and API** — admin CRUD, public list/detail pages (`public_read`),
+  JSON API (`api`), list search, filters (enum, text, ranges), sorting,
+  paging, default order.
+- **Who sees which rows** — `owner = col` (users see their own), the
+  `scope`/`public_scope` hooks (any rule, e.g. via a join table), row locks
+  (`can_edit`, `can_delete`, `can_create`).
+- **Validation** — required, email, http(s) URL, min/max, unique, slugs,
+  plus `before_save` for anything cross-field.
+- **Structure** — relations shown by title, foreign-key selects limited to
+  what the user may read, nested models (`parent`), many-to-many links
+  (`link`), row actions (`actions(...)` → buttons), lifecycle hooks.
+- **Display** — locale-aware formatting (`format = date|currency|...`),
+  computed fields (`decorate`), `private` columns for signed-in users only.
 
-```rust
-let reg = find_one!(Registration, &db, Registration::ID.eq(id))?;
-let page = find_page!(Registration, &db, Registration::COMPLETED.eq(true), page = 1, per_page = 20)?;
-let reg = insert!(Registration, &db, user_id = user_id, run_id = run_id)?;
-update!(Registration, &db, Registration::ID.eq(id), completed = true)?;
-```
+Cross-model mistakes (a missing parent, two routes on one URL) stop the boot
+with one message listing every problem; `cargo test` catches them first.
+`cargo run -- --routes` prints the app's whole generated surface.
 
-`insert!` uses the same `Table, executor, ...` shape as every other macro. Columns you leave out that are nullable or carry `#[orm(default = ...)]` are simply omitted from the `INSERT` — the column's own SQL default (or implicit `NULL`) fills them in, and the returned row reflects the real value. Omitting a required column, or assigning the auto-increment `id`, is a compile error.
+## Secure by default
 
-A dynamic, unchecked builder (same operator names) for query shapes decided at runtime:
+- One code path for every generated endpoint: role permission → owner /
+  scope / parent → row hooks. Out-of-scope rows and denied pages are 404s.
+- Secret-looking columns (`password`, `*_token`, `*_hash`, ...) never reach
+  a page or an API response; anonymous pages get neither `private` columns
+  nor admin metadata; foreign keys can't point at rows the user can't see.
+- Parameterized SQL only (the ORM); autoescaped templates; per-request CSP
+  nonce; hardened headers; `HttpOnly` + `SameSite=Strict` + `Secure` session
+  cookies (the CSRF defence); Argon2; per-IP rate limits; revocable
+  sessions; configuration validated at boot; secrets unloggable.
+- Tests run the production stack (`testing::TestApp`), so what a test sees
+  is what a user gets.
 
-```rust
-let ids = Registration::find().filter(Registration::RUN_ID.in_(run_ids)).fetch_all(&db).await?;
-```
+## Batteries
 
-Relations declared with `#[orm(relation = fk_column)]` can be eager-loaded with a real SQL `JOIN`/`LEFT JOIN` — still checked:
+Auth module (login, registration, email verification, password reset,
+settings, user admin, first-admin bootstrap) · i18n with three language
+modes · mail with templates · cron · uploads (validated, sandboxed) · QR
+codes · HTML→PDF (feature) · locale-aware formatting · OpenAPI +
+`/api/docs` · CORS · health probes · structured tracing with optional
+OTLP/Sentry · WordPress-style parent/child themes (Astro compiled to Tera by
+`fse-ssr`, default theme included) · one self-contained binary. Deep dives:
+[batteries](https://github.com/StevenUster/full_stack_engine/blob/main/docs/batteries.md),
+[hardening](https://github.com/StevenUster/full_stack_engine/blob/main/docs/hardening.md),
+[observability](https://github.com/StevenUster/full_stack_engine/blob/main/docs/observability.md),
+[themes](https://github.com/StevenUster/full_stack_engine/blob/main/docs/themes.md).
 
-```rust
-let reg = find_one!(Registration, &db, Registration::ID.eq(id), include: [user, run])?;
-```
+## Repository
 
-## Getting Started
+| path | what |
+|---|---|
+| `framework/` | the `full_stack_engine` crate (+ `macros/`: `#[model]`) |
+| `fse-orm/` | the ORM: schema parser, query macros, runtime, the `fse` CLI (`new`, `migrate`, `prepare`, `routes`, `sync`) |
+| `fse-ssr/` | Astro integration compiling pages to Tera |
+| `fse-theme-default/` | the default theme (npm package + crate embedding its build) |
+| `starter/` | the reference app and the canonical `AGENTS.md` |
+| `docs/` | design notes and deep dives |
 
-The fastest way to get started is to explore the **[Starter App](/starter)**. It comes with a preconfigured frontend (Astro), auth services, and database migrations.
+## Design principles
 
-### 1. Copy the Starter
-Copy the `starter` folder to your own repository or work directly inside it.
-
-### 2. Configure Environment
-Navigate to the starter directory and copy the example environment file:
-```bash
-cd starter
-cp .example.env .env
-```
-
-### 3. Run Development Mode
-The starter includes a `dev` binary that launches both the Rust backend and the Astro frontend concurrently:
-```bash
-cargo run --bin dev
-```
-
-### 4. Logs and Telemetry
-Nothing to configure: dev logs at `debug` in colourised multi-line form, prod logs
-at `info` as one JSON object per line, and no telemetry leaves the process until an
-endpoint is set. To send traces somewhere:
-```bash
-docker run -p 4318:4318 -p 16686:16686 jaegertracing/all-in-one:latest
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run   # traces at :16686
-```
-Every knob (`LOG_LEVEL`, `LOG_FORMAT`, `RUST_LOG`, `SERVICE_VERSION`,
-`TELEMETRY_SAMPLE_RATIO`, `SENTRY_DSN`, ...) is documented in
-[`.example.env`](/starter/.example.env) and
-[docs/observability.md](https://github.com/StevenUster/full_stack_engine/blob/main/docs/observability.md).
+1. **Priorities, in order: Security → Reliability → Speed → Readability.**
+   When two goals conflict, the earlier one wins.
+2. **Secure and stable by default.** Every default is the safest option;
+   loosening one is an explicit, visible decision in the app.
+3. **Declare, don't hand-write.** If many apps need it, it becomes a model
+   option or hook — so it is written once, tested once, and every app gets
+   the security that comes with it. `services/` is for genuinely unique
+   flows.
+4. **Built for agents.** One guide, compile-time errors that say how to fix
+   them, boot checks that list every problem, a test harness that is the
+   real app, and no step that needs a human to remember a convention.
+5. **Everything bundles into one executable.** Themes, locales and
+   migrations are embedded; no sidecar processes.
+6. **Cross-cutting safety belongs in the framework.** Token expiry, session
+   revocation, rate-limit keying, escaping and access checks are solved here
+   so every app inherits them.
+7. **Untrusted input stays untrusted.** Parameterized SQL, validated
+   uploads, public (`uploads/`) and private (`data/`) files kept apart,
+   user HTML treated as hostile.
+8. **Telemetry is observation, never a dependency and never a leak.**
+9. **Migrations are generated and forward-only** (`fse migrate`); applied
+   migrations are never edited.
 
 ## License
 
 MIT OR Apache-2.0
-

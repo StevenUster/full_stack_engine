@@ -18,7 +18,7 @@
 //! Actix builds the middleware stack **once per worker thread**. A limiter
 //! created per worker would multiply the effective limit by the worker count, so
 //! every limiter here is an `Arc` handed out from a process-wide cache keyed by
-//! call site (see [`shared_limiter`]). One IP therefore gets one bucket for the
+//! call site (see `shared_limiter`). One IP therefore gets one bucket for the
 //! whole process.
 
 use std::collections::HashMap;
@@ -122,7 +122,7 @@ pub trait RequestKey: Clone + 'static {
 
 /// Keys per client IP, for deployments behind a trusted reverse proxy (the
 /// framework's default, since apps bind `0.0.0.0` and terminate TLS at a proxy).
-/// See [`client_ip`].
+/// See `client_ip`.
 ///
 /// This assumes a proxy that sets/appends the forwarded headers. If the app is
 /// exposed directly to the internet, those headers are client-controlled; key on

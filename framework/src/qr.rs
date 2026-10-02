@@ -3,7 +3,7 @@
 //! Rendered as SVG and base64-encoded so the result drops straight into an
 //! `<img src>` — which is what makes it work in the two places a QR code is
 //! usually needed and an extra HTTP request is not available: a generated PDF
-//! (see [`crate::pdf`], whose renderer blocks every non-`data:` subresource on
+//! (see the `pdf` module (feature `pdf`), whose renderer blocks every non-`data:` subresource on
 //! purpose) and an HTML email.
 //!
 //! ```ignore

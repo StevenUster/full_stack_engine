@@ -44,8 +44,6 @@
 
 use std::sync::OnceLock;
 
-use actix_web::cookie::time::Duration;
-use actix_web::cookie::{Cookie, SameSite};
 use actix_web::http::header::LOCATION;
 use actix_web::{HttpRequest, HttpResponse, web};
 use serde::Deserialize;
@@ -58,7 +56,7 @@ use crate::error::{AppError, AppResult, ErrorContext as _};
 use crate::modules::ModuleDef;
 use crate::rate_limiter::{auth_rate_limiter, custom_rate_limiter};
 use crate::structs::{Role, User};
-use crate::{AppData, Env, RenderTplExt};
+use crate::{AppData, RenderTplExt};
 
 /// Role name assigned to self-registered accounts.
 const DEFAULT_ROLE: &str = "user";
@@ -236,16 +234,6 @@ fn now() -> chrono::NaiveDateTime {
     chrono::Utc::now().naive_utc()
 }
 
-fn session_cookie(data: &AppData, jwt: String) -> Cookie<'static> {
-    Cookie::build("token", jwt)
-        .path("/")
-        .same_site(SameSite::Strict)
-        .secure(data.env != Env::Dev)
-        .max_age(Duration::hours(1))
-        .http_only(true)
-        .finish()
-}
-
 fn see_other(location: &str) -> HttpResponse {
     HttpResponse::SeeOther()
         .append_header((LOCATION, location.to_string()))
@@ -310,18 +298,12 @@ async fn login_submit<R: Role>(
 
     Ok(HttpResponse::SeeOther()
         .append_header((LOCATION, "/"))
-        .cookie(session_cookie(&data, jwt))
+        .cookie(crate::auth::token_cookie(&data, jwt))
         .finish())
 }
 
 async fn logout(data: web::Data<AppData>) -> HttpResponse {
-    let cookie = Cookie::build("token", "")
-        .path("/")
-        .same_site(SameSite::Strict)
-        .secure(data.env != Env::Dev)
-        .http_only(true)
-        .max_age(Duration::seconds(0))
-        .finish();
+    let cookie = crate::auth::logout_cookie(&data);
 
     HttpResponse::SeeOther()
         .append_header((LOCATION, "/login"))

@@ -14,11 +14,9 @@
 //!
 //! `cargo insta review` to accept an intended change.
 
-mod common;
-
-use actix_web::{App, test};
-use common::test_app_data;
-use starter::serde_json;
+use full_stack_engine::testing::TestApp;
+use starter::models::product::{Product, ProductStatus};
+use starter::{insert, serde_json};
 
 /// Normalises everything that legitimately differs between runs, so a snapshot
 /// captures the page's *shape* and nothing else.
@@ -33,11 +31,13 @@ fn stable(html: &str) -> String {
 
 /// The size and composition of the JSON the page ships to the client.
 fn page_props(html: &str) -> serde_json::Value {
-    let open = r#"<script type="application/json" id="__fse-props__">"#;
-    let Some(start) = html.find(open) else {
+    // The production stack stamps a CSP nonce onto every <script>, so the
+    // tag is matched by its id rather than verbatim.
+    let Some(start) = html.find(r#"id="__fse-props__""#) else {
         return serde_json::json!(null);
     };
-    let rest = &html[start + open.len()..];
+    let rest = &html[start..];
+    let rest = &rest[rest.find('>').expect("unterminated props tag") + 1..];
     let end = rest.find("</script>").expect("unterminated props block");
     let json = rest[..end].replace("\\u003c", "<");
     serde_json::from_str(&json).expect("props should be valid JSON")
@@ -45,18 +45,10 @@ fn page_props(html: &str) -> serde_json::Value {
 
 #[actix_web::test]
 async fn home_page_context_carries_only_what_it_needs() {
-    let data = test_app_data().await;
-    let app = test::init_service(
-        App::new()
-            .app_data(data.clone())
-            .configure(starter::services::configure),
-    )
-    .await;
-
-    let res = test::call_service(&app, test::TestRequest::get().uri("/").to_request()).await;
-    assert!(res.status().is_success());
-    let body = test::read_body(res).await;
-    let html = String::from_utf8_lossy(&body);
+    let app = TestApp::new(starter::app()).await;
+    let res = app.get("/").send().await;
+    assert_eq!(res.status, 200);
+    let html = res.body;
 
     // The keys the page ships to the client, and how big each one is. `i18n`
     // (every language's translations) must not reappear here.
@@ -85,34 +77,37 @@ async fn home_page_context_carries_only_what_it_needs() {
 
 #[actix_web::test]
 async fn public_product_page_renders_its_content() {
-    let data = test_app_data().await;
-    common::seed_product(&data, "snapshot-widget", "published").await;
-
-    let app = test::init_service(
-        App::new()
-            .app_data(data.clone())
-            .configure(starter::services::configure),
+    let app = TestApp::new(starter::app()).await;
+    insert!(
+        Product,
+        &app.db,
+        name = "Product snapshot-widget".to_string(),
+        slug = "snapshot-widget".to_string(),
+        price = 9.99,
+        status = ProductStatus::Published
     )
-    .await;
+    .await
+    .unwrap();
 
-    let res = test::call_service(
-        &app,
-        test::TestRequest::get()
-            .uri("/products/snapshot-widget")
-            .to_request(),
-    )
-    .await;
-    assert!(res.status().is_success());
-    let body = test::read_body(res).await;
-    let html = stable(&String::from_utf8_lossy(&body));
+    let res = app.get("/products/snapshot-widget").send().await;
+    assert_eq!(res.status, 200);
+    let html = stable(&res.body);
 
     // The product's own data must survive the whole render pipeline.
     assert!(
         html.contains("Product snapshot-widget"),
         "product name missing"
     );
-    insta::assert_snapshot!("public_product_props", {
-        let props = page_props(&html);
+    let mut props = page_props(&html);
+    // The creation time is the only value that differs between runs.
+    for key in ["created_at", "created_at_display"] {
+        props["row"][key] = serde_json::json!("[timestamp]");
+    }
+    // Anonymous pages must never learn the admin side of a model.
+    assert!(props["meta"].get("form_columns").is_none());
+    assert_ne!(props["meta"]["base_path"], "/admin/products");
+    insta::assert_snapshot!(
+        "public_product_props",
         serde_json::to_string_pretty(&props).unwrap()
-    });
+    );
 }

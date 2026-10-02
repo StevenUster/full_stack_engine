@@ -53,9 +53,15 @@ define_roles! {
     (None,    "none",    ["none"]),
 }
 
-/// Builds and runs the application; `main.rs` is only a thin wrapper around
-/// this.
+/// Runs the application; `main.rs` is only a thin wrapper around this.
 pub async fn run() -> std::io::Result<()> {
+    app().run().await
+}
+
+/// The whole app as one builder — what [`run`] serves and what the tests
+/// drive (`full_stack_engine::testing::TestApp::new(starter::app())`), so
+/// both see the same routes, modules, locales and middleware.
+pub fn app() -> FrameworkApp {
     let mut app = FrameworkApp::new();
     for theme in themes() {
         app = app.theme(theme);
@@ -83,18 +89,13 @@ pub async fn run() -> std::io::Result<()> {
         .cronjobs(cronjobs::add_cronjobs)
         // Migrations are embedded in the binary at compile time.
         .migrator(sqlx::migrate!())
-        // `/api/openapi.json` + a browsable `/api/docs`. The `#[model(api)]`
-        // half is generated from the model registry and cannot drift; the
-        // hand-written routes declare themselves next to their handlers.
-        .api_docs(
-            full_stack_engine::models::openapi::ApiDocs::new(
-                "Starter Public API",
-                env!("CARGO_PKG_VERSION"),
-                "Read-only, unauthenticated access to the published product catalog.",
-            )
-            .paths(services::api::openapi_paths())
-            .schemas(services::api::openapi_schemas()),
-        )
+        // `/api/openapi.json` + a browsable `/api/docs`, generated from the
+        // `#[model(api)]` structs — it cannot drift from the endpoints.
+        .api_docs(full_stack_engine::models::openapi::ApiDocs::new(
+            "Starter Public API",
+            env!("CARGO_PKG_VERSION"),
+            "Read-only, unauthenticated access to the published product catalog.",
+        ))
         // The API is meant to be read cross-origin. Note this applies
         // app-wide, not only to /api: `Any` never permits credentials, so a
         // caller only ever sees the anonymous page its own server could fetch.
@@ -115,6 +116,4 @@ pub async fn run() -> std::io::Result<()> {
                 );
             }
         })
-        .run()
-        .await
 }

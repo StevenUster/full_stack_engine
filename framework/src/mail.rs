@@ -55,7 +55,7 @@ impl MailAttachment {
 ///
 /// Exists so that an app needing to attach a generated PDF does not rebuild the
 /// SMTP transport itself. That matters beyond convenience: the transport is
-/// where the TLS policy lives (see [`build_transport`]), and a second copy of it
+/// where the TLS policy lives (see `build_transport`), and a second copy of it
 /// in an app is a place for "required" to quietly become "opportunistic".
 ///
 /// # Errors

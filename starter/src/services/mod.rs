@@ -8,25 +8,16 @@ use crate::web;
 
 pub use full_stack_engine::prelude::RenderTplExt;
 
-pub mod api;
 pub mod index;
 pub mod orders;
-pub mod products_public;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(index::index);
 
-    // Public catalog: the override example — published products only.
-    cfg.service(products_public::get_public_products);
-    cfg.service(products_public::get_public_product_detail);
-
-    // User-facing order flows beside the generated /admin/orders CRUD.
+    // The customer's order flow — what generation can't know: an order
+    // needs a published product and belongs to the signed-in customer.
+    // Managers use the generated /admin/orders (with Fulfill/Cancel).
     cfg.service(orders::post_place_order);
     cfg.service(orders::get_my_orders);
     cfg.service(orders::post_cancel_my_order);
-
-    // Public JSON API (published data only). `/api/openapi.json` and
-    // `/api/docs` are mounted by `.api_docs(...)` in lib.rs.
-    cfg.service(api::get_products);
-    cfg.service(api::get_product_detail);
 }

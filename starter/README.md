@@ -1,68 +1,50 @@
 # Starter
 
-A starter app for the `full_stack_engine` framework: **the app is defined by the `#[model]` structs in `src/models/`** — each struct generates its table + migrations, its compile-time-checked ORM queries, and its admin CRUD endpoints and pages (list with search/filter/pagination, create/edit forms, delete), permission-gated and translated. Auth (login/register/email verification/password reset/settings/user admin) comes from the framework's built-in auth module, the design from the `fse-theme-default` theme. What's left in `services/` and the child theme in `theme/` are **override examples**: a published-only public catalog, user-facing order flows, and a public JSON API with self-hosted Swagger docs.
+The reference app for **full_stack_engine** — what a finished app looks
+like: almost everything is declared by the `#[model]` structs in
+`src/models/`; `src/services/` holds only the one flow a model can't express.
+
+**Agents and developers: read [`AGENTS.md`](./AGENTS.md)** — the complete
+guide (workflow, every model option and hook, security rules, testing).
+For a blank new app instead of this showcase, run `fse new <name>`.
+
+```bash
+cp .example.env .env        # set JWT_SECRET (≥ 32 chars)
+(cd theme && bun install && bun run build)
+fse migrate
+cargo test
+cargo run --bin dev         # backend + theme dev server
+```
 
 ---
 
-## Core Principles
+## What's in it
 
-The rules every change to this app should respect:
+| feature | how |
+|---|---|
+| Auth: login, registration, email verification, password reset, settings, user admin (`/users`) | `.module(auth_module)` — no auth code in the app |
+| Roles `Admin`, `Manager`, `User`, `None` | `define_roles!` in `src/lib.rs` |
+| Products admin `/admin/products`: search, status filter, validation (`min`, `max`), slug derived from the name, formatted price/date | `src/models/product.rs` |
+| Public catalog `/products`, `/products/{slug}` and JSON API `/api/products` — published products only | `public_read` + `api` + the `public_scope` hook on `Product` |
+| Orders admin `/admin/orders`: product and customer by name, *Fulfill*/*Cancel* buttons on pending orders | `src/models/order.rs` — relations with `#[ui(list)]`, `actions(...)` + `can_act` |
+| Customers order a published product, see `/my-orders`, cancel their own pending order | `src/services/orders.rs` — the custom-flow example |
+| OpenAPI document + Swagger UI at `/api/docs` | `.api_docs(...)`, generated from the `api` models |
+| Child theme: own catalog pages, extra sidebar links, recolored palette | `theme/` (parent: `fse-theme-default`) |
+| English + German | `locales/*.json` (framework texts built in) |
+| Tests over the production stack | `tests/` with `TestApp` |
 
-1. **Priorities, in order:** Security → Reliability → Speed → Readability. When they conflict, the earlier one wins.
-2. **One self-contained binary.** The themes (the `fse-theme-default` crate and the built `theme/`) and locales are embedded with `include_dir!`, and migrations with `sqlx::migrate!()` — a built binary carries them all and needs no `migrations/` or `locales/` directory beside it. No sidecar processes; persistent state lives only in the `data/` volume. Keep it simple and predictable.
-3. **Secure by default.** New options default to their safest value. Auth cookies stay `HttpOnly` + `SameSite=Strict` + `Secure` (prod). Secrets and tokens are never logged.
-4. **Every handler authorizes.** State-changing endpoints check role before acting. The public site and API expose only `published` products — never drafts/archived data or extra user PII.
-5. **Parameterized SQL only.** All user input goes through `sqlx` bind parameters; never string-formatted into a query.
-6. **Escaped templates.** Tera autoescaping is always on; `safe` is used only on pre-escaped values. Every `.html` file of the theme stack becomes a Tera template at boot (broken ones fail `cargo test`).
-7. **Forward-only migrations.** Add a new timestamped migration per schema change and run `cargo sqlx prepare` afterwards; never edit an applied migration.
-
-See [`CLAUDE.md`](./CLAUDE.md) for the detailed rationale behind each rule.
-
----
-
-## Features
-
-### Auth & users
-
-- Role-based permissions: `Admin`, `Manager`, `User`, `None`.
-- Email verification for new accounts (optional, toggled via `EMAIL_VERIFICATION_ENABLED`).
-- Password reset via email.
-- Email address changes with re-verification.
-- Admin user management UI (`/users`) with role assignment.
-- All of the above comes from the framework's built-in auth module — zero auth code in this app; override any route or page by defining your own.
-
-### Products (example manageable resource)
-
-- One `#[model]` struct (`src/models/product.rs`) generates the entire admin CRUD at `/admin/products` — list with search + status filter + pagination, create/edit forms with validation, delete — gated by `products.read`/`products.write`.
-- Public catalog (`/products`) and detail pages are the hand-written **override example** — only `published` products are visible, a business rule generation can't know.
-
-### Orders (example child resource)
-
-- `src/models/order.rs` generates moderation CRUD at `/admin/orders`.
-- The user-facing flows are custom (`services/orders.rs`): signed-in users place orders against published products and cancel their own pending orders from `/my-orders` (ownership checks live in the query filters).
-
-### Public API
-
-- Read-only, unauthenticated, CORS-enabled JSON API (`/api/products`, `/api/products/{slug}`).
-- Self-hosted Swagger UI at `/api/docs`, spec at `/api/openapi.json` — no external/CDN requests.
-
-### Frontend (themes)
-
-- The UI comes from the `fse-theme-default` theme (a cargo crate). `theme/` is this app's **child theme** — an Astro project whose `theme.json` names the default theme as parent (see [docs/themes.md](../docs/themes.md)):
-  - `theme/src/pages/` — the app's own pages (public catalog, my-orders, API docs); a same-path page would override a parent page.
-  - `theme/src/components/SidebarLinks.astro` and `theme/src/styles/global.css` — override examples: extra sidebar links and a recolored palette, applied to every inherited page.
-  - Delete `theme/` (and its `.theme(...)` line in `src/lib.rs`) to run on the plain default theme, or point `parent` at another theme.
-- Tailwind CSS, light/dark mode.
-- Bilingual (English default, German) via `locales/en.json` / `locales/de.json`.
+Run `cargo run -- --routes` to see every generated route and the permission
+it needs.
 
 ---
 
 ## Deployment
 
-Prepare sqlx queries:
+Commit the query cache (`fse migrate` refreshes it; `fse prepare` after
+editing a query only):
 
 ```bash
-cargo sqlx prepare
+fse prepare
 ```
 
 Build the image:
@@ -124,25 +106,15 @@ bun dev
 
 ### Database migrations
 
-Install sqlx cli if you don't have it:
+Never written by hand. Change a struct in `src/models/`, then:
 
 ```bash
-cargo install sqlx-cli --no-default-features --features sqlite
+cargo install fse-cli      # once
+fse migrate                # diff the models, write + apply a migration, refresh .sqlx/
+fse migrate --dry-run      # preview only
 ```
 
-Add a new migration:
-
-```bash
-sqlx migrate add migration_name
-```
-
-Execute all migrations that haven't been applied:
-
-```bash
-sqlx migrate run
-```
-
-_Note: Before the webserver starts all migrations are run to ensure that the database has everything in production._
+Pending migrations also run automatically when the app boots.
 
 ## Keep everything up to date
 

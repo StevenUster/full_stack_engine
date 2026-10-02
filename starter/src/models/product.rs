@@ -1,14 +1,16 @@
-//! The example resource. `#[model]` makes this struct the whole feature:
-//! the table (via `fse migrate`), the ORM's typed queries, and the generated
-//! admin CRUD at `/admin/products` (list with search + status filter,
-//! create/edit forms, delete) guarded by `products.read`/`products.write`.
+//! The example resource — one struct is the whole feature:
 //!
-//! The *public* catalog (`/products`, published rows only) is deliberately
-//! not generated — it's hand-written in `services/products_public.rs` as the
-//! canonical example of overriding: generation can't know that only
-//! `published` rows are public.
+//! - the table (via `fse migrate`) and the ORM's typed queries,
+//! - the admin CRUD at `/admin/products` (search, status filter, forms with
+//!   validation), guarded by `products.read`/`products.write`,
+//! - the public catalog at `/products` + `/products/{slug}` (`public_read`)
+//!   and the JSON API at `/api/products` (`api`) — both limited to
+//!   *published* rows by `public_scope` below.
+//!
+//! The catalog pages are styled by `theme/src/pages/products/` (a template
+//! named after the model wins over the generic one) — no Rust for them.
 
-use crate::{DbEnum, chrono::NaiveDateTime, model};
+use crate::{Cond, DbEnum, ModelHooks, chrono::NaiveDateTime, model};
 
 #[derive(DbEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProductStatus {
@@ -17,23 +19,31 @@ pub enum ProductStatus {
     Archived,
 }
 
-#[model]
+#[model(public_read = slug, api, hooks)]
 pub struct Product {
     pub id: i64,
-    #[ui(list, search)]
+    #[ui(list, search, max = 120)]
     pub name: String,
+    /// Left empty, it is derived from the name (and kept on edit).
     #[orm(unique)]
-    #[ui(list)]
+    #[ui(list, slug_from = name)]
     pub slug: String,
     #[ui(textarea)]
     pub description: Option<String>,
     #[orm(default = 0.0)]
-    #[ui(list)]
+    #[ui(list, min = 0, format = currency)]
     pub price: f64,
     #[orm(default = "draft")]
     #[ui(list, filter)]
     pub status: ProductStatus,
     #[orm(default = now)]
-    #[ui(list)]
+    #[ui(list, format = date)]
     pub created_at: NaiveDateTime,
+}
+
+impl ModelHooks for Product {
+    /// Only published products exist for the public pages and the API.
+    fn public_scope() -> Option<Cond> {
+        Some(Product::STATUS.eq(ProductStatus::Published))
+    }
 }

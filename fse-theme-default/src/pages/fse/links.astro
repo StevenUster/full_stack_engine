@@ -1,0 +1,104 @@
+---
+/**
+ * Generic many-to-many page (`#[model(link = ...)]`): the rows of another
+ * model linked to one row, with a search to add more and a button to remove
+ * each. Mounted at `{owner base}/{id}/{segment}`; override it per owner with
+ * a page at that namespace (e.g. `event-manager/managers`).
+ */
+import { ssr } from "fse-ssr/ssr";
+import Layout from "../../layouts/Layout.astro";
+import type { ModelLinksPage } from "../../types";
+
+const { t, lang_prefix, parent, link, linked, can_write } = ssr<ModelLinksPage>();
+const title = t.models[link.table].title ?? link.table;
+---
+
+<Layout title={title}>
+  <main class="max-w-2xl">
+    <a class="mb-2 inline-block text-sm text-secondary-500 hover:text-secondary-800" href={`${lang_prefix}${parent.meta.base_path}/${parent.row.id}`}>
+      ← {parent.row[parent.meta.title_field]}
+    </a>
+    <h1 class="section-title mb-6">{title}</h1>
+
+    <div class="bg-white border border-secondary-200 rounded-xl">
+      {linked.length === 0 && (
+        <p class="p-6 text-sm text-secondary-500">{t.model_ui.no_links ?? "Nothing linked yet."}</p>
+      )}
+      {linked.map((item) => (
+        <div class="flex items-center justify-between gap-4 px-4 py-3 border-b border-secondary-100 last:border-b-0">
+          <span>{item.title}</span>
+          {can_write && (
+            <button
+              type="button"
+              class="btn-ghost"
+              data-fse-unlink={`${lang_prefix}${link.base_path}/${item.id}`}
+            >
+              {t.model_ui.remove_link ?? "Remove"}
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+
+    {can_write && (
+      <div class="mt-6" data-fse-link-picker={`${lang_prefix}${link.base_path}`}>
+        <input
+          type="search"
+          data-fse-link-search
+          placeholder={t.model_ui.search_to_add ?? "Search to add..."}
+          class="w-full px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
+        />
+        <form method="post" action={`${lang_prefix}${link.base_path}`} data-fse-link-results class="mt-2 flex flex-col gap-1"></form>
+        <template data-fse-link-labels data-add={t.model_ui.add_link ?? "Add"} data-linked={t.model_ui.linked ?? "Linked"}></template>
+      </div>
+    )}
+  </main>
+
+  <script>
+    for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-fse-unlink]")) {
+      btn.addEventListener("click", async () => {
+        const res = await fetch(btn.getAttribute("data-fse-unlink") ?? "", { method: "DELETE" });
+        if (res.ok) location.reload();
+      });
+    }
+
+    const picker = document.querySelector<HTMLElement>("[data-fse-link-picker]");
+    const search = picker?.querySelector<HTMLInputElement>("[data-fse-link-search]");
+    const results = picker?.querySelector<HTMLFormElement>("[data-fse-link-results]");
+    const labels = picker?.querySelector<HTMLElement>("[data-fse-link-labels]");
+    let timer: number | undefined;
+    search?.addEventListener("input", () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        const base = picker?.getAttribute("data-fse-link-picker") ?? "";
+        const res = await fetch(`${base}/candidates?search=${encodeURIComponent(search.value)}`);
+        if (!res.ok || !results) return;
+        const { rows } = (await res.json()) as { rows: { id: number; title: string; linked: boolean }[] };
+        results.replaceChildren(
+          ...rows.map((row) => {
+            const line = document.createElement("div");
+            line.className = "flex items-center justify-between gap-4 px-3 py-2 rounded-lg hover:bg-secondary-50";
+            const name = document.createElement("span");
+            name.textContent = String(row.title);
+            line.append(name);
+            if (row.linked) {
+              const done = document.createElement("span");
+              done.className = "text-sm text-secondary-400";
+              done.textContent = labels?.dataset.linked ?? "Linked";
+              line.append(done);
+            } else {
+              const add = document.createElement("button");
+              add.type = "submit";
+              add.name = "id";
+              add.value = String(row.id);
+              add.className = "btn-secondary";
+              add.textContent = labels?.dataset.add ?? "Add";
+              line.append(add);
+            }
+            return line;
+          }),
+        );
+      }, 200);
+    });
+  </script>
+</Layout>

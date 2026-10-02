@@ -10,6 +10,7 @@
 
 use proc_macro::TokenStream;
 
+mod link;
 mod model;
 mod resource;
 
@@ -31,12 +32,23 @@ mod resource;
 ///   endpoints.
 /// - `title_field = name` — column used as the row title on detail pages
 ///   (default: the first plain text column, else the primary key).
+/// - `owner = user_id` — rows belong to the user in this `i64` column:
+///   non-admins (`Role::is_admin`) only ever see and change their own rows,
+///   and on create the column is filled from the signed-in user (it is never
+///   a form field, so it can't be spoofed).
+/// - `hooks` — the app implements `full_stack_engine::models::ModelHooks`
+///   for this struct: row-level access (`scope`, `can_edit`, ...), lifecycle
+///   hooks (`before_save`, `after_delete`, ...) and computed display fields.
+///   Without it every hook keeps its default.
 ///
-/// Field-level `#[ui(...)]` keys (all bare flags):
+/// Field-level `#[ui(...)]` keys:
 /// - `list` — show this column in the generated list table. If no field is
 ///   marked, every scalar non-secret column except the primary key is shown.
 /// - `search` — the list search box matches this (plain text) column.
-/// - `filter` — offer a filter dropdown (`DbEnum` and `bool` columns).
+/// - `filter` — offer a list filter: a dropdown for `DbEnum` and `bool`
+///   columns, a substring match for text, a `{col}_from`/`{col}_to` range
+///   for numbers, dates and timestamps. `filter = exact|contains|range`
+///   picks the kind explicitly (e.g. a range over ISO dates kept as text).
 /// - `textarea` — render a multi-line editor for this text column.
 /// - `hidden` — never show the column in generated UI.
 /// - `readonly` — show the column but never edit it in generated forms.

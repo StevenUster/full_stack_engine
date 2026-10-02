@@ -276,3 +276,141 @@ project plus a crate embedding its `dist/`; fse-ssr's `theme:` option and the
 `@theme`/`@app-styles` aliases are replaced by `theme.json` `parent`, child-first
 resolution of parent `src/` files and `@parent/...`. The starter's
 `src/frontend/` became the child theme `theme/`. Full reference: `docs/themes.md`.
+
+## Phase 9 — app logic lives on the model (planned 2026-10-01)
+
+### Why
+
+RFJ, the first real app on the framework, generates nothing: every model is
+`#[model(disabled)]`. Generated handlers only ask "does this role have
+`events.write`?" — never "does *this user* manage *this event*?" — so turning
+them on would let any Manager edit every event. About 1,500 of RFJ's ~3,900
+service lines are CRUD written by hand for that one reason (event-manager
+list/create/edit/delete, runs, `/my-donations`, `/my-runs`), each repeating
+query-string parsing, an ownership check and a full-form `json!` re-render.
+The rest (donation flow, join-event, letters/PDF, invoices, public API) is
+genuine domain logic and stays in `services/`.
+
+Goal: `src/models/` describes the whole app, including *who may see and
+change which rows*; `services/` is only for flows generation can't express.
+
+### Decisions (Steven, 2026-10-01)
+
+- **A trait is the core, attributes are shortcuts.** RFJ's event rule goes
+  through a join table (`event_managers`), which no attribute can express
+  cleanly, so the app implements `ModelHooks` next to the struct in
+  `models/<name>.rs`. Simple cases get attribute sugar (`owner = col`).
+- **RFJ keeps its own page designs.** Its Astro pages are adapted to the
+  generated context shapes; it does not switch to the theme's `fse/*` pages.
+
+### Design
+
+```rust
+#[model(path = "event-manager", permission = "events", hooks)]
+pub struct Event { /* ... */ }
+
+impl ModelHooks for Event {
+    async fn scope(db: &Db, user: &CurrentUser) -> AppResult<Option<Cond>> {
+        if user.role::<AppRole>().is_event_admin() { return Ok(None); }
+        let ids = /* event ids this user manages */;
+        Ok(Some(Event::ID.in_(ids)))
+    }
+    fn can_create(user: &CurrentUser) -> bool { /* admins only */ }
+    async fn before_save(form: &mut FormData, cx: SaveCx<'_, Self>) -> AppResult<FormResult> {
+        /* slug from name, … */
+    }
+}
+
+#[model(owner = donor_user_id, no_create)]   // shortcut: "my donations"
+pub struct Donation { /* ... */ }
+```
+
+- `#[model(hooks)]` opts in: the app writes `impl ModelHooks for X`. Without
+  it the macro emits an empty impl (all defaults). Forgetting the flag is a
+  "conflicting implementations" compile error, never silent.
+- **`CurrentUser`** is type-erased (the registry has no role type): `id()`,
+  `is_admin()`, `has_permission(p)` (a fn pointer monomorphized for the app's
+  role at mount time), and `role::<R>()` to get the app's own enum back.
+- **Scope** (`scope`, async, may query) is ANDed into the WHERE of list,
+  detail, update and delete — one rule, four endpoints, no drift. A row
+  outside the scope is a 404, so its existence doesn't leak. `public_scope`
+  (sync) does the same for `public_read` pages and the public API (e.g.
+  "only published events").
+- **Row checks:** `can_create(user)`, `can_edit(&self, db, user)`,
+  `can_delete(&self, db, user)` — e.g. "read-only once the event is
+  completed". Refusal = `AppError::NoAuth`, same as a missing permission.
+  Templates get `can_create` (list) and `can_edit`/`can_delete` (form).
+- **Lifecycle:** `before_save(form, cx)` adjusts/validates the submitted
+  form before parsing (`cx.existing` is `None` on create) and may return
+  field errors; `after_save(&self, db, user, created)`;
+  `after_delete(self, db, user)` (e.g. remove uploaded files). The form hook
+  works on the raw submission because the generated write path binds parsed
+  form values straight into the checked `insert!`/`update!` — there is no
+  half-built struct to hand over.
+- **`decorate(&self, &mut row)`** adds computed display fields to the row
+  JSON (`date_display`, …) — needed because Tera filters are still
+  unreachable from `.astro` pages (see the fse-ssr filter gap).
+- **`owner = col`** (i64 FK to the user): non-admins (`Role::is_admin`) only
+  ever see/change their own rows; on create the column is filled from the
+  logged-in user and it never appears in generated forms (no spoofing).
+  ANDed with any `scope` from hooks.
+- **Richer list filters:** `#[ui(filter)]` on plain text → substring match;
+  on date-like columns → `{col}_from` / `{col}_to` range.
+
+### Delivered (2026-10-01, framework 10.0 — uncommitted, unpublished)
+
+All three planned stages, plus the agent tooling, in one breaking release:
+
+- **Access & hooks** — `ModelHooks` (`scope`, `public_scope`, async
+  parent-aware `can_create`, `can_edit`, `can_delete`, `can_act`,
+  `before_save`, `after_save`, `before_delete`, `after_delete`,
+  `decorate`), `CurrentUser`, `Access { user, parent_id }`, `owner = col`.
+- **Relations** — `#[ui(show)]`/`show(rel)`/`list` on relation fields embed
+  `{id, title}` (two levels); FK columns are selects of what the user may
+  read, and submitted FKs are checked against visibility (`ref_visible`).
+- **Nesting** — `parent = col`: routes under the parent, permission base
+  inherited, rows visible only under visible parents on *every* path
+  (`visible_parent_ids` in the generated scope — found by a test where a
+  rival could attach a task to a hidden member).
+- **Row actions** — `actions(a, b)` → `POST {base}/{id}/actions/{a}`,
+  `async fn a(&self, ActionCx)`, per-row `_actions`.
+- **Many-to-many** — `link = owner_col` on a join table (`LinkResource`):
+  page, candidates JSON, add/remove; the join struct's hooks run.
+- **Declarative rules** — `required`, `email`, `url` (http/https only),
+  `min`/`max`, `slug_from`, `format`, `order_by`, `per_page`, `private`;
+  secret-looking columns auto-hidden; defaults fill omitted create fields;
+  comma decimals; `_back` (only inside the model's own pages);
+  `POST {base}/{id}/delete` for no-JS forms.
+- **Boot check** — `models::check()` (parents, relation/link targets,
+  nesting depth, reserved segments, any duplicate method+path) panics at
+  boot and fails `TestApp`.
+- **Agent tooling** — `testing::TestApp` (the production stack over an
+  in-memory DB; `AppStack` shared with `run()`), `--routes` / `fse routes`,
+  `fse new` (blank app template embedded in fse-cli), `starter/AGENTS.md`
+  as the single guide (copied into new apps; a CLI test fails on drift),
+  public `auth::session_cookie`/`token_cookie`/`logout_cookie`.
+- **Hardening found on the way** — public pages got the full admin
+  metadata (now a public slice); OpenAPI advertised hidden columns; sort by
+  hidden/private columns; private columns in public search/filter.
+- **Starter** — catalog + API generated (`products_public.rs`, `api.rs`
+  deleted), orders with relations + `fulfill`/`cancel` actions, tests on
+  `TestApp` (`tests/common` deleted).
+- **RFJ** — event manager, public events list, runs (nested), managers
+  (link, role hooks — also fixes a session-cache bypass in the old code),
+  `/my-donations` and `/my-runs` edits/deletes generated; services −790
+  lines; `tests/generated.rs` on `TestApp`.
+
+### Open questions
+
+- **Several surfaces per model.** Still open — RFJ's event donations tab
+  and the starter's `/my-orders` stay hand-written for this reason. A model mounts once today, but real apps
+  show the same table twice: `/my-donations` (owner) and the event's
+  donations tab (manager scope); the starter's `/my-orders` vs
+  `/admin/orders`. Likely answer: named views on one model, each with its own
+  path/scope — decide during stage 2.
+- **Subqueries in fse-orm.** Join-table scopes currently fetch the ids first
+  (`Col::in_`). An `in_select` condition would make it one query; needs an
+  fse-orm release.
+- **fse-ssr gotcha met in stage 1:** `??` is rewritten into a Tera default
+  even in frontmatter, so a build-time fallback between two context paths
+  (EventTabs' `event` prop vs `ctx.event`) must be a plain `if`.

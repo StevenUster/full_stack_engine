@@ -42,7 +42,7 @@ pub mod text;
 pub mod themes;
 pub mod uploads;
 
-// Re-exported because the code emitted by `#[derive(Model)]` submits its
+// Re-exported because the code emitted by `#[model]` submits its
 // registration through `::full_stack_engine::inventory::submit!` — apps never
 // need their own `inventory` dependency.
 pub use inventory;
@@ -733,6 +733,20 @@ impl FrameworkApp {
             return run_hash_password(&password);
         }
 
+        // `--routes` prints every generated route (method, path, kind,
+        // model, required permission) and exits — the app's surface at a
+        // glance, without reading the models. Hand-written routes live in
+        // the app's `services/`.
+        if env::args().skip(1).any(|arg| arg == "--routes") {
+            if let Err(problems) = models::check() {
+                eprintln!("{problems}");
+            }
+            for route in models::route_table() {
+                println!("{route}");
+            }
+            return Ok(());
+        }
+
         let env = config::parse_env(env::var("ENV").ok().as_deref());
 
         // The builder's identity is a *default*: `SERVICE_NAME`/`SERVICE_VERSION`
@@ -781,58 +795,86 @@ impl FrameworkApp {
 
         let db_pool = init_db(&cfg, self.migrator.take()).await?;
 
-        // Modules first: the auth module seeds the first admin here, and the
-        // app's own hook may well depend on an administrable app.
-        for module in &self.modules {
-            if let Some(startup) = module.on_startup {
-                startup(db_pool.clone())
-                    .await
-                    .unwrap_or_else(|e| panic!("Module `{}` startup failed: {e}", module.name));
-            }
-        }
+        self.run_startup_hooks(&db_pool).await;
 
-        if let Some(startup_fn) = self.startup_fn.take() {
-            startup_fn(db_pool.clone())
-                .await
-                .expect("Failed to run on_startup hook");
-        }
+        let module_crons: Vec<modules::ModuleCronFn> =
+            self.modules.iter().filter_map(|m| m.cronjobs).collect();
+        start_cron_scheduler(self.cronjobs_fn.take(), module_crons, &cfg.database_url).await;
 
-        let active_theme = cfg.theme.clone().or_else(|| self.active_theme.take());
-        let theme_stack =
-            themes::ThemeStack::resolve(std::mem::take(&mut self.themes), active_theme.as_deref())
-                .unwrap_or_else(|err| panic!("Theme setup failed: {err}"));
+        let stack = self
+            .into_stack(cfg, db_pool, TemplateMode::Lenient)
+            .unwrap_or_else(|err| panic!("{err}"));
         info!(
             "Theme: {}",
-            theme_stack
+            stack
+                .themes
                 .chain()
                 .iter()
                 .map(themes::Theme::name)
                 .collect::<Vec<_>>()
                 .join(" -> ")
         );
+
+        HttpServer::new(move || stack.app())
+            .bind(format!(
+                "0.0.0.0:{}",
+                env::var("PORT").unwrap_or_else(|_| "8080".to_string())
+            ))?
+            .run()
+            .await
+    }
+
+    /// Runs the module and app `on_startup` hooks against `db`.
+    pub(crate) async fn run_startup_hooks(&mut self, db: &SqlitePool) {
+        // Modules first: the auth module seeds the first admin here, and the
+        // app's own hook may well depend on an administrable app.
+        for module in &self.modules {
+            if let Some(startup) = module.on_startup {
+                startup(db.clone())
+                    .await
+                    .unwrap_or_else(|e| panic!("Module `{}` startup failed: {e}", module.name));
+            }
+        }
+        if let Some(startup_fn) = self.startup_fn.take() {
+            startup_fn(db.clone())
+                .await
+                .expect("Failed to run on_startup hook");
+        }
+    }
+
+    /// Everything a worker's [`App`] is built from — shared by
+    /// [`FrameworkApp::run`] and [`testing::TestApp`], so tests run the exact
+    /// production stack (middleware order, route order, error pages, CSP).
+    pub(crate) fn into_stack(
+        mut self,
+        cfg: std::sync::Arc<config::Config>,
+        db: SqlitePool,
+        templates: TemplateMode,
+    ) -> Result<AppStack, String> {
+        let active_theme = cfg.theme.clone().or_else(|| self.active_theme.take());
+        let theme_stack =
+            themes::ThemeStack::resolve(std::mem::take(&mut self.themes), active_theme.as_deref())
+                .map_err(|err| format!("Theme setup failed: {err}"))?;
         // Template names never carry a `.html` suffix, so Tera's default
-        // suffix-based autoescape detection never matches; `ThemeStack::tera`
-        // enables escaping for every template (raw HTML uses the `safe`
-        // filter), and logs and skips broken templates.
-        let mut tera = theme_stack.tera();
-        // Locale-aware `date`/`datetime`/`time`/`number`/`currency`/`slugify`,
-        // so formatting lives in the template instead of in a per-app pile of
-        // `format_date_de` helpers. Bound to the app's default language; a
-        // multi-language theme passes `locale=lang` per call.
-        filters::register(
-            &mut tera,
-            self.locale_selector.default_lang(),
-            cfg.currency.clone(),
-        );
-        let theme_stack = std::sync::Arc::new(theme_stack);
+        // suffix-based autoescape detection never matches; both loaders enable
+        // escaping for every template (raw HTML uses the `safe` filter).
+        // Locale-aware `date`/`datetime`/`time`/`number`/`currency`/`slugify`
+        // are registered on both, bound to the app's default language.
+        let default_lang = self.locale_selector.default_lang().to_string();
+        let tera = match templates {
+            // Boot: log and skip a broken template, so one bad page doesn't
+            // take the whole app down.
+            TemplateMode::Lenient => {
+                let mut tera = theme_stack.tera();
+                filters::register(&mut tera, &default_lang, cfg.currency.clone());
+                tera
+            }
+            // Tests: every broken template is an error.
+            TemplateMode::Strict => {
+                testing::strict_tera(&theme_stack, &default_lang, cfg.currency.as_deref())?
+            }
+        };
 
-        let module_crons: Vec<modules::ModuleCronFn> =
-            self.modules.iter().filter_map(|m| m.cronjobs).collect();
-        start_cron_scheduler(self.cronjobs_fn.take(), module_crons, &cfg.database_url).await;
-
-        let api_docs = self.api_docs.clone();
-        let configure_fn = self.configure_fn.map(std::sync::Arc::new);
-        let model_routes = self.model_routes.clone();
         // Framework-provided context (nav/user) first, the app's injector
         // second — the app can override either.
         let context_injector: Option<std::sync::Arc<ContextInjectorFn>> =
@@ -846,178 +888,240 @@ impl FrameworkApp {
                 (nav, app) => nav.or(app),
             };
 
-        let locale_selector = self.locale_selector.clone();
         let module_locale_dirs: Vec<&Dir> = self.modules.iter().filter_map(|m| m.locales).collect();
         let locales = i18n::resolve_locales(
             i18n::build_locales(&module_locale_dirs, self.locales_dir),
-            locale_selector.default_lang(),
+            self.locale_selector.default_lang(),
         );
         let known_langs: Vec<String> = locales.keys().cloned().collect();
-        let module_routes: Vec<fn(&mut web::ServiceConfig)> =
-            self.modules.iter().filter_map(|m| m.routes).collect();
 
         // Built once and shared across all workers (the config holds an Arc to
         // the token buckets), so the site-wide per-IP limit is enforced for the
         // whole process rather than per worker thread. Configured exempt
         // prefixes (e.g. a public `/api`) skip the limiter entirely.
-        let global_rate_config =
+        let rate_limit =
             rate_limiter::global_rate_limiter(&self.rate_limit_exempt_prefixes, cfg.rate_limit);
 
-        HttpServer::new(move || {
-            let request_selector = locale_selector.clone();
-            let request_known_langs = known_langs.clone();
-            let mut app = App::new()
-                .app_data(web::Data::new(AppData {
-                    tera: tera.clone(),
-                    db: db_pool.clone(),
-                    env: cfg.env,
-                    domain: cfg.domain.clone(),
-                    protocol: cfg.protocol.clone(),
-                    smtp_from: cfg.mail_from().to_string(),
-                    email_verification_enabled: cfg.email_verification_enabled,
-                    config: cfg.clone(),
-                    context_injector: context_injector.clone(),
-                    locales: locales.clone(),
-                    locale_selector: locale_selector.clone(),
-                    themes: theme_stack.clone(),
-                }))
-                // Resolve the request language (and in Path mode strip a
-                // /{lang} prefix) before any routing happens.
-                .wrap_fn(move |mut req, srv| {
-                    i18n::apply_request_locale(&request_selector, &request_known_langs, &mut req);
-                    srv.call(req)
-                })
-                .wrap(NormalizePath::trim())
-                .wrap(
-                    ErrorHandlers::new()
-                        .handler(StatusCode::INTERNAL_SERVER_ERROR, render_error_page)
-                        .handler(StatusCode::NOT_FOUND, render_error_page)
-                        .handler(StatusCode::BAD_REQUEST, render_error_page)
-                        .handler(StatusCode::UNAUTHORIZED, render_error_page)
-                        .handler(StatusCode::FORBIDDEN, render_error_page),
-                )
-                // Mints this request's script nonce and attaches the matching
-                // Content-Security-Policy to whatever comes back. Outside
-                // `ErrorHandlers`, so the themed error page is covered by the
-                // same policy and carries the same nonce.
-                .wrap_fn(move |req, srv| {
-                    let nonce = ScriptNonce::generate();
-                    req.extensions_mut().insert(nonce.clone());
-                    let fut = srv.call(req);
-                    async move { apply_csp(env, nonce, fut.await?).await }
-                })
-                // Echoes the request's correlation id back to the caller, so a
-                // user reporting "it broke" can quote the id that finds the
-                // exact request in the logs. Registered *outside*
-                // `ErrorHandlers`, because the error page is a fresh response
-                // and would drop a header set beneath it.
-                .wrap_fn(|req, srv| {
-                    let request_id = req.extensions().get::<RequestId>().copied();
-                    let fut = srv.call(req);
-                    async move {
-                        let mut res = fut.await?;
-                        if let Some(request_id) = request_id
-                            && let Ok(value) = request_id.to_string().parse()
-                        {
-                            res.headers_mut().insert(
-                                actix_web::http::header::HeaderName::from_static("x-request-id"),
-                                value,
-                            );
-                        }
-                        Ok(res)
+        Ok(AppStack {
+            tera,
+            db,
+            env: cfg.env,
+            context_injector,
+            locales,
+            known_langs,
+            locale_selector: self.locale_selector.clone(),
+            themes: std::sync::Arc::new(theme_stack),
+            configure_fn: self.configure_fn.map(std::sync::Arc::new),
+            api_docs: self.api_docs.clone(),
+            module_routes: self.modules.iter().filter_map(|m| m.routes).collect(),
+            model_routes: self.model_routes.clone(),
+            rate_limit,
+            cfg,
+        })
+    }
+}
+
+/// How [`FrameworkApp::into_stack`] loads templates.
+#[derive(Clone, Copy)]
+pub(crate) enum TemplateMode {
+    Lenient,
+    Strict,
+}
+
+/// The shared, cloneable state every worker's [`App`] is built from.
+#[derive(Clone)]
+pub(crate) struct AppStack {
+    tera: Tera,
+    db: SqlitePool,
+    env: Env,
+    cfg: std::sync::Arc<config::Config>,
+    context_injector: Option<std::sync::Arc<ContextInjectorFn>>,
+    locales: std::collections::HashMap<String, serde_json::Value>,
+    known_langs: Vec<String>,
+    locale_selector: i18n::LocaleSelector,
+    themes: std::sync::Arc<themes::ThemeStack>,
+    configure_fn: Option<std::sync::Arc<ConfigureFn>>,
+    api_docs: Option<std::sync::Arc<models::openapi::ApiDocs>>,
+    module_routes: Vec<fn(&mut web::ServiceConfig)>,
+    model_routes: Option<ModelRoutesFn>,
+    rate_limit: rate_limiter::RateLimit<rate_limiter::ProxyIpExceptPaths>,
+}
+
+impl AppStack {
+    /// One worker's application: the full middleware stack and every route,
+    /// in production order.
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn app(
+        &self,
+    ) -> App<
+        impl actix_web::dev::ServiceFactory<
+            actix_web::dev::ServiceRequest,
+            Config = (),
+            Response = ServiceResponse<impl actix_web::body::MessageBody + use<>>,
+            Error = actix_web::Error,
+            InitError = (),
+        > + use<>,
+    > {
+        let env = self.env;
+        let cfg = self.cfg.clone();
+        let tera = self.tera.clone();
+        let db_pool = self.db.clone();
+        let context_injector = self.context_injector.clone();
+        let locales = self.locales.clone();
+        let locale_selector = self.locale_selector.clone();
+        let theme_stack = self.themes.clone();
+        let configure_fn = self.configure_fn.clone();
+        let api_docs = self.api_docs.clone();
+        let module_routes = self.module_routes.clone();
+        let model_routes = self.model_routes.clone();
+        let global_rate_config = self.rate_limit.clone();
+        let request_selector = locale_selector.clone();
+        let request_known_langs = self.known_langs.clone();
+        let mut app = App::new()
+            .app_data(web::Data::new(AppData {
+                tera: tera.clone(),
+                db: db_pool.clone(),
+                env: cfg.env,
+                domain: cfg.domain.clone(),
+                protocol: cfg.protocol.clone(),
+                smtp_from: cfg.mail_from().to_string(),
+                email_verification_enabled: cfg.email_verification_enabled,
+                config: cfg.clone(),
+                context_injector: context_injector.clone(),
+                locales: locales.clone(),
+                locale_selector: locale_selector.clone(),
+                themes: theme_stack.clone(),
+            }))
+            // Resolve the request language (and in Path mode strip a
+            // /{lang} prefix) before any routing happens.
+            .wrap_fn(move |mut req, srv| {
+                i18n::apply_request_locale(&request_selector, &request_known_langs, &mut req);
+                srv.call(req)
+            })
+            .wrap(NormalizePath::trim())
+            .wrap(
+                ErrorHandlers::new()
+                    .handler(StatusCode::INTERNAL_SERVER_ERROR, render_error_page)
+                    .handler(StatusCode::NOT_FOUND, render_error_page)
+                    .handler(StatusCode::BAD_REQUEST, render_error_page)
+                    .handler(StatusCode::UNAUTHORIZED, render_error_page)
+                    .handler(StatusCode::FORBIDDEN, render_error_page),
+            )
+            // Mints this request's script nonce and attaches the matching
+            // Content-Security-Policy to whatever comes back. Outside
+            // `ErrorHandlers`, so the themed error page is covered by the
+            // same policy and carries the same nonce.
+            .wrap_fn(move |req, srv| {
+                let nonce = ScriptNonce::generate();
+                req.extensions_mut().insert(nonce.clone());
+                let fut = srv.call(req);
+                async move { apply_csp(env, nonce, fut.await?).await }
+            })
+            // Echoes the request's correlation id back to the caller, so a
+            // user reporting "it broke" can quote the id that finds the
+            // exact request in the logs. Registered *outside*
+            // `ErrorHandlers`, because the error page is a fresh response
+            // and would drop a header set beneath it.
+            .wrap_fn(|req, srv| {
+                let request_id = req.extensions().get::<RequestId>().copied();
+                let fut = srv.call(req);
+                async move {
+                    let mut res = fut.await?;
+                    if let Some(request_id) = request_id
+                        && let Ok(value) = request_id.to_string().parse()
+                    {
+                        res.headers_mut().insert(
+                            actix_web::http::header::HeaderName::from_static("x-request-id"),
+                            value,
+                        );
                     }
-                })
-                // One span per request, entered for the whole response
-                // including the body stream — so every log line inside a
-                // handler carries its `request_id`, `http.route` and (under
-                // the `otel` feature) `trace_id` without the handler doing
-                // anything. See `observability::FseRootSpan` for the fields
-                // and for what is deliberately never recorded.
-                .wrap(TracingLogger::<observability::FseRootSpan>::new())
-                // Compresses whatever the stack produced — pages, JSON, theme
-                // assets, error pages. Registered outside `ErrorHandlers` so
-                // the rendered error page is compressed too. Nothing was
-                // compressed before this: a 77 KB page went out as 77 KB even
-                // when the client asked for gzip.
-                .wrap(actix_web::middleware::Compress::default())
-                // Cross-origin access, off unless `CORS_ALLOWED_ORIGINS` says
-                // otherwise. Inside `security_headers` and the rate limiter, so
-                // a preflight is counted and hardened like any other request.
-                .wrap(cors_middleware(&cfg.cors))
-                .wrap(security_headers())
-                // Outermost layer: reject per-IP floods before any routing or
-                // request processing happens. Shared buckets across workers.
-                .wrap(global_rate_config.clone());
+                    Ok(res)
+                }
+            })
+            // One span per request, entered for the whole response
+            // including the body stream — so every log line inside a
+            // handler carries its `request_id`, `http.route` and (under
+            // the `otel` feature) `trace_id` without the handler doing
+            // anything. See `observability::FseRootSpan` for the fields
+            // and for what is deliberately never recorded.
+            .wrap(TracingLogger::<observability::FseRootSpan>::new())
+            // Compresses whatever the stack produced — pages, JSON, theme
+            // assets, error pages. Registered outside `ErrorHandlers` so
+            // the rendered error page is compressed too. Nothing was
+            // compressed before this: a 77 KB page went out as 77 KB even
+            // when the client asked for gzip.
+            .wrap(actix_web::middleware::Compress::default())
+            // Cross-origin access, off unless `CORS_ALLOWED_ORIGINS` says
+            // otherwise. Inside `security_headers` and the rate limiter, so
+            // a preflight is counted and hardened like any other request.
+            .wrap(cors_middleware(&cfg.cors))
+            .wrap(security_headers())
+            // Outermost layer: reject per-IP floods before any routing or
+            // request processing happens. Shared buckets across workers.
+            .wrap(global_rate_config.clone());
 
-            // Liveness/readiness probes, registered first so they exist even
-            // if an app registers nothing. An app can still override either by
-            // claiming the same path in `configure`, since actix matches in
-            // registration order — but these come first precisely so a
-            // deployment always has something to probe.
-            app = app.configure(health_routes);
+        // Liveness/readiness probes, registered first so they exist even
+        // if an app registers nothing. An app can still override either by
+        // claiming the same path in `configure`, since actix matches in
+        // registration order — but these come first precisely so a
+        // deployment always has something to probe.
+        app = app.configure(health_routes);
 
-            if let Some(ref configure_fn) = configure_fn {
-                let cf = configure_fn.clone();
-                app = app.configure(move |cfg| (cf)(cfg));
-            }
+        if let Some(ref configure_fn) = configure_fn {
+            let cf = configure_fn.clone();
+            app = app.configure(move |cfg| (cf)(cfg));
+        }
 
-            // API documentation, after the app's routes so an app can supply
-            // its own `/api/docs` page.
-            if let Some(ref docs) = api_docs {
-                let routes = models::openapi::routes(docs.clone());
-                app = app.configure(routes);
-            }
+        // API documentation, after the app's routes so an app can supply
+        // its own `/api/docs` page.
+        if let Some(ref docs) = api_docs {
+            let routes = models::openapi::routes(docs.clone());
+            app = app.configure(routes);
+        }
 
-            // Module routes mount after the app's (app wins on a path
-            // conflict) and before generated CRUD (a module can override the
-            // generated endpoints of its own models).
-            for module_cfg in &module_routes {
-                app = app.configure(*module_cfg);
-            }
+        // Module routes mount after the app's (app wins on a path
+        // conflict) and before generated CRUD (a module can override the
+        // generated endpoints of its own models).
+        for module_cfg in &module_routes {
+            app = app.configure(*module_cfg);
+        }
 
-            // Generated model CRUD (see `FrameworkApp::models`). Mounted
-            // after the app's own routes, so on a path conflict the
-            // hand-written route wins — that's the override mechanism.
-            if let Some(ref model_routes) = model_routes {
-                let mr = model_routes.clone();
-                app = app.configure(move |cfg| (mr)(cfg));
-            }
+        // Generated model CRUD (see `FrameworkApp::models`). Mounted
+        // after the app's own routes, so on a path conflict the
+        // hand-written route wins — that's the override mechanism.
+        if let Some(ref model_routes) = model_routes {
+            let mr = model_routes.clone();
+            app = app.configure(move |cfg| (mr)(cfg));
+        }
 
-            // Public uploaded files (see `uploads::save_upload`, which returns
-            // `/uploads/...` paths). Registered after the app's own routes so
-            // an app route wins on conflict. `actix-files` rejects path
-            // traversal, and only this directory is exposed — private files
-            // (`data/`) stay unreachable. Created up front so a fresh
-            // checkout/container without any uploads yet doesn't log an
-            // `actix_files` error on every worker at boot.
-            let _ = std::fs::create_dir_all("./uploads");
-            // Everything no route claimed: theme assets, child theme first
-            // (in dev, the themes' dev servers get the first try).
-            let assets = theme_stack.clone();
-            app.service(uploads_service()).default_service(web::to(
-                move |req: actix_web::HttpRequest| {
-                    let assets = assets.clone();
-                    async move {
-                        if env == Env::Dev {
-                            for server in assets.dev_servers() {
-                                if let Ok(res) = forward_to_dev_server(server, &req).await {
-                                    return Ok::<HttpResponse, actix_web::Error>(res);
-                                }
+        // Public uploaded files (see `uploads::save_upload`, which returns
+        // `/uploads/...` paths). Registered after the app's own routes so
+        // an app route wins on conflict. `actix-files` rejects path
+        // traversal, and only this directory is exposed — private files
+        // (`data/`) stay unreachable. Created up front so a fresh
+        // checkout/container without any uploads yet doesn't log an
+        // `actix_files` error on every worker at boot.
+        let _ = std::fs::create_dir_all("./uploads");
+        // Everything no route claimed: theme assets, child theme first
+        // (in dev, the themes' dev servers get the first try).
+        let assets = theme_stack.clone();
+        app.service(uploads_service()).default_service(web::to(
+            move |req: actix_web::HttpRequest| {
+                let assets = assets.clone();
+                async move {
+                    if env == Env::Dev {
+                        for server in assets.dev_servers() {
+                            if let Ok(res) = forward_to_dev_server(server, &req).await {
+                                return Ok::<HttpResponse, actix_web::Error>(res);
                             }
                         }
-                        let path = req.path().trim_start_matches('/');
-                        Ok(serve_asset(&assets, path, req.method().as_str())
-                            .unwrap_or_else(|_| HttpResponse::NotFound().finish()))
                     }
-                },
-            ))
-        })
-        .bind(format!(
-            "0.0.0.0:{}",
-            env::var("PORT").unwrap_or_else(|_| "8080".to_string())
-        ))?
-        .run()
-        .await
+                    let path = req.path().trim_start_matches('/');
+                    Ok(serve_asset(&assets, path, req.method().as_str())
+                        .unwrap_or_else(|_| HttpResponse::NotFound().finish()))
+                }
+            },
+        ))
     }
 }
 

@@ -10,16 +10,21 @@ import { ssr } from "fse-ssr/ssr";
 import Layout from "../../layouts/Layout.astro";
 import type { ModelListPage } from "../../types";
 
-const { t, lang_prefix, meta, rows, page, total_pages, total, has_prev, has_next, prev_page, next_page, search, filters } =
+const { t, lang_prefix, meta, rows, page, total_pages, total, has_prev, has_next, prev_page, next_page, search, filters, can_create, parent } =
   ssr<ModelListPage>();
 const title = t.models[meta.table].title ?? meta.table;
 ---
 
 <Layout title={title}>
   <main>
+    {parent && (
+      <a class="mb-2 inline-block text-sm text-secondary-500 hover:text-secondary-800" href={`${lang_prefix}${parent.meta.base_path}/${parent.row.id}`}>
+        ← {parent.row[parent.meta.title_field]}
+      </a>
+    )}
     <div class="mb-6 flex items-center justify-between gap-4">
       <h1 class="section-title">{title}</h1>
-      {meta.can_write && !meta.no_create && (
+      {can_create && (
         <a class="btn-primary" href={`${lang_prefix}${meta.base_path}/create`}>
           {t.model_ui.new ?? "New"}
         </a>
@@ -36,17 +41,43 @@ const title = t.models[meta.table].title ?? meta.table;
           class="flex-1 min-w-40 px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-primary-500"
         />
         {meta.filter_columns.map((col) => (
-          <select
-            name={col.name}
-            class="px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white"
-          >
-            <option value="">{t.models[meta.table].fields[col.name] ?? col.name}</option>
-            {col.options && col.options.map((option) => (
-              <option value={option} selected={filters[col.name] === option}>
-                {t.models[meta.table].options[option] ?? option}
-              </option>
-            ))}
-          </select>
+          <>
+            {col.filter === "exact" && (
+              <select
+                name={col.name}
+                class="px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white"
+              >
+                <option value="">{t.models[meta.table].fields[col.name] ?? col.name}</option>
+                {col.options && col.options.map((option) => (
+                  <option value={option} selected={filters[col.name] === option}>
+                    {t.models[meta.table].options[option] ?? option}
+                  </option>
+                ))}
+              </select>
+            )}
+            {col.filter === "contains" && (
+              <input
+                type="text"
+                name={col.name}
+                value={filters[col.name]}
+                placeholder={t.models[meta.table].fields[col.name] ?? col.name}
+                class="min-w-32 px-3 py-2 text-sm border border-secondary-200 rounded-lg bg-white"
+              />
+            )}
+            {col.filter === "range" && (
+              <span class="flex items-center gap-1.5 text-sm text-secondary-500">
+                {t.models[meta.table].fields[col.name] ?? col.name}
+                {col.filter_params.map((param) => (
+                  <input
+                    type={col.widget === "number" ? "number" : "date"}
+                    name={param}
+                    value={filters[param]}
+                    class="px-2 py-2 text-sm border border-secondary-200 rounded-lg bg-white"
+                  />
+                ))}
+              </span>
+            )}
+          </>
         ))}
         <button class="btn-secondary" type="submit">{t.model_ui.filter ?? "Filter"}</button>
       </form>
@@ -68,9 +99,20 @@ const title = t.models[meta.table].title ?? meta.table;
           {rows.map((row) => (
             <tr class="border-b border-secondary-100 last:border-b-0 hover:bg-secondary-50">
               {meta.list_columns.map((col) => (
-                <td class="px-4 py-3">{row[col.name]}</td>
+                <td class="px-4 py-3">
+                  {col.relation ? (
+                    row[col.relation] && row[col.relation].title
+                  ) : (
+                    row[col.display]
+                  )}
+                </td>
               ))}
               <td class="px-4 py-3 text-right whitespace-nowrap">
+                {row._actions && row._actions.map((action: string) => (
+                  <form method="post" class="inline" action={`${lang_prefix}${meta.base_path}/${row.id}/actions/${action}`}>
+                    <button type="submit" class="btn-ghost">{t.models[meta.table].actions[action] ?? action}</button>
+                  </form>
+                ))}
                 <a class="btn-ghost" href={`${lang_prefix}${meta.base_path}/${row.id}`}>
                   {t.model_ui.edit ?? "Edit"}
                 </a>
@@ -89,6 +131,9 @@ const title = t.models[meta.table].title ?? meta.table;
           ))}
         </tbody>
       </table>
+      {rows.length === 0 && (
+        <p class="p-6 text-sm text-secondary-500">{t.model_ui.no_entries ?? "No entries yet."}</p>
+      )}
 
       <div class="flex items-center justify-between gap-4 p-4 border-t border-secondary-200 text-sm text-secondary-500">
         <span>{total} {t.model_ui.entries ?? "entries"}</span>

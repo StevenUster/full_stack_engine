@@ -11,7 +11,18 @@
     "prev": "Previous",
     "next": "Next",
     "entries": "entries",
-    "confirm_delete": "Delete this entry?"
+    "confirm_delete": "Delete this entry?",
+    "choose": "Choose...",
+    "from": "from",
+    "to": "to",
+    "linked": "Linked",
+    "add_link": "Add",
+    "remove_link": "Remove",
+    "no_links": "Nothing linked yet.",
+    "search_to_add": "Search to add...",
+    "no_entries": "No entries yet.",
+    "actions": "Actions",
+    "read_only": "This entry can't be changed."
   },
   "form_errors": {
     "required": "This field is required.",
@@ -20,7 +31,13 @@
     "invalid_value": "Enter a valid value.",
     "invalid_datetime": "Enter a valid date and time.",
     "not_unique": "This value is already taken.",
-    "not_supported": "This form has no editable fields."
+    "not_supported": "This form has no editable fields.",
+    "invalid_email": "Enter a valid email address.",
+    "invalid_url": "Enter a full http(s):// address.",
+    "too_short": "Too short.",
+    "too_long": "Too long.",
+    "too_small": "Too small.",
+    "too_large": "Too large."
   },
   "login": {
     "title": "Login",

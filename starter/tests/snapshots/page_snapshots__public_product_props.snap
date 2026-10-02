@@ -1,19 +1,124 @@
 ---
 source: tests/page_snapshots.rs
-expression: "{\n    let props = page_props(&html);\n    serde_json::to_string_pretty(&props).unwrap()\n}"
+expression: "serde_json::to_string_pretty(&props).unwrap()"
 ---
 {
-  "is_logged_in": false,
   "lang": "en",
   "lang_prefix": "",
+  "meta": {
+    "base_path": "/products",
+    "filter_columns": [
+      {
+        "display": "status",
+        "filter": "exact",
+        "filter_params": [
+          "status"
+        ],
+        "format": null,
+        "name": "status",
+        "nullable": false,
+        "options": [
+          "draft",
+          "published",
+          "archived"
+        ],
+        "readonly": false,
+        "relation": null,
+        "required": false,
+        "widget": "select"
+      }
+    ],
+    "list_columns": [
+      {
+        "display": "name",
+        "filter": null,
+        "filter_params": [],
+        "format": null,
+        "name": "name",
+        "nullable": false,
+        "options": null,
+        "readonly": false,
+        "relation": null,
+        "required": true,
+        "widget": "text"
+      },
+      {
+        "display": "slug",
+        "filter": null,
+        "filter_params": [],
+        "format": null,
+        "name": "slug",
+        "nullable": false,
+        "options": null,
+        "readonly": false,
+        "relation": null,
+        "required": false,
+        "widget": "text"
+      },
+      {
+        "display": "price_display",
+        "filter": null,
+        "filter_params": [],
+        "format": "currency",
+        "name": "price",
+        "nullable": false,
+        "options": null,
+        "readonly": false,
+        "relation": null,
+        "required": false,
+        "widget": "number"
+      },
+      {
+        "display": "status",
+        "filter": "exact",
+        "filter_params": [
+          "status"
+        ],
+        "format": null,
+        "name": "status",
+        "nullable": false,
+        "options": [
+          "draft",
+          "published",
+          "archived"
+        ],
+        "readonly": false,
+        "relation": null,
+        "required": false,
+        "widget": "select"
+      },
+      {
+        "display": "created_at_display",
+        "filter": null,
+        "filter_params": [],
+        "format": "date",
+        "name": "created_at",
+        "nullable": false,
+        "options": null,
+        "readonly": false,
+        "relation": null,
+        "required": false,
+        "widget": "datetime"
+      }
+    ],
+    "public_read": "slug",
+    "search_columns": [
+      "name"
+    ],
+    "table": "products",
+    "title_field": "name"
+  },
   "nav": [],
-  "ordered": false,
-  "product": {
-    "description": "",
+  "row": {
+    "created_at": "[timestamp]",
+    "created_at_display": "[timestamp]",
+    "description": null,
     "id": 1,
     "name": "Product snapshot-widget",
-    "price": "9.99",
-    "slug": "snapshot-widget"
+    "price": 9.99,
+    "price_display": "9.99",
+    "slug": "snapshot-widget",
+    "status": "published"
   },
   "t": {
     "common": {
@@ -66,12 +171,18 @@ expression: "{\n    let props = page_props(&html);\n    serde_json::to_string_pr
     },
     "form_errors": {
       "invalid_datetime": "Enter a valid date and time.",
+      "invalid_email": "Enter a valid email address.",
       "invalid_number": "Enter a valid number.",
       "invalid_option": "Choose a valid option.",
+      "invalid_url": "Enter a full http(s):// address.",
       "invalid_value": "Enter a valid value.",
       "not_supported": "This form has no editable fields.",
       "not_unique": "This value is already taken.",
-      "required": "This field is required."
+      "required": "This field is required.",
+      "too_large": "Too large.",
+      "too_long": "Too long.",
+      "too_short": "Too short.",
+      "too_small": "Too small."
     },
     "login": {
       "confirm_email": "Please confirm your email address first.",
@@ -91,18 +202,29 @@ expression: "{\n    let props = page_props(&html);\n    serde_json::to_string_pr
       "password_reset_sent": "A password reset email has been sent."
     },
     "model_ui": {
+      "actions": "Actions",
+      "add_link": "Add",
       "back": "Back",
       "cancel": "Cancel",
+      "choose": "Choose...",
       "confirm_delete": "Delete this entry?",
       "delete": "Delete",
       "edit": "Edit",
       "entries": "entries",
       "filter": "Filter",
+      "from": "from",
+      "linked": "Linked",
       "new": "New",
       "next": "Next",
+      "no_entries": "No entries yet.",
+      "no_links": "Nothing linked yet.",
       "prev": "Previous",
+      "read_only": "This entry can't be changed.",
+      "remove_link": "Remove",
       "save": "Save",
-      "search": "Search..."
+      "search": "Search...",
+      "search_to_add": "Search to add...",
+      "to": "to"
     },
     "models": {
       "orders": {

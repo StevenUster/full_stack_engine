@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE \"users\" SET \"email\" = ?, \"role\" = ?, \"first_name\" = ?, \"last_name\" = ?, \"is_verified\" = ?, \"verification_token_expires_at\" = ?, \"reset_token_expires_at\" = ?, \"pending_email\" = ?, \"email_change_token_expires_at\" = ?, \"sessions_valid_after\" = ? WHERE \"id\" = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "b3c22611d4665a02f5a6e0e4063e687c813cee2bce1ca4d7a0fc71b72c57f210"
+}

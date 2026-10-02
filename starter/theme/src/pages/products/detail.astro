@@ -6,7 +6,7 @@ import Input from "@parent/components/Input.astro";
 import Layout from "@parent/layouts/Layout.astro";
 import type { ProductDetailPage } from "../../types/pages";
 
-const { t, product, is_logged_in, ordered } = ssr<ProductDetailPage>();
+const { t, row: product, user } = ssr<ProductDetailPage>();
 ---
 
 <Layout title={product.name}>
@@ -16,20 +16,10 @@ const { t, product, is_logged_in, ordered } = ssr<ProductDetailPage>();
 
       <Card>
         <p class="text-secondary-600">{product.description}</p>
-        <p class="text-xl font-bold text-primary-600">${product.price}</p>
+        <p class="text-xl font-bold text-primary-600">{product.price_display}</p>
 
         {
-          ordered && (
-            <div class="p-4 rounded-xl bg-primary-50 border border-primary-200">
-              <p class="text-sm font-medium text-primary-700">
-                {t.products.ordered ?? "Order placed! Track it from My Orders."}
-              </p>
-            </div>
-          )
-        }
-
-        {
-          is_logged_in ? (
+          user ? (
             <form
               action={`/products/${product.slug}/order`}
               method="POST"
