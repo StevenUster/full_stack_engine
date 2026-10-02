@@ -62,6 +62,18 @@ podman push ghcr.io/stevenuster/full_stack_engine:latest
 podman push ghcr.io/stevenuster/full_stack_engine:$VERSION
 ```
 
+### Monitoring
+
+[`observability/`](observability/README.md) is a ready-to-run Grafana stack
+for this app — traces, request/error/latency dashboards and an error alert. It
+is a separate `docker compose` deployment; start it anywhere the app can reach
+and set two variables on the app:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
+OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20<OTLP_TOKEN>
+```
+
 ## Development
 
 ### Hot Reloading (Dev Mode)

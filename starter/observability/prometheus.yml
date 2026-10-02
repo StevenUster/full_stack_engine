@@ -1,0 +1,4 @@
+# Nothing is scraped: every series arrives by remote write from Tempo's
+# metrics generator.
+global:
+  evaluation_interval: 30s

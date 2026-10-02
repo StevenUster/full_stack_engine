@@ -1,0 +1,78 @@
+# Traces, errors and request metrics for a full_stack_engine app, in Grafana.
+# A separate deployment from the app: run it on any host the app can reach.
+#
+#   cp .example.env .env      # set OTLP_TOKEN and GRAFANA_ADMIN_PASSWORD
+#   docker compose up -d
+#
+# Then point the app at it (see README.md):
+#   OTEL_EXPORTER_OTLP_ENDPOINT=https://<this host>
+#   OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20<OTLP_TOKEN>
+
+name: fse-observability
+
+services:
+  # The only ingest port. Checks the bearer token, then forwards to Tempo,
+  # which has no authentication of its own and is never published.
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0
+    restart: unless-stopped
+    command: ["--config=/etc/collector.yaml"]
+    environment:
+      OTLP_TOKEN: ${OTLP_TOKEN:?set OTLP_TOKEN in .env}
+    volumes:
+      - ./collector.yaml:/etc/collector.yaml:ro
+    ports:
+      - "${OTLP_BIND:-0.0.0.0}:${OTLP_PORT:-4318}:4318"
+    depends_on: [tempo]
+
+  # Stores traces, and turns them into request-rate / error-rate / latency
+  # metrics (the span-metrics and service-graph processors).
+  tempo:
+    image: grafana/tempo:3.0.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml", "-config.expand-env=true"]
+    environment:
+      TRACE_RETENTION: ${TRACE_RETENTION:-336h}
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo:/var/tempo
+
+  # Holds the metrics Tempo derives from traces. Receives them by remote write;
+  # never scrapes anything and is never published.
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${METRICS_RETENTION:-30d}
+      - --web.enable-remote-write-receiver
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus:/prometheus
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/app.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana:/var/lib/grafana
+    ports:
+      - "${GRAFANA_BIND:-0.0.0.0}:${GRAFANA_PORT:-3000}:3000"
+    depends_on: [tempo, prometheus]
+
+volumes:
+  tempo:
+  prometheus:
+  grafana:

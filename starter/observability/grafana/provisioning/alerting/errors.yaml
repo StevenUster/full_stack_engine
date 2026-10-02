@@ -1,0 +1,48 @@
+apiVersion: 1
+
+# Fires as soon as anything ends in an error: a 5xx response, a failed cron
+# run or a panic. Where the notification goes is the one thing left to set up:
+# Alerting → Contact points in Grafana (email, Slack, Discord, a webhook, ...).
+groups:
+  - orgId: 1
+    name: app-errors
+    folder: App
+    interval: 1m
+    rules:
+      - uid: fse-app-errors
+        title: Errors in the app
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: error
+        annotations:
+          summary: '{{ $labels.service }}: {{ $values.A }} error(s) in the last 5 minutes'
+          description: 'Open the "App overview" dashboard — "Recent failures" links to each failing trace, with its cause chain.'
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange: { from: 300, to: 0 }
+            model:
+              refId: A
+              instant: true
+              # A route that has never failed before gets a brand-new counter
+              # whose first sample is already 1, and increase() needs two
+              # samples to see anything — so a plain increase() misses exactly
+              # the first error. A series that did not exist 5 minutes ago is
+              # therefore counted in full.
+              expr: >-
+                sum by (service) (
+                  ((traces_spanmetrics_calls_total{status_code="STATUS_CODE_ERROR"}
+                    unless traces_spanmetrics_calls_total{status_code="STATUS_CODE_ERROR"} offset 5m) * 1)
+                  or increase(traces_spanmetrics_calls_total{status_code="STATUS_CODE_ERROR"}[5m])
+                )
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }

@@ -1,0 +1,41 @@
+extensions:
+  # Every export must carry `Authorization: Bearer <OTLP_TOKEN>` — the app
+  # sends it through OTEL_EXPORTER_OTLP_HEADERS. Without this, anyone who can
+  # reach the port can write traces.
+  bearertokenauth:
+    token: ${env:OTLP_TOKEN}
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth
+
+processors:
+  # Refuse data rather than be OOM-killed under a burst.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+  batch: {}
+
+exporters:
+  otlp_http/tempo:
+    endpoint: http://tempo:4318
+    tls:
+      insecure: true
+
+service:
+  extensions: [bearertokenauth, health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/tempo]
+  telemetry:
+    logs:
+      level: warn

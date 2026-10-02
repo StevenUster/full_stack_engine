@@ -265,6 +265,13 @@ LOG_LEVEL=error cargo run                            # only what the server got 
 
 ## In production
 
+The starter ships a ready-to-run backend: [`starter/observability/`](../starter/observability/README.md)
+is a separate `docker compose` deployment of Grafana, Tempo and Prometheus
+behind a token-checking OpenTelemetry Collector. It gives per-route request,
+error and latency dashboards (derived from the traces, so no metrics code in the
+app), a table of recent failures that opens into each trace, and an alert on
+any error.
+
 - **Logs**: `json` to stdout, collected by the container runtime. Nothing writes
   to a file (cron job run logs excepted — see `cron::LogRotation`).
 - **Set `SERVICE_VERSION`** to the deployed commit SHA. Two builds of the same
