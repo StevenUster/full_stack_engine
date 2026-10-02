@@ -4,7 +4,7 @@ use std::fs::{OpenOptions, create_dir_all};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use tokio_cron_scheduler::{Job, JobScheduler, JobSchedulerError};
-use tracing::{error, info};
+use tracing::{Instrument as _, error, info};
 
 /// How many per-run log files a cron job keeps under `logs/`. Every run writes
 /// `logs/<job>_<datetime>.log`; without a bound a frequent job fills the disk,
@@ -91,7 +91,8 @@ where
 
     sched
         .add(Job::new(schedule, move |_uuid, _l| {
-            let job_name = job_name.clone();
+            let span = job_span(&job_name);
+            let _entered = span.enter();
             if let Err(e) = execute_job(&job_name, rotation, &job_action) {
                 error!("Job {job_name} failed: {e}");
             }
@@ -154,15 +155,50 @@ where
         .add(Job::new_async(schedule, move |_uuid, _l| {
             let job_name = job_name.clone();
             let job_action = job_action.clone();
-            Box::pin(async move {
-                if let Err(e) = execute_job_async(&job_name, rotation, job_action).await {
-                    error!("Job {job_name} failed: {e}");
-                }
-            })
+            Box::pin(run_async_job(job_name, rotation, job_action))
         })?)
         .await?;
 
     Ok(())
+}
+
+/// One run of an async job, inside its own span.
+async fn run_async_job<F, Fut>(job_name: String, rotation: LogRotation, job_action: F)
+where
+    F: Fn() -> Fut,
+    Fut: std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> + Send,
+{
+    let span = job_span(&job_name);
+    async {
+        if let Err(e) = execute_job_async(&job_name, rotation, job_action).await {
+            error!("Job {job_name} failed: {e}");
+        }
+    }
+    .instrument(span)
+    .await;
+}
+
+/// The span one run of a job executes in: a new trace per run, named after the
+/// job.
+///
+/// Without it a job ran outside any span, which is invisible to OTLP export —
+/// `tracing-opentelemetry` exports spans, and an event with no span around it
+/// is dropped. A failing nightly job therefore reached the logs but never the
+/// tracing backend, which for an app that relies on that backend for alerting
+/// means the failures nobody is watching for are the ones nobody sees. Inside
+/// this span, any `ERROR` event — the job's own or the "failed" line below —
+/// marks the span as failed and is recorded on it as an exception.
+///
+/// `parent: None` so a run is its own trace rather than a child of whatever
+/// span happened to be current on the scheduler's thread.
+fn job_span(job_name: &str) -> tracing::Span {
+    tracing::info_span!(
+        parent: None,
+        "cron job",
+        otel.name = %format!("cron {job_name}"),
+        otel.kind = "internal",
+        job.name = %job_name,
+    )
 }
 
 fn execute_job<F>(
@@ -341,6 +377,67 @@ fn is_job_log(file_name: &str, job_name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A run's events — including the job's own `error!` — happen inside a
+    /// root span named after the job, which is what makes them exportable.
+    #[test]
+    fn a_job_run_happens_inside_its_own_root_span() {
+        use std::sync::{Arc, Mutex};
+        use tracing_subscriber::layer::{Context, SubscriberExt as _};
+        use tracing_subscriber::registry::LookupSpan;
+
+        /// Records, for every ERROR event, the names of the spans around it.
+        #[derive(Clone, Default)]
+        struct Capture(Arc<Mutex<Vec<Vec<String>>>>);
+
+        impl<S> tracing_subscriber::Layer<S> for Capture
+        where
+            S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+        {
+            fn on_event(&self, event: &tracing::Event<'_>, ctx: Context<'_, S>) {
+                if *event.metadata().level() != tracing::Level::ERROR {
+                    return;
+                }
+                let scope = ctx
+                    .event_scope(event)
+                    .map(|scope| scope.map(|span| span.name().to_string()).collect())
+                    .unwrap_or_default();
+                self.0.lock().unwrap().push(scope);
+            }
+        }
+
+        let capture = Capture::default();
+        let subscriber = tracing_subscriber::registry().with(capture.clone());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+
+        tracing::subscriber::with_default(subscriber, || {
+            // An unrelated span already current on the thread must not become
+            // the parent: each run is its own trace.
+            let outer = tracing::info_span!("unrelated");
+            let _outer = outer.enter();
+            runtime.block_on(run_async_job(
+                "span_test_job".to_string(),
+                LogRotation::KeepLast(1),
+                || async {
+                    tracing::error!("something inside the job went wrong");
+                    Err::<(), Box<dyn std::error::Error>>("the job failed".into())
+                },
+            ));
+        });
+
+        let scopes = capture.0.lock().unwrap().clone();
+        // The job's own error, and the "failed" line for its result.
+        assert_eq!(scopes.len(), 2, "{scopes:?}");
+        for scope in scopes {
+            assert_eq!(
+                scope,
+                vec!["cron job".to_string()],
+                "an error escaped the job span, or the span had a parent"
+            );
+        }
+    }
 
     #[test]
     fn default_rotation_keeps_a_bounded_history() {

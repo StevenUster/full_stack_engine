@@ -146,6 +146,41 @@ A panic hook reports through `tracing` (payload + location) before chaining to
 whatever hook was installed before it, so a panic is visible in the logs and in
 the error backend rather than being swallowed into a bare 500.
 
+The report is made inside a span of its own (`panic`). Inside a request that
+span is a child of the request's; anywhere else — a cron job, a spawned task,
+boot — it is the only span there is, and without it OTLP export would drop the
+report (see below).
+
+### Cron jobs
+
+Every run of a job registered through `cron::add_job` / `add_async_job` executes
+in its own root span, `cron <job name>`, a new trace per run. A job that returns
+`Err`, or logs at `error` while it runs, ends with that span marked as failed.
+
+### Errors over OTLP alone
+
+The `sentry` feature is optional. With only `otel`, errors still reach the
+tracing backend, because an `ERROR` event inside a span sets that span's status
+to *Error* and is recorded on it as a span event:
+
+| Failure | Reaches the backend as |
+|---|---|
+| A request answered with a 5xx | the request span, status Error, `exception.message` holding the cause chain |
+| A cron run that fails or logs an error | the `cron <job>` span, status Error |
+| A panic, anywhere | a `panic` span, status Error |
+
+What OTLP does **not** do is group repeated failures into issues or alert on
+them: that is the backend's job, so pick one that does (SigNoz, Grafana with
+Tempo alerts, Honeycomb, Datadog). If you want an issue tracker instead —
+grouping, regressions per release, "first seen" — add the `sentry` feature and
+a Sentry-protocol server such as GlitchTip (open source, MIT).
+
+The one rule this depends on: **an event outside any span is not exported.**
+`tracing-opentelemetry` exports spans, and drops an event that has none. Request
+handlers, cron runs and panics all have one now; a `tokio::spawn` from app code
+does not unless it carries one — `.instrument(tracing::Span::current())` on the
+spawned future keeps it inside the request that started it.
+
 ## Configuration
 
 Nothing is required. Local development logs at `debug` in colourised multi-line
@@ -190,8 +225,8 @@ silently ignored `RUST_LOG` in `.env`.)
 Both are off by default — an app that wants neither pays for neither.
 
 ```toml
-full_stack_engine = { version = "6", features = ["otel"] }          # OTLP export
-full_stack_engine = { version = "6", features = ["otel", "sentry"] } # + error reporting
+full_stack_engine = { version = "10", features = ["otel"] }          # OTLP export
+full_stack_engine = { version = "10", features = ["otel", "sentry"] } # + error reporting
 ```
 
 - **`otel`** — OTLP span export over **HTTP/protobuf**, reusing the `reqwest`
@@ -211,10 +246,13 @@ Point at any OTLP-compatible backend — an OpenTelemetry Collector, Tempo,
 Jaeger, Honeycomb, Datadog's OTLP intake:
 
 ```bash
-docker run -p 4318:4318 -p 16686:16686 jaegertracing/all-in-one:latest
+docker run -p 4318:4318 -p 16686:16686 jaegertracing/jaeger:latest
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 cargo run
 # traces at http://localhost:16686
 ```
+
+(`jaegertracing/jaeger` is Jaeger v2. The older `jaegertracing/all-in-one` image
+is v1, which is end-of-life.)
 
 Useful combinations:
 

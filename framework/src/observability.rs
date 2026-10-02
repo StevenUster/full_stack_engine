@@ -412,6 +412,14 @@ fn install_panic_hook() {
             .map(std::string::ToString::to_string)
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "<non-string panic payload>".to_string());
+        // Reported inside a span of its own. A panic in a request handler
+        // already has the request's span around it, and this becomes a child of
+        // it; a panic anywhere else — a cron job, a spawned task, boot — has no
+        // span at all, and OTLP export drops an event with no span. The error
+        // event marks this span failed, so either way the panic reaches the
+        // tracing backend as an error rather than only the logs.
+        let span = tracing::error_span!("panic");
+        let _entered = span.enter();
         tracing::error!(
             panic.payload = %payload,
             panic.location = %info.location().map_or_else(|| "unknown".to_string(), ToString::to_string),
