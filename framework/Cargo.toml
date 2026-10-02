@@ -1,6 +1,6 @@
 [package]
 name = "full_stack_engine"
-version = "10.0.1"
+version = "10.0.2"
 edition = "2024"
 description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
 license = "MIT OR Apache-2.0"
@@ -181,6 +181,14 @@ sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }
 tokio = { version = "1", features = ["rt"] }
 
 [dev-dependencies]
+# `tests/otel_export.rs` exports through a real `OpenTelemetry` pipeline into
+# memory, to check what a backend actually receives.
+opentelemetry = { version = "0.32", default-features = false, features = ["trace"] }
+opentelemetry_sdk = { version = "0.32", default-features = false, features = [
+    "trace",
+    "testing",
+] }
+tracing-opentelemetry = { version = "0.33", default-features = false }
 # Integration tests are separate crates, so shared deps are repeated here.
 actix-multipart = "0.7.2"
 tokio = { version = "1", features = ["macros", "rt"] }

@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "10.0.1"
+version = "10.0.2"
 dependencies = [
  "actix-cors",
  "actix-files",
@@ -2867,6 +2867,7 @@ dependencies = [
  "portable-atomic",
  "rand 0.9.5",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

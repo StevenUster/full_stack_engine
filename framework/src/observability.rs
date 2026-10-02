@@ -725,10 +725,9 @@ impl RootSpanBuilder for FseRootSpan {
 
         span.record("http.route", tracing::field::display(&route));
         span.record("http.response.status_code", status.as_u16());
-        span.record(
-            "otel.name",
-            tracing::field::display(format_args!("{} {route}", outcome_method(outcome))),
-        );
+        let otel_name = format!("{} {route}", outcome_method(outcome));
+        span.record("otel.name", tracing::field::display(&otel_name));
+        rename_otel_span(&span, otel_name);
         if let Some(ms) = elapsed {
             span.record("http.server.request.duration_ms", ms);
         }
@@ -854,6 +853,28 @@ fn client_address(request: &ServiceRequest) -> String {
         .map(|ip| ip.to_string())
         .unwrap_or_default()
 }
+
+/// Renames the exported span to `GET /products/{id}`.
+///
+/// Recording `otel.name` is not enough on its own here. `tracing-opentelemetry`
+/// honours a late `otel.name` only while the span is still a builder, and
+/// [`set_otel_parent`] has already started it by reading the trace id at
+/// request start — after which a recorded name is silently dropped. Every
+/// request was therefore exported as `http_request`, collapsing all routes into
+/// one series in any backend that groups by span name. The route is only known
+/// once routing has run, so the started span is renamed through the
+/// `OpenTelemetry` handle instead.
+#[cfg(feature = "otel")]
+fn rename_otel_span(span: &Span, name: String) {
+    use opentelemetry::trace::TraceContextExt as _;
+    use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+
+    span.context().span().update_name(name);
+}
+
+#[cfg(not(feature = "otel"))]
+#[allow(clippy::needless_pass_by_value, clippy::missing_const_for_fn)]
+fn rename_otel_span(_span: &Span, _name: String) {}
 
 /// Adopts an incoming W3C `traceparent` as the span's parent, so a request
 /// that arrives from an already-traced caller continues that trace instead of
