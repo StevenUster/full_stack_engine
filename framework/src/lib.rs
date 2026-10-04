@@ -1491,7 +1491,10 @@ where
     })?;
 
     let body = match std::str::from_utf8(&bytes) {
-        Ok(html) => actix_web::body::BoxBody::new(inject_script_nonce(html, &nonce)),
+        Ok(html) => actix_web::body::BoxBody::new(inject_script_nonce(
+            &inject_client_router_nonce_bridge(html),
+            &nonce,
+        )),
         // Content-Type said HTML but the bytes are not UTF-8: pass them through
         // untouched rather than mangle them.
         Err(_) => actix_web::body::BoxBody::new(bytes),
@@ -1545,6 +1548,59 @@ fn inject_script_nonce(html: &str, nonce: &ScriptNonce) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// Keeps Astro's `<ClientRouter />` working under a per-request nonce.
+///
+/// The router fetches the next page, swaps its nodes into the *current*
+/// document, then runs each new script by recreating the `<script>` with
+/// `createElement` and copying its attributes. By then the copy has nothing
+/// to copy: a browser blanks an element's `nonce` attribute the moment it is
+/// inserted into a document served with a CSP header ("nonce hiding"), and
+/// the original carried the *next* response's nonce anyway. The recreated
+/// script has no valid nonce, the policy refuses it, and that page's
+/// JavaScript silently never runs — most visible going from a bare page such
+/// as /login to one with more scripts.
+///
+/// The bridge re-sets the current document's nonce on those scripts on
+/// `astro:after-swap`: after they are inserted (so it is not hidden again)
+/// and before the router copies them. Only tags still waiting to run and
+/// already carrying a server-issued nonce are touched, so it trusts nothing
+/// the server had not, and the page came same-origin from this server. It
+/// reads its own nonce from the `nonce` *property*, which hiding leaves
+/// intact.
+///
+/// When the last script waiting to run is an inline module, the router also
+/// appends an empty `data:` module to wait on, which `script-src` rightly
+/// refuses. The bridge appends a module first, using the `src` of one this
+/// document already loaded from `'self'`: the router sees that one last and
+/// waits on it instead, and the module map makes loading it again a no-op.
+///
+/// Added only to pages that render the router (it emits the
+/// `astro-view-transitions-enabled` meta tag), right after that tag. It gets
+/// the request's nonce from [`inject_script_nonce`] like any other script.
+fn inject_client_router_nonce_bridge(html: &str) -> std::borrow::Cow<'_, str> {
+    const MARKER: &str = r#"name="astro-view-transitions-enabled""#;
+    const BRIDGE: &str = "<script>(function(){var n=document.currentScript.nonce;\
+if(!n||window.__fseNonceBridge)return;window.__fseNonceBridge=1;\
+document.addEventListener(\"astro:after-swap\",function(){var last=null;\
+document.querySelectorAll(\"script:not([data-astro-exec])\").forEach(function(s){\
+if(s.hasAttribute(\"nonce\"))s.setAttribute(\"nonce\",n);\
+if(s.getAttribute(\"type\")===\"module\")last=s});\
+var m=document.querySelector(\"script[type=module][src][data-astro-exec]\");\
+if(last&&!last.hasAttribute(\"src\")&&m){var w=document.createElement(\"script\");\
+w.type=\"module\";w.src=m.getAttribute(\"src\");document.body.appendChild(w)}})})()</script>";
+    let Some(at) = html.find(MARKER) else {
+        return std::borrow::Cow::Borrowed(html);
+    };
+    let Some(tag_end) = html[at..].find('>').map(|i| at + i + 1) else {
+        return std::borrow::Cow::Borrowed(html);
+    };
+    let mut out = String::with_capacity(html.len() + BRIDGE.len());
+    out.push_str(&html[..tag_end]);
+    out.push_str(BRIDGE);
+    out.push_str(&html[tag_end..]);
+    std::borrow::Cow::Owned(out)
 }
 
 /// Probes this app's own `/healthz` over loopback and reports the result as the
@@ -1969,6 +2025,26 @@ mod tests {
         // Several tags all get it.
         let out = inject_script_nonce("<script>a</script><script>b</script>", &nonce);
         assert_eq!(out.matches(r#"nonce="abc123""#).count(), 2);
+    }
+
+    #[test]
+    fn client_router_pages_get_the_nonce_bridge_stamped_with_the_nonce() {
+        let nonce = ScriptNonce("abc123".to_string());
+        let html = r#"<head><meta name="astro-view-transitions-enabled" content="true"><script>a</script></head>"#;
+        let out = inject_script_nonce(&inject_client_router_nonce_bridge(html), &nonce);
+        // Right after the marker, and nonced like every other script.
+        assert!(out.contains(
+            r#"content="true"><script nonce="abc123">(function(){var n=document.currentScript.nonce;"#
+        ));
+        assert!(out.contains("astro:after-swap"));
+        assert_eq!(out.matches(r#"nonce="abc123""#).count(), 2);
+
+        // Pages without the router are left exactly as they were.
+        let plain = "<head><script>a</script></head>";
+        assert!(matches!(
+            inject_client_router_nonce_bridge(plain),
+            std::borrow::Cow::Borrowed(s) if s == plain
+        ));
     }
 
     #[test]
