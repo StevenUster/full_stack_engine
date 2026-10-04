@@ -1228,7 +1228,7 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "11.0.0"
+version = "11.1.0"
 dependencies = [
  "actix-cors",
  "actix-files",

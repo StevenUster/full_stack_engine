@@ -56,7 +56,8 @@ OpenTelemetry's HTTP server conventions:
 | `otel.kind` / `otel.name` / `otel.status_code` | read by the OTLP exporter |
 
 Plus one access-log line per request, on the `full_stack_engine::access` target
-(`RUST_LOG=full_stack_engine::access=off` silences it on its own). Its level
+(`ACCESS_LOG_LEVEL=warn` keeps only its 5xx lines, `ACCESS_LOG_LEVEL=off`
+silences it, both without touching the rest of the log). Its level
 follows the status: `error` for 5xx, `info` otherwise — so a scanner's 404s
 never compete with real failures, and `LOG_LEVEL=error` shows only what the
 server got wrong.
@@ -191,6 +192,7 @@ until an endpoint is configured.
 |---|---|---|
 | `RUST_LOG` | — | Full `tracing` directives. Appended last, so it overrides everything below. |
 | `LOG_LEVEL` | `debug` (dev) / `info` (prod) | Level for the app's own code. |
+| `ACCESS_LOG_LEVEL` | `LOG_LEVEL` | Level for the per-request access log alone. `warn` keeps only 5xx lines; `off` drops it. |
 | `LOG_FORMAT` | `pretty` (dev) / `json` (prod) | `pretty`, `compact` or `json`. |
 | `SERVICE_NAME` | `FrameworkApp::service_name`, else the executable name | `service.name`. |
 | `SERVICE_VERSION` | `FrameworkApp::service_version`, else `unknown` | `service.version`. |
@@ -259,7 +261,7 @@ Useful combinations:
 ```bash
 LOG_FORMAT=json cargo run                            # see what prod will emit
 RUST_LOG=sqlx=debug cargo run                        # every SQL statement
-RUST_LOG=full_stack_engine::access=off cargo run     # drop the access log
+ACCESS_LOG_LEVEL=off cargo run                       # drop the access log
 LOG_LEVEL=error cargo run                            # only what the server got wrong
 ```
 

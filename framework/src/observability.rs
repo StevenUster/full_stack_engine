@@ -136,6 +136,7 @@ impl LogFormat {
 /// |---|---|---|
 /// | `RUST_LOG` | — | Full `tracing` filter directives. Wins over `LOG_LEVEL`. |
 /// | `LOG_LEVEL` | `debug` (dev) / `info` (prod) | Level for the app's own code. |
+/// | `ACCESS_LOG_LEVEL` | `LOG_LEVEL` | Level for the per-request access log alone; `warn` keeps only 5xx lines, `off` drops it. |
 /// | `LOG_FORMAT` | `pretty` (dev) / `json` (prod) | `pretty`, `compact` or `json`. |
 /// | `SERVICE_NAME` | [`crate::FrameworkApp::service_name`], else the executable file name | `service.name` on every span. |
 /// | `SERVICE_VERSION` | [`crate::FrameworkApp::service_version`], else `unknown` | `service.version`; set to the release/commit. |
@@ -209,6 +210,7 @@ impl Settings {
             filter: Self::filter_directives(
                 var("RUST_LOG").as_deref(),
                 var("LOG_LEVEL").as_deref(),
+                var("ACCESS_LOG_LEVEL").as_deref(),
                 env,
             ),
             format: LogFormat::parse(
@@ -245,15 +247,32 @@ impl Settings {
 
     /// The filter string handed to [`EnvFilter`].
     ///
-    /// Built as `<dependency defaults>,<level for our own code>,<RUST_LOG>` —
-    /// later directives win in `tracing`, so an operator's `RUST_LOG` can
-    /// always override any default here, including turning a quieted
-    /// dependency back on (`RUST_LOG=sqlx=debug`).
-    fn filter_directives(rust_log: Option<&str>, log_level: Option<&str>, env: Env) -> String {
+    /// Built as `<dependency defaults>,<level for our own code>,<access log
+    /// level>,<RUST_LOG>` — later directives win in `tracing`, so an
+    /// operator's `RUST_LOG` can always override any default here, including
+    /// turning a quieted dependency back on (`RUST_LOG=sqlx=debug`).
+    ///
+    /// `access_log_level` is a bare level (`warn`, `off`, …) so quieting the
+    /// access log doesn't need the target spelled out. An unrecognised value
+    /// is ignored rather than spliced in: it would make the whole filter
+    /// unparseable and reset every level to `info`.
+    fn filter_directives(
+        rust_log: Option<&str>,
+        log_level: Option<&str>,
+        access_log_level: Option<&str>,
+        env: Env,
+    ) -> String {
         let level = log_level.unwrap_or(if env == Env::Dev { "debug" } else { "info" });
         let mut directives = DEPENDENCY_DEFAULTS.join(",");
         directives.push(',');
         directives.push_str(level);
+        if let Some(access) =
+            access_log_level.filter(|l| l.parse::<tracing::level_filters::LevelFilter>().is_ok())
+        {
+            for part in [",", ACCESS_TARGET, "=", access] {
+                directives.push_str(part);
+            }
+        }
         if let Some(rust_log) = rust_log {
             directives.push(',');
             directives.push_str(rust_log);
@@ -391,7 +410,9 @@ where
                 // most of the value of having spans at all. The span *list*
                 // rather than `with_current_span`: it already ends with the
                 // innermost span, so the pair would write every field of a
-                // request's span twice on every line.
+                // request's span twice on every line. `with_current_span`
+                // defaults to on, so it has to be switched off explicitly.
+                .with_current_span(false)
                 .with_span_list(true),
         ),
     }
@@ -958,7 +979,8 @@ mod tests {
 
     #[test]
     fn filter_puts_rust_log_last_so_it_always_wins() {
-        let filter = Settings::filter_directives(Some("sqlx=debug,my_app=trace"), None, Env::Prod);
+        let filter =
+            Settings::filter_directives(Some("sqlx=debug,my_app=trace"), None, None, Env::Prod);
         // Dependency defaults come first...
         assert!(filter.starts_with("sqlx=warn,"));
         // ...the app's own level next...
@@ -969,34 +991,55 @@ mod tests {
 
     #[test]
     fn filter_level_defaults_to_debug_in_dev_and_info_in_prod() {
-        assert!(Settings::filter_directives(None, None, Env::Dev).ends_with(",debug"));
-        assert!(Settings::filter_directives(None, None, Env::Prod).ends_with(",info"));
+        assert!(Settings::filter_directives(None, None, None, Env::Dev).ends_with(",debug"));
+        assert!(Settings::filter_directives(None, None, None, Env::Prod).ends_with(",info"));
         // An explicit LOG_LEVEL wins over the environment default and may
         // itself be a full directive set.
-        assert!(Settings::filter_directives(None, Some("warn"), Env::Dev).ends_with(",warn"));
+        assert!(Settings::filter_directives(None, Some("warn"), None, Env::Dev).ends_with(",warn"));
+    }
+
+    #[test]
+    fn access_log_level_takes_a_bare_level_and_ignores_garbage() {
+        let filter = Settings::filter_directives(None, None, Some("warn"), Env::Prod);
+        assert!(filter.ends_with(",info,full_stack_engine::access=warn"));
+        // RUST_LOG still comes after it, so it can override it.
+        let filter = Settings::filter_directives(
+            Some("full_stack_engine::access=debug"),
+            None,
+            Some("off"),
+            Env::Prod,
+        );
+        assert!(filter.ends_with("access=off,full_stack_engine::access=debug"));
+        // A typo is dropped rather than breaking the whole filter.
+        let filter = Settings::filter_directives(None, None, Some("loud"), Env::Prod);
+        assert!(!filter.contains("access"));
     }
 
     #[test]
     fn dependency_defaults_quiet_sqlx_query_logging() {
         // sqlx logs the text of every statement at INFO; at the framework's
         // own default level that would bury everything else.
-        let filter = Settings::filter_directives(None, None, Env::Prod);
+        let filter = Settings::filter_directives(None, None, None, Env::Prod);
         assert!(filter.contains("sqlx=warn"));
     }
 
     #[test]
     fn every_generated_filter_parses() {
-        for (rust_log, level, env) in [
-            (None, None, Env::Dev),
-            (None, None, Env::Prod),
-            (Some("debug"), None, Env::Prod),
+        for (rust_log, level, access, env) in [
+            (None, None, None, Env::Dev),
+            (None, None, None, Env::Prod),
+            (Some("debug"), None, None, Env::Prod),
+            (None, None, Some("warn"), Env::Prod),
+            (None, None, Some("OFF"), Env::Prod),
+            (None, None, Some("loud"), Env::Prod),
             (
                 Some("full_stack_engine::access=off"),
                 Some("warn"),
+                None,
                 Env::Prod,
             ),
         ] {
-            let directives = Settings::filter_directives(rust_log, level, env);
+            let directives = Settings::filter_directives(rust_log, level, access, env);
             assert!(
                 EnvFilter::builder().parse(&directives).is_ok(),
                 "should parse: {directives}"

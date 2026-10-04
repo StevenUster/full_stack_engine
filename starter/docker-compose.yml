@@ -17,6 +17,7 @@ services:
       # `info` as JSON to stdout (where the container runtime collects it) and
       # export nothing. `:-` keeps compose from warning about unset variables.
       - LOG_LEVEL=${LOG_LEVEL:-}
+      - ACCESS_LOG_LEVEL=${ACCESS_LOG_LEVEL:-}
       - LOG_FORMAT=${LOG_FORMAT:-}
       - RUST_LOG=${RUST_LOG:-}
       - SERVICE_NAME=${SERVICE_NAME:-}
