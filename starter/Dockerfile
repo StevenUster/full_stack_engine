@@ -1,4 +1,7 @@
-FROM oven/bun:1.3.8-alpine AS theme-builder
+# 1.3.14, not older: there is no Node in this image, so Astro builds on the
+# Bun runtime, and Bun 1.3.8 crashes loading react-dom/server.bun.js
+# ("Expected CommonJS module to have a function wrapper").
+FROM oven/bun:1.3.14-alpine AS theme-builder
 WORKDIR /app
 # Every npm theme in themes/ is built: the binary embeds all of them, and
 # fse.toml only picks the active one. Installs first, since a child theme
