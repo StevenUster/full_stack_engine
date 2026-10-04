@@ -1,10 +1,15 @@
 FROM oven/bun:1.3.8-alpine AS theme-builder
-WORKDIR /app/theme
-COPY theme/package.json theme/bun.lock ./
-RUN bun install
-COPY theme .
-COPY locales ../locales
-RUN bun run build
+WORKDIR /app
+# Every npm theme in themes/ is built: the binary embeds all of them, and
+# fse.toml only picks the active one. Installs first, since a child theme
+# builds from its sibling parent's sources. node_modules is dropped
+# afterwards so only the built dist/ folders reach the next stage.
+COPY locales locales
+COPY themes themes
+RUN set -e; \
+    for t in themes/*/; do if [ -f "$t/package.json" ]; then (cd "$t" && bun install --frozen-lockfile); fi; done; \
+    for t in themes/*/; do if [ -f "$t/package.json" ]; then (cd "$t" && bun run build); fi; done; \
+    rm -rf themes/*/node_modules
 
 FROM rust:1.93.0-slim AS backend-builder
 WORKDIR /app
@@ -13,7 +18,7 @@ WORKDIR /app
 # the tree links OpenSSL. `cargo deny` enforces that it stays that way.
 
 COPY . .
-COPY --from=theme-builder /app/theme/dist ./theme/dist
+COPY --from=theme-builder /app/themes ./themes
 
 ENV SQLX_OFFLINE=true
 RUN cargo build --release
@@ -28,7 +33,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /app/target/release/starter ./starter
-# Migrations, locales and both themes are embedded in the binary — nothing
+# Migrations, locales and every theme are embedded in the binary — nothing
 # else to copy.
 EXPOSE 8080
 # The framework serves /healthz (liveness, touches nothing) and /readyz

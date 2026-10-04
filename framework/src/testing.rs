@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use tera::Tera;
 
 use crate::config::{Config, CorsConfig, RateLimitConfig};
-use crate::themes::{Theme, ThemeStack};
+use crate::themes::{ThemeSet, ThemeStack};
 
 /// A valid [`Config`] for tests, so a test that only cares about one handler
 /// doesn't have to spell out every setting — and doesn't break every time a new
@@ -40,8 +40,9 @@ pub fn config(jwt_secret: &str) -> Config {
     }
 }
 
-/// Resolves `themes` exactly like the app's boot does (active theme = the
-/// one no other installed theme extends) and parses every template of the
+/// Resolves `themes` exactly like the app's boot does (the set's active
+/// theme, else the one no other installed theme extends — `THEME` is not
+/// read, so tests don't depend on the shell) and parses every template of the
 /// resulting stack into a [`Tera`] — child templates over parent ones, each
 /// theme's own copies also under `@{theme}/{name}`. Unlike the boot-time
 /// loader, which logs and skips a broken template so one bad page doesn't
@@ -66,7 +67,7 @@ pub fn config(jwt_secret: &str) -> Config {
 /// Returns `Err` when the themes don't resolve (missing parent, ambiguous
 /// active theme, …) or with one block per broken template — its name,
 /// Tera's error, and its full `source()` chain.
-pub fn load_themes(themes: impl IntoIterator<Item = Theme>) -> Result<Tera, String> {
+pub fn load_themes(themes: impl Into<ThemeSet>) -> Result<Tera, String> {
     load_themes_localized(themes, "en", None)
 }
 
@@ -86,7 +87,7 @@ pub fn load_themes(themes: impl IntoIterator<Item = Theme>) -> Result<Tera, Stri
 ///
 /// As [`load_themes`].
 pub fn load_themes_localized(
-    themes: impl IntoIterator<Item = Theme>,
+    themes: impl Into<ThemeSet>,
     lang: &str,
     currency: Option<&str>,
 ) -> Result<Tera, String> {
@@ -127,8 +128,8 @@ pub(crate) fn strict_tera(
 /// # Errors
 ///
 /// Returns the resolution error as a string.
-pub fn theme_stack(themes: impl IntoIterator<Item = Theme>) -> Result<ThemeStack, String> {
-    ThemeStack::resolve(themes.into_iter().collect(), None).map_err(|e| e.to_string())
+pub fn theme_stack(themes: impl Into<ThemeSet>) -> Result<ThemeStack, String> {
+    themes.into().resolve().map_err(|e| e.to_string())
 }
 
 /// A ready-to-use [`AppData`](crate::AppData) for tests, built from `db` and
@@ -149,7 +150,7 @@ pub fn theme_stack(themes: impl IntoIterator<Item = Theme>) -> Result<ThemeStack
 #[must_use]
 pub fn app_data(
     db: sqlx::SqlitePool,
-    themes: impl IntoIterator<Item = Theme>,
+    themes: impl Into<ThemeSet>,
     jwt_secret: &str,
 ) -> crate::AppData {
     let stack = theme_stack(themes).expect("themes should resolve");

@@ -28,15 +28,52 @@ layout.
 
 ## Installing and activating
 
-```rust
-static THEME: Dir = include_dir!("$CARGO_MANIFEST_DIR/theme/dist");
+An app keeps its themes in a **`themes/` folder, one theme per subfolder**,
+and names the active one in `fse.toml`:
 
-FrameworkApp::new()
-    // cargo crate with the built default theme
-    .theme(Theme::embedded(&fse_theme_default::DIST))
-    // this app's child theme; in ENV=dev, pages/assets come from astro dev first
-    .theme(Theme::embedded(&THEME).dev_server("http://localhost:4321"))
 ```
+my-app/
+├── fse.toml              [themes] active = "my-app"
+└── themes/
+    ├── my-app/           Astro project, theme.json { "name": "my-app", "parent": "fse-theme-default" }
+    ├── my-app-dark/      Astro project, theme.json { "name": "my-app-dark", "parent": "my-app" }
+    └── plain/            hand-written: theme.json + *.html, nothing to build
+```
+
+```toml
+# fse.toml — every key optional
+[themes]
+active = "my-app"                      # theme.json name; default: the one nothing extends
+# dir = "themes"
+# dev_server = "http://localhost:4321" # where an npm theme's dev server runs in ENV=dev
+```
+
+`full_stack_engine::themes!()` embeds every folder at compile time and
+returns a `ThemeSet` with that active theme. Theme crates go on top:
+
+```rust
+pub fn themes() -> ThemeSet {
+    full_stack_engine::themes!().with(Theme::embedded(&fse_theme_default::DIST))
+}
+
+FrameworkApp::new().themes(themes())
+```
+
+Per folder, the macro embeds:
+
+| Folder has | Embedded |
+| --- | --- |
+| `dist/theme.json` | `dist/` (the build output), with `dev_server` for `ENV=dev` |
+| `package.json`, no build yet | an *unbuilt* stub: the app compiles, and boot fails with "run the build" only if the active theme needs it |
+| only `theme.json` | the folder itself |
+| none of these | compile error |
+
+Editing `fse.toml` or a built file recompiles the app. Since every theme is
+in the binary, `THEME=my-app-dark` switches at boot without a rebuild.
+`cargo run --bin dev` installs and builds every unbuilt theme, then runs the
+active theme's dev server.
+
+Other ways to install a theme:
 
 | Source | API |
 | --- | --- |
@@ -44,16 +81,29 @@ FrameworkApp::new()
 | folder on disk, read at boot (drop-in themes) | `Theme::from_directory("themes/x")?` |
 | built in code (tests, generated) | `Theme::new(manifest).with_file(path, bytes)` |
 
+Add them with `ThemeSet::with` or `FrameworkApp::theme`.
+
 **Active theme.** The framework picks the first match:
 
 1. the `THEME` environment variable,
-2. `.active_theme("name")`,
+2. `[themes] active` in `fse.toml` (or `ThemeSet::active` / `.active_theme("name")`),
 3. the one installed theme that no other installed theme extends.
 
 With only a parent and its child installed, rule 3 activates the child
 automatically. Themes outside the active chain are ignored, like inactive
 WordPress themes. Boot fails loudly on duplicate names, a missing parent,
-cycles, or an ambiguous choice.
+cycles, an ambiguous choice, or an unbuilt theme in the active chain.
+Test every theme as the active one, so switching never meets a broken page:
+
+```rust
+#[test]
+fn every_installed_theme_loads_as_the_active_one() {
+    let themes = my_app::themes();
+    for theme in themes.installed() {
+        full_stack_engine::testing::load_themes(themes.clone().active(theme.name())).unwrap();
+    }
+}
+```
 
 ## How layering works
 
@@ -108,16 +158,29 @@ Every page context also contains:
    path in the child wins. `@parent/...` always means the parent's original,
    so an override can wrap it.
 
+The parent is looked up among the **sibling folders** first (another theme
+of the same `themes/` folder, read live from disk), then as an installed npm
+package. Chains of any length work: `my-app-dark → my-app →
+fse-theme-default`.
+
 ```
-theme/
-├── theme.json            { "name": "starter", "parent": "fse-theme-default" }
+themes/my-app/
+├── theme.json            { "name": "my-app", "parent": "fse-theme-default" }
 ├── package.json          depends on fse-ssr + fse-theme-default (npm: the Astro sources)
-├── astro.config.mjs      integrations: [fseSsr({ locales: "../locales" })]
+├── astro.config.mjs      integrations: [fseSsr({ locales: "../../locales" })]
 ├── tsconfig.json         paths: { "@parent/*": ["./node_modules/fse-theme-default/src/*"] }
 └── src/
     ├── pages/            the app's own pages; a same-path page overrides the parent's
     ├── components/SidebarLinks.astro   override → shows up in every inherited page
     └── styles/global.css override → recolors every inherited page
+
+themes/my-app-dark/       a child of the theme above
+├── theme.json            { "name": "my-app-dark", "parent": "my-app" }
+├── package.json          same dependencies as my-app (its build needs them too)
+├── astro.config.mjs      same as my-app
+├── tsconfig.json         paths: { "@parent/*": ["../my-app/src/*"] }
+└── src/styles/global.css the only override; add `@source "../../../my-app/src";`
+                          so Tailwind sees the classes of the parent's pages
 ```
 
 The default theme's extension points are listed in its
@@ -125,8 +188,8 @@ The default theme's extension points are listed in its
 
 ## Child themes without Astro
 
-Build any folder that follows the layout above, give it a `theme.json` with
-a `parent`, and install it after its parent. Anything the folder doesn't
+Put any folder that follows the layout above into `themes/`, with a
+`theme.json` that names a `parent`. Anything the folder doesn't
 contain falls back to the parent at runtime. A minimal plain-HTML child that
 restyles only the login page:
 

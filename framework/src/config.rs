@@ -110,7 +110,8 @@ pub struct Config {
     /// [`sqlx::migrate::Migrator`].
     pub migrations_dir: String,
     pub jwt_secret: SecretString,
-    /// `THEME`, which overrides [`crate::FrameworkApp::active_theme`].
+    /// `THEME`, which overrides the active theme the app picked
+    /// (`[themes] active` in `fse.toml`, [`crate::FrameworkApp::active_theme`]).
     pub theme: Option<String>,
     pub smtp: Option<SmtpConfig>,
     pub email_verification_enabled: bool,

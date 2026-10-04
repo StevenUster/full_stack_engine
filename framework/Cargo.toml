@@ -1,6 +1,6 @@
 [package]
 name = "full_stack_engine"
-version = "10.0.2"
+version = "11.0.0"
 edition = "2024"
 description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
 license = "MIT OR Apache-2.0"
@@ -21,7 +21,7 @@ path = "src/lib.rs"
 fse-orm = { version = "0.4.0", path = "../fse-orm/runtime" }
 # `#[model]`: re-parses structs with fse-schema, validates the app
 # attributes and registers the model via inventory for boot-time routes.
-full_stack_engine_macros = { version = "0.2.0", path = "macros" }
+full_stack_engine_macros = { version = "0.2.1", path = "macros" }
 fse-schema = { version = "0.4.0", path = "../fse-orm/schema" }
 inventory = "0.3"
 actix-web = "4.12.1"
@@ -93,6 +93,8 @@ sqlx = { version = "0.8.6", default-features = false, features = [
 # `cargo deny` flags it. Drop-in replacement.
 dotenvy = "0.15.7"
 include_dir = "0.7.4"
+# `cargo run --bin dev` reads `[themes]` from fse.toml to find the active theme.
+toml = "0.8"
 mime_guess = "2.0.5"
 # `log` stays a dependency even though the framework emits `tracing`: sqlx,
 # actix-web, lettre and reqwest all record through the `log` facade, and

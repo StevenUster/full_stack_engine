@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "10.0.2"
+version = "11.0.0"
 dependencies = [
  "actix-cors",
  "actix-files",
@@ -1426,6 +1426,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-cron-scheduler",
+ "toml",
  "tracing",
  "tracing-actix-web",
  "tracing-opentelemetry",
@@ -1436,13 +1437,14 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine_macros"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fse-schema",
  "proc-macro2",
  "quote",
  "serde_json",
  "syn 2.0.117",
+ "toml",
 ]
 
 [[package]]

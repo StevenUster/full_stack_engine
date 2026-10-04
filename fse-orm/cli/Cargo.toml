@@ -2,7 +2,7 @@
 name = "fse-cli"
 description = "The fse binary for full_stack_engine apps: scaffolds new apps, generates and applies sqlx migrations from #[model] structs, refreshes the offline query cache, and prints the routes and the agent guide."
 # Independent of workspace.package.version.
-version = "0.7.0"
+version = "0.7.1"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

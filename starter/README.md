@@ -10,7 +10,7 @@ For a blank new app instead of this showcase, run `fse new <name>`.
 
 ```bash
 cp .example.env .env        # set JWT_SECRET (≥ 32 chars)
-(cd theme && bun install && bun run build)
+(cd themes/starter && bun install && bun run build)
 fse migrate
 cargo test
 cargo run --bin dev         # backend + theme dev server
@@ -29,7 +29,7 @@ cargo run --bin dev         # backend + theme dev server
 | Orders admin `/admin/orders`: product and customer by name, *Fulfill*/*Cancel* buttons on pending orders | `src/models/order.rs` — relations with `#[ui(list)]`, `actions(...)` + `can_act` |
 | Customers order a published product, see `/my-orders`, cancel their own pending order | `src/services/orders.rs` — the custom-flow example |
 | OpenAPI document + Swagger UI at `/api/docs` | `.api_docs(...)`, generated from the `api` models |
-| Child theme: own catalog pages, extra sidebar links, recolored palette | `theme/` (parent: `fse-theme-default`) |
+| Child theme: own catalog pages, extra sidebar links, recolored palette | `themes/starter/` (parent: `fse-theme-default`), active via `[themes]` in `fse.toml` |
 | English + German | `locales/*.json` (framework texts built in) |
 | Tests over the production stack | `tests/` with `TestApp` |
 
@@ -97,7 +97,7 @@ Make sure your `.env` file has:
 ENV=dev
 ```
 
-Then run the development server (starts both the Rust backend and the theme's Astro dev server; builds `theme/` once if it has never been built):
+Then run the development server (starts both the Rust backend and the active theme's Astro dev server; builds every theme in `themes/` once if it has never been built):
 
 ```bash
 cargo run --bin dev
@@ -111,8 +111,8 @@ Alternatively, run them separately in two terminals:
 # Terminal 1: Rust backend with hot reload
 cargo watch -x run
 
-# Terminal 2: theme dev server
-cd theme
+# Terminal 2: the active theme's dev server
+cd themes/starter
 bun dev
 ```
 

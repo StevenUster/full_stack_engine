@@ -7,7 +7,7 @@ pub use crate::{
     mail::{MailAttachment, send_mail, send_mail_with_attachments},
     rate_limiter::{auth_rate_limiter, custom_rate_limiter, general_rate_limiter},
     structs::{DefaultRole, Role, User},
-    themes::{Theme, ThemeManifest},
+    themes::{Theme, ThemeManifest, ThemeSet},
     uploads::{UploadError, delete_upload, save_upload},
 };
 

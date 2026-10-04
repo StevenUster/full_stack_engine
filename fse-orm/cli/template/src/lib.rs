@@ -27,9 +27,10 @@ define_roles! {
     (None,  "none",  ["none"]),
 }
 
-/// The default theme. To restyle pages, add a child theme (see AGENTS.md).
-pub fn themes() -> Vec<Theme> {
-    vec![Theme::embedded(&fse_theme_default::DIST)]
+/// Every folder of `themes/` (none yet) plus the default theme. To restyle
+/// pages, add a theme folder there (see AGENTS.md §8).
+pub fn themes() -> ThemeSet {
+    full_stack_engine::themes!().with(Theme::embedded(&fse_theme_default::DIST))
 }
 
 pub async fn run() -> std::io::Result<()> {
@@ -39,11 +40,9 @@ pub async fn run() -> std::io::Result<()> {
 /// The whole app — served by `run()` and driven by the tests
 /// (`TestApp::new(app())`).
 pub fn app() -> FrameworkApp {
-    let mut app = FrameworkApp::new();
-    for theme in themes() {
-        app = app.theme(theme);
-    }
-    app.service_name(env!("CARGO_PKG_NAME"))
+    FrameworkApp::new()
+        .themes(themes())
+        .service_name(env!("CARGO_PKG_NAME"))
         .service_version(env!("CARGO_PKG_VERSION"))
         // Hand-written routes (special cases only) — they win on a path
         // conflict with anything generated.

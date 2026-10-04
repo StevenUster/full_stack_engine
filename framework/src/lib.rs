@@ -47,6 +47,10 @@ pub mod uploads;
 // need their own `inventory` dependency.
 pub use inventory;
 
+/// Every theme in the app's `themes/` folder, embedded, with the active one
+/// from `fse.toml` — a [`themes::ThemeSet`]. See the macro's documentation.
+pub use full_stack_engine_macros::themes;
+
 pub type ContextInjectorFn =
     Box<dyn Fn(&actix_web::HttpRequest, &mut serde_json::Value) + Send + Sync + 'static>;
 
@@ -74,7 +78,7 @@ pub struct AppData {
     pub locales: std::collections::HashMap<String, serde_json::Value>,
     /// How a request's language is decided (see [`FrameworkApp::locales`]).
     pub locale_selector: i18n::LocaleSelector,
-    /// The active theme and its ancestors (see [`themes`]). `tera` holds the
+    /// The active theme and its ancestors (see [`mod@themes`]). `tera` holds the
     /// stack's templates; this is kept for static assets and dev servers.
     pub themes: std::sync::Arc<themes::ThemeStack>,
     /// The whole validated configuration, including the secrets (which are
@@ -517,22 +521,40 @@ impl FrameworkApp {
         self
     }
 
-    /// Installs a theme (see [`themes`]). Install a parent and its child and
+    /// Installs a theme (see [`mod@themes`]). Install a parent and its child and
     /// the child becomes active; the parent fills in every template and
     /// asset the child doesn't have. Several unrelated themes can be
     /// installed side by side — pick one with [`FrameworkApp::active_theme`]
     /// or the `THEME` environment variable.
     ///
     /// ```ignore
-    /// static THEME: Dir = include_dir!("$CARGO_MANIFEST_DIR/theme/dist");
-    ///
     /// FrameworkApp::new()
     ///     .theme(Theme::embedded(&fse_theme_default::DIST))
-    ///     .theme(Theme::embedded(&THEME).dev_server("http://localhost:4321"))
+    ///     .theme(Theme::from_directory("my-theme")?)
     /// ```
     #[must_use]
     pub fn theme(mut self, theme: themes::Theme) -> Self {
         self.themes.push(theme);
+        self
+    }
+
+    /// Installs every theme of `set` and, when the set names one, activates
+    /// it — the usual way in, with the app's `themes/` folder and `fse.toml`
+    /// behind [`themes!`]:
+    ///
+    /// ```ignore
+    /// FrameworkApp::new().themes(
+    ///     full_stack_engine::themes!()
+    ///         .with(Theme::embedded(&fse_theme_default::DIST)),
+    /// )
+    /// ```
+    #[must_use]
+    pub fn themes(mut self, set: themes::ThemeSet) -> Self {
+        let (installed, active) = set.into_parts();
+        self.themes.extend(installed);
+        if active.is_some() {
+            self.active_theme = active;
+        }
         self
     }
 

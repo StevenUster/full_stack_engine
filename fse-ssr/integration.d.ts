@@ -1,13 +1,18 @@
 import type { AstroIntegration } from "astro";
 
 export interface FseSsrOptions {
-  /** Path to the locale directory, relative to the project root. Default: `"../locales"`. */
+  /**
+   * Path to the locale directory, relative to the project root. Default: the
+   * app's `locales/` — `"../locales"` for a `theme/` folder, `"../../locales"`
+   * for a `themes/<name>/` folder (whichever directory holds the app's
+   * `fse.toml` or `Cargo.toml`).
+   */
   locales?: string;
   /** Locale file (without extension) read to type `t.*`. Default: `"en"`. */
   defaultLocale?: string;
   /**
    * Where `fse sync` extracts module frontends, relative to the project
-   * root. Default: `"../.fse/modules"`. Each `<name>/frontend/pages` layers
+   * root. Default: the app's `.fse/modules`, found like `locales`. Each `<name>/frontend/pages` layers
    * below every theme's pages.
    */
   modulesDir?: string;

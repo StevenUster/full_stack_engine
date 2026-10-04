@@ -7,7 +7,7 @@
 //!   and the JSON API at `/api/products` (`api`) — both limited to
 //!   *published* rows by `public_scope` below.
 //!
-//! The catalog pages are styled by `theme/src/pages/products/` (a template
+//! The catalog pages are styled by `themes/starter/src/pages/products/` (a template
 //! named after the model wins over the generic one) — no Rust for them.
 
 use crate::{Cond, DbEnum, ModelHooks, chrono::NaiveDateTime, model};

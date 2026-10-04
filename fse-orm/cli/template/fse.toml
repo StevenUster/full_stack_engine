@@ -1,6 +1,10 @@
 # fse configuration. `src/models/` holds the #[model] structs that ARE the
 # app; `fse migrate` generates migrations from them.
 
+# Themes: every folder of themes/ is one theme (see AGENTS.md §8).
+# [themes]
+# active = "my-app"   # by theme.json name; THEME=... overrides it at boot
+
 [orm]
 tables_dir = "src/models"
 migrations_dir = "migrations"

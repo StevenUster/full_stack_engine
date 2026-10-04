@@ -19,12 +19,17 @@
 //! `{% extends "@fse-theme-default/login" %}` or include a parent part
 //! it overrides.
 //!
-//! ```ignore
-//! static THEME: Dir = include_dir!("$CARGO_MANIFEST_DIR/theme/dist");
+//! An app keeps its own themes in a `themes/` folder, one theme per
+//! subfolder, and picks the active one in `fse.toml`. [`crate::themes!`]
+//! embeds all of them; a theme crate like the default theme is installed on
+//! top:
 //!
-//! FrameworkApp::new()
-//!     .theme(Theme::embedded(&fse_theme_default::DIST)) // parent (cargo crate)
-//!     .theme(Theme::embedded(&THEME).dev_server("http://localhost:4321"))
+//! ```ignore
+//! // fse.toml: [themes] active = "my-app"
+//! FrameworkApp::new().themes(
+//!     full_stack_engine::themes!() // every themes/*/ of this crate
+//!         .with(Theme::embedded(&fse_theme_default::DIST)),
+//! )
 //! ```
 
 use std::borrow::Cow;
@@ -76,6 +81,11 @@ pub enum ThemeError {
     MissingParent { child: String, parent: String },
     #[error("theme inheritance cycle: {0}")]
     Cycle(String),
+    #[error(
+        "theme \"{name}\" is not built ({location}/dist/theme.json is missing) — run \
+         `bun install && bun run build` in {location}, or `cargo run --bin dev`"
+    )]
+    Unbuilt { name: String, location: String },
 }
 
 /// One installed theme: its manifest and every file of its built output.
@@ -85,6 +95,8 @@ pub struct Theme {
     /// Root-relative, `/`-separated paths.
     files: BTreeMap<String, Cow<'static, [u8]>>,
     dev_server: Option<String>,
+    /// Set for a theme folder whose build output is missing: where it is.
+    unbuilt: Option<String>,
 }
 
 impl std::fmt::Debug for Theme {
@@ -93,6 +105,7 @@ impl std::fmt::Debug for Theme {
             .field("manifest", &self.manifest)
             .field("files", &self.files.len())
             .field("dev_server", &self.dev_server)
+            .field("unbuilt", &self.unbuilt)
             .finish()
     }
 }
@@ -144,6 +157,28 @@ impl Theme {
             manifest,
             files: BTreeMap::new(),
             dev_server: None,
+            unbuilt: None,
+        }
+    }
+
+    /// A theme folder whose build output is missing — what
+    /// [`crate::themes!`] installs for an npm theme that was never built, so
+    /// the app still compiles (and `cargo run --bin dev`, which builds it,
+    /// can start). It takes part in resolution under its source
+    /// `theme.json`, and resolving a stack that needs it fails with
+    /// [`ThemeError::Unbuilt`].
+    ///
+    /// # Panics
+    ///
+    /// Panics when `manifest_json` is not a valid `theme.json`
+    /// (`themes!()` checks that at compile time).
+    #[must_use]
+    pub fn unbuilt(manifest_json: &[u8], location: &str) -> Self {
+        let manifest = serde_json::from_slice(manifest_json)
+            .unwrap_or_else(|e| panic!("invalid {location}/{MANIFEST_FILE}: {e}"));
+        Self {
+            unbuilt: Some(location.to_string()),
+            ..Self::new(manifest)
         }
     }
 
@@ -177,6 +212,7 @@ impl Theme {
             manifest,
             files,
             dev_server: None,
+            unbuilt: None,
         })
     }
 
@@ -223,6 +259,82 @@ impl Theme {
         template_paths(name)
             .iter()
             .any(|p| self.files.contains_key(p))
+    }
+}
+
+/// The themes an app installs, plus the one it activates — what
+/// [`crate::themes!`] builds from the app's `themes/` folder and `fse.toml`,
+/// and what [`crate::FrameworkApp::themes`] and the [`crate::testing`]
+/// helpers take.
+///
+/// The `THEME` environment variable overrides [`ThemeSet::active`] at boot.
+#[derive(Debug, Clone, Default)]
+pub struct ThemeSet {
+    installed: Vec<Theme>,
+    active: Option<String>,
+}
+
+impl ThemeSet {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Installs one more theme — a theme crate's `DIST`, a folder read with
+    /// [`Theme::from_directory`], …
+    #[must_use]
+    pub fn with(mut self, theme: Theme) -> Self {
+        self.installed.push(theme);
+        self
+    }
+
+    /// Activates an installed theme by its `theme.json` name. Without one,
+    /// the installed theme no other installed theme extends is active.
+    #[must_use]
+    pub fn active(mut self, name: impl Into<String>) -> Self {
+        self.active = Some(name.into());
+        self
+    }
+
+    /// The theme [`ThemeSet::active`] named, if any.
+    #[must_use]
+    pub fn active_name(&self) -> Option<&str> {
+        self.active.as_deref()
+    }
+
+    #[must_use]
+    pub fn installed(&self) -> &[Theme] {
+        &self.installed
+    }
+
+    /// The installed themes and the active name, taken apart.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<Theme>, Option<String>) {
+        (self.installed, self.active)
+    }
+
+    /// [`ThemeStack::resolve`] with this set's active theme.
+    ///
+    /// # Errors
+    ///
+    /// As [`ThemeStack::resolve`].
+    pub fn resolve(self) -> Result<ThemeStack, ThemeError> {
+        ThemeStack::resolve(self.installed, self.active.as_deref())
+    }
+}
+
+impl From<Vec<Theme>> for ThemeSet {
+    fn from(installed: Vec<Theme>) -> Self {
+        Self {
+            installed,
+            active: None,
+        }
+    }
+}
+
+impl<const N: usize> From<[Theme; N]> for ThemeSet {
+    fn from(installed: [Theme; N]) -> Self {
+        Vec::from(installed).into()
     }
 }
 
@@ -301,6 +413,12 @@ impl ThemeStack {
                     child: seen.last().cloned().unwrap_or_default(),
                     parent: name.clone(),
                 })?;
+            if let Some(location) = &theme.unbuilt {
+                return Err(ThemeError::Unbuilt {
+                    name,
+                    location: location.clone(),
+                });
+            }
             next.clone_from(&theme.manifest.parent);
             seen.push(name);
             chain.push(theme);
@@ -416,9 +534,15 @@ impl ThemeStack {
         tera
     }
 
-    /// Dev servers of the stack, child first.
+    /// Dev servers of the stack, child first. A URL several themes share is
+    /// listed once: the themes of one `themes/` folder all point at the
+    /// same port, where only the active theme's dev server runs.
     pub fn dev_servers(&self) -> impl Iterator<Item = &str> {
-        self.chain.iter().filter_map(Theme::dev_server_url)
+        let mut seen = HashSet::new();
+        self.chain
+            .iter()
+            .filter_map(Theme::dev_server_url)
+            .filter(move |url| seen.insert(*url))
     }
 }
 
@@ -551,6 +675,44 @@ mod tests {
             ThemeStack::resolve(vec![theme("a", None)], Some("x")),
             Err(ThemeError::UnknownActive(..))
         ));
+    }
+
+    #[test]
+    fn a_theme_set_activates_its_named_theme_and_lists_shared_dev_servers_once() {
+        let set = ThemeSet::new()
+            .with(theme("base", None))
+            .with(theme("a", Some("base")).dev_server("http://localhost:4321/"))
+            .with(theme("b", Some("a")).dev_server("http://localhost:4321"))
+            .active("a");
+        assert_eq!(set.active_name(), Some("a"));
+        let stack = set.resolve().unwrap();
+        let names: Vec<&str> = stack.chain().iter().map(Theme::name).collect();
+        assert_eq!(names, ["a", "base"]);
+
+        let stack = ThemeSet::from(vec![
+            theme("base", None),
+            theme("a", Some("base")).dev_server("http://localhost:4321"),
+            theme("b", Some("a")).dev_server("http://localhost:4321"),
+        ])
+        .resolve()
+        .unwrap();
+        assert_eq!(stack.active().unwrap().name(), "b");
+        assert_eq!(
+            stack.dev_servers().collect::<Vec<_>>(),
+            ["http://localhost:4321"]
+        );
+    }
+
+    #[test]
+    fn an_unbuilt_theme_only_fails_when_the_active_chain_needs_it() {
+        let unbuilt = || Theme::unbuilt(br#"{ "name": "app", "parent": "base" }"#, "themes/app");
+        assert!(matches!(
+            ThemeStack::resolve(vec![theme("base", None), unbuilt()], None),
+            Err(ThemeError::Unbuilt { name, location }) if name == "app" && location == "themes/app"
+        ));
+        let stack =
+            ThemeStack::resolve(vec![theme("base", None), unbuilt()], Some("base")).unwrap();
+        assert_eq!(stack.active().unwrap().name(), "base");
     }
 
     #[test]

@@ -8,8 +8,8 @@ publish = false
 [dependencies]
 # `otel` exports spans over OTLP when OTEL_EXPORTER_OTLP_ENDPOINT is set; add
 # "sentry" for error reporting. Everything else comes from the prelude.
-full_stack_engine = { version = "10.0.2", path = "../framework", features = ["otel"] }
-# The default theme; the app's child theme in theme/ extends it.
+full_stack_engine = { version = "11.0.0", path = "../framework", features = ["otel"] }
+# The default theme; the app's theme in themes/starter extends it.
 fse-theme-default = { version = "0.3.0", path = "../fse-theme-default" }
 
 # Needed only because these crates' macros expand to absolute `::crate::` paths:

@@ -4,7 +4,7 @@
 //!   cargo run --bin test_email                 # print the HTML
 //!   cargo run --bin test_email you@example.com # and send it
 //!
-//! Needs the theme built (`bun run build` in theme/), since the mail renders
+//! Needs the themes built (`bun run build` in themes/*/), since the mail renders
 //! from the same theme stack the app serves pages from. Sending additionally
 //! needs SMTP_* in `.env`.
 //!

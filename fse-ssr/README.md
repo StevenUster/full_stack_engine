@@ -20,7 +20,9 @@ The integration reads the project's `theme.json`. With a `parent`
 pages are built into this project with the project's overrides of any
 parent `src/` file applied, and `@parent/...` imports the parent's originals.
 `theme.json` is copied into the build output, which is what the framework
-loads. See [docs/themes.md](../docs/themes.md).
+loads. A parent is looked up first among the theme's sibling folders (the
+other themes of an app's `themes/` folder, read live from disk), then as an
+installed package. See [docs/themes.md](../docs/themes.md).
 
 ## Entry points
 

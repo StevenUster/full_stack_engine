@@ -8,7 +8,7 @@ import fseSsr from "fse-ssr";
 // overrides applied (see src/components/SidebarLinks.astro and
 // src/styles/global.css). Pages under src/pages/ are the app's own.
 export default defineConfig({
-  integrations: [fseSsr({ locales: "../locales", defaultLocale: "en" })],
+  integrations: [fseSsr({ locales: "../../locales", defaultLocale: "en" })],
   vite: {
     plugins: [tailwindcss()],
     server: {

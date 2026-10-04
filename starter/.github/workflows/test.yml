@@ -21,15 +21,14 @@ jobs:
         with:
           bun-version: "1.3.8"
 
-      - name: Install theme dependencies
-        working-directory: theme
-        run: bun install --frozen-lockfile
-
-      - name: Build theme
-        # `cargo build`/`test` embed theme/dist via `include_dir!`, so it must
-        # exist (and be up to date) before the Rust step runs.
-        working-directory: theme
-        run: bun run build
+      - name: Build themes
+        # `cargo build`/`test` embed every theme's dist/ via `themes!()`, so
+        # each must be built (and up to date) before the Rust step runs.
+        # Installs first: a child theme builds from its sibling parent's sources.
+        run: |
+          set -e
+          for t in themes/*/; do if [ -f "$t/package.json" ]; then (cd "$t" && bun install --frozen-lockfile); fi; done
+          for t in themes/*/; do if [ -f "$t/package.json" ]; then (cd "$t" && bun run build); fi; done
 
       - name: Set up Rust
         # Pinned to match the Rust version the Dockerfile builds with.

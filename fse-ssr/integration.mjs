@@ -271,10 +271,38 @@ function realDir(dir) {
 }
 
 /**
+ * The directory of the theme named `name` that sits next to `fromDir` — another
+ * theme of the same app `themes/` folder — or `null`.
+ */
+function siblingTheme(fromDir, name) {
+  const self = realDir(fromDir);
+  const folder = dirname(self);
+  let entries;
+  try {
+    entries = readdirSync(folder, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    const dir = join(folder, entry.name);
+    if (dir === self) continue;
+    try {
+      if (readManifest(dir)?.name === name) return dir;
+    } catch {
+      // A sibling with a broken theme.json is not the one we're after.
+    }
+  }
+  return null;
+}
+
+/**
  * The theme chain this project builds, child first: the project itself,
- * then every ancestor named by `theme.json` `parent` fields. A parent is an
- * installed package resolved from the theme that extends it (so a theme's
- * own dependencies are found), or a path starting with "." or "/".
+ * then every ancestor named by `theme.json` `parent` fields. A parent is a
+ * sibling theme folder (`themes/app` extending `themes/base`, read live
+ * from disk), else an installed package resolved from the theme that
+ * extends it (so a theme's own dependencies are found), or a path starting
+ * with "." or "/".
  * Ancestors without Astro sources (`src/`) end source-level inheritance —
  * the framework still falls back to their *built* templates at runtime.
  */
@@ -291,14 +319,16 @@ function resolveThemeChain(rootDir, logger) {
     let dir;
     if (parent.startsWith(".") || parent.startsWith("/")) {
       dir = resolve(fromDir, parent);
+    } else if ((dir = siblingTheme(fromDir, parent))) {
+      // Found next to the theme that extends it.
     } else {
       try {
         const require = createRequire(join(fromDir, "package.json"));
         dir = dirname(require.resolve(`${parent}/package.json`));
       } catch {
         throw new Error(
-          `${PKG_NAME}: theme "${manifest.name}" extends "${parent}", which is not installed ` +
-            `(add it as a dependency).`,
+          `${PKG_NAME}: theme "${manifest.name}" extends "${parent}", which is neither a ` +
+            `theme folder next to it nor installed (add it as a dependency).`,
         );
       }
     }
@@ -441,11 +471,26 @@ function applyModules(modulesDir, rootUrl, appPagesDir, claimed, injectRoute) {
 }
 
 /**
+ * The app root, relative to the theme project: the nearest of `..` (a
+ * `theme/` folder) and `../..` (a `themes/<name>/` folder) that holds the
+ * app's `fse.toml` or `Cargo.toml`; `..` when neither does.
+ */
+function appRootOf(rootDir) {
+  for (const rel of ["..", "../.."]) {
+    const dir = resolve(rootDir, rel);
+    if (existsSync(join(dir, "fse.toml")) || existsSync(join(dir, "Cargo.toml"))) return rel;
+  }
+  return "..";
+}
+
+/**
  * @param {{ locales?: string, defaultLocale?: string, modulesDir?: string, inheritPages?: boolean }} [options]
  *   `locales`: path to the locale directory, relative to the project root
- *   (default "../locales" — a `theme/` folder next to the app's `locales/`).
- *   `modulesDir`: where `fse sync` extracts module frontends (default
- *   "../.fse/modules"). Module pages layer below every theme's.
+ *   (default: the app's `locales/` — `../locales` for a `theme/` folder,
+ *   `../../locales` for a `themes/<name>/` folder, whichever holds the app).
+ *   `modulesDir`: where `fse sync` extracts module frontends (default: the
+ *   app's `.fse/modules`, found the same way). Module pages layer below
+ *   every theme's.
  *   `inheritPages`: build the ancestors' pages into this theme with its
  *   overrides applied (default true). With `false` the build only contains
  *   the project's own pages and the framework serves everything else from
@@ -456,18 +501,16 @@ function applyModules(modulesDir, rootUrl, appPagesDir, claimed, injectRoute) {
  * copied into the build output, which is what the framework loads.
  */
 export default function fseSsr(options = {}) {
-  const {
-    locales = "../locales",
-    defaultLocale = "en",
-    modulesDir = "../.fse/modules",
-    inheritPages = true,
-  } = options;
+  const { defaultLocale = "en", inheritPages = true } = options;
   let rootDir;
   return {
     name: PKG_NAME,
     hooks: {
       "astro:config:setup": ({ config, updateConfig, injectRoute, logger }) => {
         rootDir = fileURLToPath(config.root);
+        const appRoot = appRootOf(rootDir);
+        const locales = options.locales ?? `${appRoot}/locales`;
+        const modulesDir = options.modulesDir ?? `${appRoot}/.fse/modules`;
         generateTranslationTypes(config.root, locales, defaultLocale, logger);
         const chain = resolveThemeChain(rootDir, logger);
         if (chain.length > 1) {

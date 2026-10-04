@@ -22,20 +22,14 @@ pub mod models;
 pub mod services;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Themes: the default theme (a crate) + this app's child theme (theme/)
+// Themes: every folder of themes/ + the default theme (a crate)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-/// The built child theme (`cd theme && bun run build`). Its `theme.json`
-/// names `fse-theme-default` as parent: templates and assets it doesn't
-/// have come from the parent at runtime.
-pub static THEME_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/theme/dist");
-
-/// Every theme the app installs; the child (the one nothing extends) is
-/// active. To run on the plain default theme instead, set `THEME=fse-theme-default`.
-pub fn themes() -> Vec<Theme> {
-    vec![
-        Theme::embedded(&fse_theme_default::DIST),
-        Theme::embedded(&THEME_DIR).dev_server("http://localhost:4321"),
-    ]
+/// Every theme the app installs: each folder of `themes/` (built ones embed
+/// their `dist/`), plus `fse-theme-default`, which `themes/starter` extends.
+/// The active one is `[themes] active` in `fse.toml`; `THEME=...` overrides
+/// it at boot.
+pub fn themes() -> ThemeSet {
+    full_stack_engine::themes!().with(Theme::embedded(&fse_theme_default::DIST))
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -62,11 +56,8 @@ pub async fn run() -> std::io::Result<()> {
 /// drive (`full_stack_engine::testing::TestApp::new(starter::app())`), so
 /// both see the same routes, modules, locales and middleware.
 pub fn app() -> FrameworkApp {
-    let mut app = FrameworkApp::new();
-    for theme in themes() {
-        app = app.theme(theme);
-    }
-    app
+    FrameworkApp::new()
+        .themes(themes())
         // Identity on every log line, span and error report. Both are
         // overridable by SERVICE_NAME/SERVICE_VERSION, which is how a release
         // pipeline substitutes the commit SHA for the crate version.

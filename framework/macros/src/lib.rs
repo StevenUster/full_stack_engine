@@ -13,6 +13,7 @@ use proc_macro::TokenStream;
 mod link;
 mod model;
 mod resource;
+mod themes;
 
 /// Marks a struct as an app model: the ORM `Table` derive is applied for the
 /// data layer, and the struct's metadata is registered in
@@ -64,6 +65,42 @@ mod resource;
 pub fn model(args: TokenStream, input: TokenStream) -> TokenStream {
     let item = syn::parse_macro_input!(input as syn::ItemStruct);
     model::expand(args.into(), &item)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Every theme in the app's `themes/` folder, embedded in the binary, as a
+/// `full_stack_engine::themes::ThemeSet` — with the active theme named by
+/// `fse.toml`:
+///
+/// ```toml
+/// [themes]
+/// active = "my-app"                    # a theme.json name; default: the one nothing extends
+/// # dir = "themes"                     # the folder, relative to the crate root
+/// # dev_server = "http://localhost:4321"
+/// ```
+///
+/// Each subfolder is one theme: an npm-built theme (Astro with `fse-ssr`,
+/// …) contributes its built `dist/` and gets `dev_server` for `ENV=dev`; a
+/// folder without a `package.json` is a hand-written theme and is embedded
+/// as it is. A theme may extend another theme of the folder or an installed
+/// theme crate; add the crates with `.with(...)`:
+///
+/// ```ignore
+/// pub fn themes() -> ThemeSet {
+///     full_stack_engine::themes!().with(Theme::embedded(&fse_theme_default::DIST))
+/// }
+/// ```
+///
+/// A folder that is no theme is a compile error. An npm theme that was never
+/// built still compiles (so `cargo run --bin dev`, which builds it, can
+/// start), and boot fails with a "run the build" message if the active
+/// theme needs it. Edits to `fse.toml` and to built files recompile the
+/// crate; a brand-new theme folder is picked up by the next build that
+/// recompiles it.
+#[proc_macro]
+pub fn themes(input: TokenStream) -> TokenStream {
+    themes::expand(input.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }

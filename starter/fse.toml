@@ -1,5 +1,15 @@
-# fse ORM configuration. Every key is optional and defaults to this layout;
-# the file exists mainly to declare the framework's schema contract below.
+# fse configuration. Every key is optional and defaults to this layout;
+# the file exists mainly to declare the framework's schema contract below
+# and to pick the active theme.
+
+# Themes: every folder of themes/ is one theme, embedded in the binary by
+# `full_stack_engine::themes!()`. A theme may extend another theme folder or
+# an installed theme crate (`"parent"` in its theme.json).
+[themes]
+# The active theme, by its theme.json name. `THEME=...` overrides it at boot.
+active = "starter"
+# dir = "themes"
+# dev_server = "http://localhost:4321"   # where `cargo run --bin dev` runs the active theme
 
 [orm]
 tables_dir = "src/models"
