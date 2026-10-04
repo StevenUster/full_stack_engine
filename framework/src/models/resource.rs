@@ -123,6 +123,12 @@ pub trait ModelResource: Send + Sync {
         ids: &'a [i64],
     ) -> BoxFuture<'a, AppResult<HashMap<i64, Ref>>>;
 
+    /// [`ModelHooks::in_nav`](super::ModelHooks::in_nav) for `user`.
+    fn in_nav(&self, user: &CurrentUser) -> bool {
+        let _ = user;
+        true
+    }
+
     /// [`ModelHooks::can_create`](super::ModelHooks::can_create) for the
     /// access's user and parent (`false` without a user).
     fn can_create<'a>(&'a self, db: &'a Db, access: Access<'a>) -> BoxFuture<'a, AppResult<bool>>;

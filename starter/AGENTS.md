@@ -130,6 +130,10 @@ the message; cross-model mistakes fail at boot (and in `cargo test`).
 | `actions(a, b)` | row actions: `POST {base}/{id}/actions/a` → `async fn a(&self, cx: ActionCx<'_>) -> AppResult<()>` on the struct |
 | `link = col` | this struct is a many-to-many join table (see §5) |
 | `order_by = "-col"` | default list order (`-` = descending); default `-created_at`, else `-id` |
+| `public_order_by = "col"` | the public list's default order, when it differs from `order_by` |
+| `nav(order = 2, icon = "heart")` | place the admin list's sidebar entry (lower first; icon names in the default theme's `NavIcon.astro`); every non-nested model gets one by default |
+| `nav = false` | no sidebar entry (nested models never have one) |
+| `public_nav(order = 1, icon = "calendar")` | a sidebar entry for the public list, shown to everyone (needs `public_read`) |
 | `per_page = n` | default page size (1–100, default 20) |
 | `title_field = col` | the column other rows show for this one (default: first visible text column) |
 | `hooks` | you write `impl ModelHooks for X` (§3); without it all hooks are defaults |
@@ -259,6 +263,7 @@ Cheat sheet:
 | "send mail / log / sync after a change" | `after_save` / `after_delete` |
 | "delete files with the row" | `before_delete` |
 | "a button that changes a row" | `actions(...)` + `can_act` |
+| "sidebar link only for some roles" | `fn in_nav(user: &CurrentUser) -> bool` (sync, on top of `<base>.read`) |
 
 After-hooks run after the write is committed; an error there becomes the
 response but does not undo the write.
@@ -430,6 +435,31 @@ Rules:
 ---
 
 ## 8. Frontend (themes)
+
+### The sidebar and module pages — no theme code needed
+
+The sidebar is generated: one entry per model the user may read (see
+`nav`/`public_nav` above), labelled from the locales —
+`models.<table>.nav` (`public_nav` for the public entry), else
+`models.<table>.title`, else the table name:
+
+```json
+"models": {
+  "events": { "title": "Events", "nav": "Event manager", "public_nav": "Events" },
+  "donations": { "nav": "My donations", "fields": { "comment": "Comment" } }
+}
+```
+
+Only links that aren't a model page (a hand-written `/my-orders`) go in the
+theme's `src/components/SidebarLinks.astro`.
+
+Pages a module renders (the auth module's `/settings`) take app data
+through `.page_context("settings", my_settings_context)` in `app()` —
+an `async fn(HttpRequest) -> AppResult<Value>` merged under the page's own
+context on every render — and the theme's `src/components/SettingsSections.astro`
+override draws it (between "security" and "delete account"). App routes
+that re-render the page with an error use
+`auth_module::settings_context(&data, user_id, json!({"my_error": "..."}))`.
 
 Pages are Astro files compiled to Tera templates by `fse-ssr`; the server
 renders them with the context above (HTML is autoescaped). The default theme

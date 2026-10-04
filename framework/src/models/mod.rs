@@ -30,9 +30,13 @@ pub use routes::{RouteInfo, RouteKind, mount_all, route_table};
 /// Context injector installed by [`crate::FrameworkApp::models`]: gives
 /// every page what a theme needs to draw app navigation without app code.
 ///
-/// - `nav`: `[{ "table", "href" }]` — the admin page of every enabled model
-///   the signed-in user may read (`<base>.read`), in registration order.
-///   Labels are the theme's job (`t.models[table].title`).
+/// - `nav`: `[{ "table", "href", "label", "icon", "public" }]`, ordered by
+///   `nav(order = ...)`. One entry per enabled, non-nested model the
+///   signed-in user may read (`<base>.read`) whose `nav` isn't `false` and
+///   whose [`ModelHooks::in_nav`] agrees, plus — for everyone, signed in or
+///   not — one per `public_nav(...)` public list. `label` is already
+///   translated: `t.models.<table>.nav` (`public_nav` for the public entry),
+///   else `t.models.<table>.title`, else the table name made readable.
 /// - `user`: `{ "id", "role", "is_admin", "can_read_users" }` when signed in
 ///   (absent otherwise).
 ///
@@ -43,27 +47,85 @@ pub fn inject_nav<R: crate::structs::Role>(
     req: &actix_web::HttpRequest,
     value: &mut serde_json::Value,
 ) {
+    let claims = crate::auth::read_jwt::<R>(req).ok();
+    let user = claims.as_ref().map(CurrentUser::from_claims);
+    let nav = nav_entries(value.get("t"), user.as_ref());
     let Some(obj) = value.as_object_mut() else {
         return;
     };
-    let Ok(claims) = crate::auth::read_jwt::<R>(req) else {
-        return;
-    };
-    let nav: Vec<serde_json::Value> = registered_models()
-        .iter()
-        .filter(|m| !m.ui.disabled && claims.role.has_permission(&m.read_permission()))
-        .map(|m| serde_json::json!({ "table": m.table.name, "href": m.base_path() }))
-        .collect();
-    obj.insert("nav".to_string(), serde_json::json!(nav));
-    obj.insert(
-        "user".to_string(),
-        serde_json::json!({
-            "id": claims.sub,
-            "role": claims.role.as_str(),
-            "is_admin": claims.role.is_admin(),
-            "can_read_users": claims.role.has_permission("users.read"),
-        }),
-    );
+    obj.insert("nav".to_string(), serde_json::Value::Array(nav));
+    if let Some(claims) = claims {
+        obj.insert(
+            "user".to_string(),
+            serde_json::json!({
+                "id": claims.sub,
+                "role": claims.role.as_str(),
+                "is_admin": claims.role.is_admin(),
+                "can_read_users": claims.role.has_permission("users.read"),
+            }),
+        );
+    }
+}
+
+/// The sidebar entries `user` (`None`: signed out) gets, labels resolved
+/// from the page's translations `t`.
+fn nav_entries(
+    t: Option<&serde_json::Value>,
+    user: Option<&CurrentUser>,
+) -> Vec<serde_json::Value> {
+    let mut entries: Vec<(Option<i32>, usize, serde_json::Value)> = Vec::new();
+    for (index, m) in registered_models().iter().enumerate() {
+        if m.ui.disabled {
+            continue;
+        }
+        let texts = t
+            .and_then(|t| t.get("models"))
+            .and_then(|ms| ms.get(&m.table.name));
+        let label = |key: &str| {
+            texts
+                .and_then(|x| x.get(key).or_else(|| x.get("title")))
+                .and_then(serde_json::Value::as_str)
+                .map_or_else(|| humanize(&m.table.name), str::to_string)
+        };
+        let mut push = |nav: UiNav, href: String, label: String, public: bool| {
+            entries.push((
+                nav.order,
+                index,
+                serde_json::json!({
+                    "table": m.table.name,
+                    "href": href,
+                    "label": label,
+                    "icon": nav.icon.unwrap_or("table"),
+                    "public": public,
+                }),
+            ));
+        };
+        if let Some(nav) = m.ui.public_nav
+            && m.ui.public_read.is_some()
+        {
+            push(nav, format!("/{}", m.table.name), label("public_nav"), true);
+        }
+        if let (Some(nav), Some(user)) = (m.ui.nav, user)
+            && m.parent().is_none()
+            && user.has_permission(&m.read_permission())
+            && m.resource.in_nav(user)
+        {
+            push(nav, m.base_path(), label("nav"), false);
+        }
+    }
+    // Ordered entries first (by order), then the rest; ties keep the
+    // registration (table-name) order.
+    entries.sort_by_key(|(order, index, _)| (order.is_none(), *order, *index));
+    entries.into_iter().map(|(_, _, entry)| entry).collect()
+}
+
+/// `event_letters` → `Event letters`: the label of a model nobody translated.
+fn humanize(table: &str) -> String {
+    let words = table.replace('_', " ");
+    let mut chars = words.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
 }
 
 pub use hooks::{Access, ActionCx, CurrentUser, ModelHooks, Ref, RowView, SaveCx};
@@ -129,6 +191,16 @@ pub struct UiModel {
     pub order_by: Option<(&'static str, bool)>,
     /// `per_page = 25` — the list's default page size.
     pub per_page: Option<i64>,
+    /// `public_order_by = "date"` — the public list's default order, when
+    /// it differs from the admin list's `order_by`.
+    pub public_order_by: Option<(&'static str, bool)>,
+    /// The admin list's sidebar entry: `nav(order = 2, icon = "heart")` to
+    /// place it, `nav = false` to leave it out. Always `None` for a nested
+    /// model — its pages are reached from the parent row.
+    pub nav: Option<UiNav>,
+    /// `public_nav(...)` — a sidebar entry for the public list
+    /// (`public_read` models only), shown to everyone, signed in or not.
+    pub public_nav: Option<UiNav>,
     /// `actions(publish, archive)` — row actions, each an
     /// `async fn name(&self, cx: ActionCx<'_>)` on the model.
     pub actions: &'static [&'static str],
@@ -141,6 +213,17 @@ pub struct UiModel {
     /// not json, not owner/parent) and the exact set the generated
     /// `create`/`update` code binds, so the two can never drift.
     pub form_fields: &'static [&'static str],
+}
+
+/// Where a model's sidebar entry goes and how it looks.
+#[derive(Debug, Clone, Copy)]
+pub struct UiNav {
+    /// Position among the entries, lowest first. Entries without one follow
+    /// those with one, in table-name order.
+    pub order: Option<i32>,
+    /// The icon the theme draws, by name (`calendar`, `heart`, ... — the
+    /// default theme's `NavIcon` lists them). `None` is the theme's default.
+    pub icon: Option<&'static str>,
 }
 
 /// One `#[orm(relation = fk)]` field and how generated pages use it.
@@ -840,6 +923,12 @@ mod tests {
         parent: None,
         order_by: None,
         per_page: None,
+        public_order_by: None,
+        nav: Some(UiNav {
+            order: None,
+            icon: None,
+        }),
+        public_nav: None,
         actions: &[],
         relations: &[],
         fields: &[],

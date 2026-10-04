@@ -378,6 +378,7 @@ expression: "serde_json::to_string_pretty(&props).unwrap()"
       "edit_title": "Edit User",
       "email": "Email",
       "role": "Role",
+      "save": "Save changes",
       "title": "Users"
     },
     "verify_email": {

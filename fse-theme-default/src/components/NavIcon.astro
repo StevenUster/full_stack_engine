@@ -1,0 +1,48 @@
+---
+/**
+ * The named 18px icons sidebar entries use. A model picks one with
+ * `#[model(nav(icon = "heart"))]` (or `public_nav(...)`); the framework sends
+ * `table` when it names none. An unknown name draws nothing — add it here
+ * (or in a child theme's override of this file).
+ *
+ * home, grid, calendar, heart, run, user, users, settings, table, list,
+ * box, cart, file, chart, tag, mail, map-pin, star
+ */
+import type { SsrValue } from "fse-ssr/ssr";
+
+interface Props {
+  name: string | SsrValue<string>;
+}
+
+const { name } = Astro.props;
+const a = {
+  xmlns: "http://www.w3.org/2000/svg",
+  width: "18",
+  height: "18",
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  "stroke-width": "1.5",
+  "stroke-linecap": "round",
+  "stroke-linejoin": "round",
+} as const;
+---
+
+{name === "home" && (<svg {...a}><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path><path d="M10 21v-6h4v6"></path></svg>)}
+{name === "grid" && (<svg {...a}><rect width="7.5" height="7.5" x="2.75" y="2.75" rx="1.9"></rect><rect width="7.5" height="7.5" x="13.75" y="2.75" rx="1.9"></rect><rect width="7.5" height="7.5" x="13.75" y="13.75" rx="1.9"></rect><rect width="7.5" height="7.5" x="2.75" y="13.75" rx="1.9"></rect></svg>)}
+{name === "calendar" && (<svg {...a}><rect width="18" height="18" x="3" y="4" rx="2" ry="2"></rect><path d="M16 2v4M8 2v4m-5 4h18"></path></svg>)}
+{name === "heart" && (<svg {...a}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>)}
+{name === "run" && (<svg {...a}><path d="M13 4a1 1 0 1 0 2 0 1 1 0 0 0-2 0"></path><path d="m7 21 3-6 2 2 3-4 3 8"></path><path d="m5 14 2-5 5 1 2-4"></path></svg>)}
+{name === "user" && (<svg {...a}><circle cx="12" cy="7" r="4"></circle><path d="M5 21v-2a7 7 0 0 1 14 0v2"></path></svg>)}
+{name === "users" && (<svg {...a}><circle cx="9" cy="7" r="4"></circle><path d="M3 21v-2a6 6 0 0 1 12 0v2"></path><path d="M16 3.13a4 4 0 0 1 0 7.75M21 21v-2a6 6 0 0 0-4-5.66"></path></svg>)}
+{name === "settings" && (<svg {...a}><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>)}
+{name === "table" && (<svg {...a}><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M3 9h18M9 21V9"></path></svg>)}
+{name === "list" && (<svg {...a}><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg>)}
+{name === "box" && (<svg {...a}><path d="M21 8 12 3 3 8v8l9 5 9-5z"></path><path d="m3 8 9 5 9-5M12 13v8"></path></svg>)}
+{name === "cart" && (<svg {...a}><circle cx="9" cy="20" r="1"></circle><circle cx="18" cy="20" r="1"></circle><path d="M2 3h3l2.7 12.4a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 2-1.6L21 7H6"></path></svg>)}
+{name === "file" && (<svg {...a}><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6M8 13h8M8 17h5"></path></svg>)}
+{name === "chart" && (<svg {...a}><path d="M3 3v18h18"></path><path d="M7 15v2M12 10v7M17 6v11"></path></svg>)}
+{name === "tag" && (<svg {...a}><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>)}
+{name === "mail" && (<svg {...a}><rect width="18" height="14" x="3" y="5" rx="2"></rect><path d="m3 7 9 6 9-6"></path></svg>)}
+{name === "map-pin" && (<svg {...a}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>)}
+{name === "star" && (<svg {...a}><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"></path></svg>)}

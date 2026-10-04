@@ -175,7 +175,8 @@
     "actions": "Actions",
     "edit": "Edit",
     "edit_title": "Edit User",
-    "delete": "Delete"
+    "delete": "Delete",
+    "save": "Save changes"
   },
   "table": {
     "delete_title": "Delete?",

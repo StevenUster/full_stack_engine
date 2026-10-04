@@ -37,6 +37,13 @@ mod themes;
 ///   non-admins (`Role::is_admin`) only ever see and change their own rows,
 ///   and on create the column is filled from the signed-in user (it is never
 ///   a form field, so it can't be spoofed).
+/// - `order_by = "-col"` / `public_order_by = "col"` — the default order of
+///   the admin list / of the public list (`-` = descending).
+/// - `nav(order = 2, icon = "heart")` — where the admin list's sidebar entry
+///   goes and its icon; `nav = false` drops the entry. Nested (`parent`)
+///   models never have one.
+/// - `public_nav(order = 1, icon = "calendar")` — a sidebar entry for the
+///   public list, shown to everyone (needs `public_read`).
 /// - `hooks` — the app implements `full_stack_engine::models::ModelHooks`
 ///   for this struct: row-level access (`scope`, `can_edit`, ...), lifecycle
 ///   hooks (`before_save`, `after_delete`, ...) and computed display fields.

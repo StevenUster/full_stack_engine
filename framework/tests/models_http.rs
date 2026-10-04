@@ -398,7 +398,13 @@ async fn nav_context_lists_readable_models_for_the_signed_in_user() {
     let ctx = nav_for(Some(viewer));
     assert_eq!(
         ctx["nav"],
-        serde_json::json!([{ "table": "posts", "href": "/admin/posts" }])
+        serde_json::json!([{
+            "table": "posts",
+            "href": "/admin/posts",
+            "label": "Posts",
+            "icon": "table",
+            "public": false,
+        }])
     );
     assert_eq!(ctx["user"]["role"], "viewer");
     assert_eq!(ctx["user"]["can_read_users"], false);

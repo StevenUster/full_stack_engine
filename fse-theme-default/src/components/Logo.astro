@@ -2,16 +2,21 @@
 /**
  * Extension point: the logo shown in the sidebar, the mobile header and the
  * auth pages. A child theme either replaces src/assets/logo.svg or
- * overrides this file (e.g. separate light and dark images).
+ * overrides this file (e.g. separate light and dark images, other sizes per
+ * `variant`).
  */
 import { Image } from "astro:assets";
 import logo from "../assets/logo.svg";
 
 interface Props {
+  /** Where it is drawn; picks the default size. */
+  variant?: "sidebar" | "mobile" | "auth";
+  /** Replaces the variant's size classes entirely. */
   class?: string;
 }
 
-const { class: className = "h-9 w-auto" } = Astro.props;
+const sizes = { sidebar: "h-9 w-auto", mobile: "h-8 w-auto", auth: "h-12 w-auto" };
+const { variant = "sidebar", class: className } = Astro.props;
 ---
 
-<Image src={logo} alt="Logo" class={className} />
+<Image src={logo} alt="Logo" class={className ?? sizes[variant]} />

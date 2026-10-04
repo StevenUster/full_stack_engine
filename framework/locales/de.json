@@ -175,7 +175,8 @@
     "actions": "Aktionen",
     "edit": "Bearbeiten",
     "edit_title": "Benutzer bearbeiten",
-    "delete": "Löschen"
+    "delete": "Löschen",
+    "save": "Änderungen speichern"
   },
   "table": {
     "delete_title": "Löschen?",

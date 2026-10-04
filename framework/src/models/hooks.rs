@@ -210,6 +210,16 @@ pub trait ModelHooks: Sized + Send + Sync + 'static {
         None
     }
 
+    /// Whether the model's sidebar entry shows for `user`, on top of
+    /// `<base>.read` — e.g. a "my runs" page only for runner roles, even
+    /// though admins can read registrations too. Decides only the link,
+    /// never access. Sync and from the token alone: it runs on every page.
+    #[must_use]
+    fn in_nav(user: &CurrentUser) -> bool {
+        let _ = user;
+        true
+    }
+
     /// Whether `user` may create rows (on top of `<base>.write`) — for a
     /// nested model, under the parent row `parent_id` (e.g. "not once the
     /// event is completed"). Also decides whether the create button shows.

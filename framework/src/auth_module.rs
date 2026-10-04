@@ -27,7 +27,9 @@
 //! registration can insert).
 //!
 //! Account settings (`/settings`: change email with verification, send a
-//! password reset, delete the account) and the user administration pages
+//! password reset, delete the account — apps add their own sections through
+//! [`crate::FrameworkApp::page_context`] and the theme's `SettingsSections`
+//! component, see [`settings_context`]) and the user administration pages
 //! (`/users`, guarded by `users.read`/`users.write`, admin-only escalation
 //! guards) are included.
 //!
@@ -708,8 +710,22 @@ async fn reset_password_submit(
 
 use crate::auth::AuthUser;
 
-/// The settings page context: current account data plus per-form messages.
-async fn settings_context(
+/// The settings page context: current account data plus per-form messages
+/// (`overrides`, which win).
+///
+/// Public for app routes that render the `settings` page themselves — e.g. a
+/// form the app added to it (through [`crate::FrameworkApp::page_context`])
+/// that re-renders the page with an error:
+///
+/// ```ignore
+/// let ctx = auth_module::settings_context(&data, user_id, json!({"runner_error": "missing_fields"})).await?;
+/// Ok(req.render_tpl("settings", &ctx).await)
+/// ```
+///
+/// # Errors
+///
+/// `NotFound` when the user no longer exists; database errors.
+pub async fn settings_context(
     data: &AppData,
     user_id: i64,
     overrides: serde_json::Value,

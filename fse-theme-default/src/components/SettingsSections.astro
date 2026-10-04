@@ -1,0 +1,27 @@
+---
+/**
+ * Extension point: the app's own sections of the settings page, rendered
+ * between "account security" and "delete account". The default shows the
+ * account's name. A child theme overrides this file to put its own forms
+ * here (a profile, preferences, ...) — the data comes from the app through
+ * `FrameworkApp::page_context("settings", ...)`, and its POST handlers
+ * re-render the page with `auth_module::settings_context`.
+ */
+import { ssr } from "fse-ssr/ssr";
+import type { SettingsPage } from "../types/pages";
+
+const { t, first_name, last_name } = ssr<SettingsPage>();
+---
+
+{(first_name || last_name) && (
+<div class="py-6">
+  <h3 class="text-base font-semibold text-secondary-900">
+    {t.settings.name}
+  </h3>
+  <div class="mt-3 px-4 py-3 rounded-lg bg-secondary-50 border border-secondary-100">
+    <span class="text-sm font-medium text-secondary-900">
+      {first_name} {last_name}
+    </span>
+  </div>
+</div>
+)}

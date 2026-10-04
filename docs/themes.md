@@ -140,9 +140,17 @@ Every page context also contains:
 
 - `t`: translations for the request's language,
 - `lang`, `lang_prefix` and `i18n`,
-- `nav`: `[{ table, href }]` for each model the user may read (empty when signed out),
+- `nav`: `[{ table, href, label, icon, public }]` — the sidebar entries, ordered: each
+  non-nested model the user may read (`#[model(nav(...))]`, `nav = false`,
+  `ModelHooks::in_nav`) plus, for everyone, each `public_nav(...)` public list. `label` is
+  already translated (`t.models.<table>.nav` / `.public_nav`, else `.title`, else the table
+  name); `icon` names one of the default theme's `NavIcon` icons,
 - `user`: `{ id, role, is_admin, can_read_users }`, only present when signed in,
-- whatever the app's `global_context_injector` adds.
+- whatever the app's `global_context_injector` adds,
+- on the templates it was registered for, whatever `FrameworkApp::page_context(template, ...)`
+  providers return (under the handler's own keys) — how an app puts data into a page a
+  module renders, e.g. its own section of the auth module's `settings` page, drawn by
+  overriding the default theme's `SettingsSections.astro`.
 
 ## Child themes with Astro
 

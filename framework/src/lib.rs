@@ -54,6 +54,46 @@ pub use full_stack_engine_macros::themes;
 pub type ContextInjectorFn =
     Box<dyn Fn(&actix_web::HttpRequest, &mut serde_json::Value) + Send + Sync + 'static>;
 
+/// A [`FrameworkApp::page_context`] provider, boxed.
+pub type PageContextFn = dyn Fn(
+        &actix_web::HttpRequest,
+    ) -> futures::future::LocalBoxFuture<'static, error::AppResult<serde_json::Value>>
+    + Send
+    + Sync;
+
+/// Every [`FrameworkApp::page_context`] provider, by template name. Kept in
+/// the app's data as its own entry (not an [`AppData`] field), so apps and
+/// tests that build `AppData` by hand are unaffected.
+#[derive(Default, Clone)]
+pub struct PageContexts(
+    std::collections::HashMap<&'static str, Vec<std::sync::Arc<PageContextFn>>>,
+);
+
+impl PageContexts {
+    /// Registers `provider` for `template` — what
+    /// [`FrameworkApp::page_context`] does. Public for apps and tests that
+    /// assemble an actix `App` by hand: put the result in its app data
+    /// (`.app_data(web::Data::new(contexts))`).
+    pub fn add<F, Fut>(&mut self, template: &'static str, provider: F)
+    where
+        F: Fn(actix_web::HttpRequest) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = error::AppResult<serde_json::Value>> + 'static,
+    {
+        let boxed: std::sync::Arc<PageContextFn> =
+            std::sync::Arc::new(move |req: &actix_web::HttpRequest| {
+                Box::pin(provider(req.clone()))
+                    as futures::future::LocalBoxFuture<'static, error::AppResult<serde_json::Value>>
+            });
+        self.0.entry(template).or_default().push(boxed);
+    }
+
+    /// The providers registered for `template`, in registration order.
+    #[must_use]
+    pub fn for_template(&self, template: &str) -> &[std::sync::Arc<PageContextFn>] {
+        self.0.get(template).map_or(&[], Vec::as_slice)
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, serde::Serialize)]
 pub enum Env {
     Dev,
@@ -194,17 +234,42 @@ impl RenderTplExt for actix_web::HttpRequest {
             .app_data::<actix_web::web::Data<crate::AppData>>()
             .unwrap()
             .clone();
-        let mut value = serde_json::to_value(context).unwrap_or_else(|_| serde_json::json!({}));
+        let explicit = serde_json::to_value(context).unwrap_or_else(|_| serde_json::json!({}));
+        let providers: Vec<std::sync::Arc<PageContextFn>> = self
+            .app_data::<actix_web::web::Data<PageContexts>>()
+            .map(|p| p.for_template(template).to_vec())
+            .unwrap_or_default();
 
-        // Locale context first, app injector second — an app that wants to
-        // override `t`/`lang` for a request simply wins.
-        app_data.inject_request_context(self, &mut value);
-        if let Some(injector) = &app_data.context_injector {
-            injector(self, &mut value);
-        }
+        Box::pin(async move {
+            // Page-context providers lay the base, the handler's own context
+            // goes on top: a handler re-rendering a form with submitted
+            // values or an error message always wins.
+            let mut value = if providers.is_empty() {
+                explicit
+            } else {
+                let mut base = serde_json::Map::new();
+                for provider in &providers {
+                    match provider(self).await {
+                        Ok(serde_json::Value::Object(map)) => base.extend(map),
+                        Ok(_) => {}
+                        Err(err) => return actix_web::ResponseError::error_response(&err),
+                    }
+                }
+                if let serde_json::Value::Object(map) = explicit {
+                    base.extend(map);
+                }
+                serde_json::Value::Object(base)
+            };
 
-        let template_owned = template.to_string();
-        Box::pin(async move { app_data.render_template(&template_owned, &value).await })
+            // Locale context first, app injector second — an app that wants
+            // to override `t`/`lang` for a request simply wins.
+            app_data.inject_request_context(self, &mut value);
+            if let Some(injector) = &app_data.context_injector {
+                injector(self, &mut value);
+            }
+
+            app_data.render_template(template, &value).await
+        })
     }
 }
 
@@ -406,6 +471,7 @@ pub struct FrameworkApp {
     service_version: Option<String>,
     api_docs: Option<std::sync::Arc<models::openapi::ApiDocs>>,
     cors: Option<config::CorsConfig>,
+    page_contexts: PageContexts,
 }
 
 impl Default for FrameworkApp {
@@ -435,6 +501,7 @@ impl FrameworkApp {
             service_version: None,
             api_docs: None,
             cors: None,
+            page_contexts: PageContexts::default(),
         }
     }
 
@@ -662,6 +729,34 @@ impl FrameworkApp {
     #[must_use]
     pub fn migrator(mut self, migrator: sqlx::migrate::Migrator) -> Self {
         self.migrator = Some(migrator);
+        self
+    }
+
+    /// Adds context to every render of the template `template` — including
+    /// pages a module renders, which an app cannot otherwise put data into.
+    /// The provider runs (async, with the request) before each render of
+    /// that template; its object is merged *under* the handler's own
+    /// context, so a handler's keys (an error, re-submitted values) win.
+    /// Several providers for one template merge in registration order.
+    ///
+    /// ```ignore
+    /// // The auth module's /settings page, plus the app's runner profile:
+    /// .page_context("settings", services::runner::settings_context)
+    ///
+    /// async fn settings_context(req: HttpRequest) -> AppResult<Value> {
+    ///     let Ok(claims) = read_jwt::<AppRole>(&req) else { return Ok(json!({})) };
+    ///     // ... load what the page needs for `claims.sub`
+    /// }
+    /// ```
+    ///
+    /// An `Err` renders that error's page instead of the template.
+    #[must_use]
+    pub fn page_context<F, Fut>(mut self, template: &'static str, provider: F) -> Self
+    where
+        F: Fn(actix_web::HttpRequest) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = error::AppResult<serde_json::Value>> + 'static,
+    {
+        self.page_contexts.add(template, provider);
         self
     }
 
@@ -938,6 +1033,7 @@ impl FrameworkApp {
             module_routes: self.modules.iter().filter_map(|m| m.routes).collect(),
             model_routes: self.model_routes.clone(),
             rate_limit,
+            page_contexts: web::Data::new(self.page_contexts.clone()),
             cfg,
         })
     }
@@ -967,6 +1063,7 @@ pub(crate) struct AppStack {
     module_routes: Vec<fn(&mut web::ServiceConfig)>,
     model_routes: Option<ModelRoutesFn>,
     rate_limit: rate_limiter::RateLimit<rate_limiter::ProxyIpExceptPaths>,
+    page_contexts: web::Data<PageContexts>,
 }
 
 impl AppStack {
@@ -1000,6 +1097,7 @@ impl AppStack {
         let request_selector = locale_selector.clone();
         let request_known_langs = self.known_langs.clone();
         let mut app = App::new()
+            .app_data(self.page_contexts.clone())
             .app_data(web::Data::new(AppData {
                 tera: tera.clone(),
                 db: db_pool.clone(),

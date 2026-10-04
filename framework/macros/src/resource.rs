@@ -64,6 +64,10 @@ pub fn emit(
                 ::std::boxed::Box::pin(__fse_visible_ids(db, __access))
             }
 
+            fn in_nav(&self, __user: &#models::CurrentUser) -> bool {
+                #hooks::in_nav(__user)
+            }
+
             fn can_create<'a>(
                 &'a self,
                 db: &'a #models::Db,
@@ -423,13 +427,16 @@ fn emit_list(
             }
         }
     });
-    let default_order = if let Some((col, desc)) = &opts.order_by {
+    let order_tokens = |col: &str, desc: bool| {
         let cid = col_const(col);
-        if *desc {
+        if desc {
             quote!(#ident::#cid.desc())
         } else {
             quote!(#ident::#cid.asc())
         }
+    };
+    let default_order = if let Some((col, desc)) = &opts.order_by {
+        order_tokens(col, *desc)
     } else if cols
         .iter()
         .any(|c| c.def.name == "created_at" && !c.def.json)
@@ -439,6 +446,15 @@ fn emit_list(
     } else {
         let cid = col_const(&table.primary_key()[0].name);
         quote!(#ident::#cid.desc())
+    };
+    // `public_order_by` only changes the public list's default; an explicit
+    // `?sort=` still wins on both.
+    let default_order = match &opts.public_order_by {
+        Some((col, desc)) => {
+            let public_order = order_tokens(col, *desc);
+            quote!(if __public { #public_order } else { #default_order })
+        }
+        None => default_order,
     };
 
     let row_actions = if opts.actions.is_empty() {

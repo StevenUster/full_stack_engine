@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine"
-version = "11.1.1"
+version = "11.2.0"
 dependencies = [
  "actix-cors",
  "actix-files",
@@ -1437,7 +1437,7 @@ dependencies = [
 
 [[package]]
 name = "full_stack_engine_macros"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "fse-schema",
  "proc-macro2",

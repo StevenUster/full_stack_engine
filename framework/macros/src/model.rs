@@ -59,6 +59,34 @@ pub fn expand(args: TokenStream, item: &syn::ItemStruct) -> syn::Result<TokenStr
         Some(n) => quote!(::core::option::Option::Some(#n)),
         None => quote!(::core::option::Option::None),
     };
+    let public_order_by = match &opts.public_order_by {
+        Some((col, desc)) => quote!(::core::option::Option::Some((#col, #desc))),
+        None => quote!(::core::option::Option::None),
+    };
+    let nav_tokens = |nav: Option<&NavOpt>| match nav {
+        Some(n) if n.hidden => quote!(::core::option::Option::None),
+        _ => {
+            let order = match nav.and_then(|n| n.order) {
+                Some(o) => quote!(::core::option::Option::Some(#o)),
+                None => quote!(::core::option::Option::None),
+            };
+            let icon = opt_str(nav.and_then(|n| n.icon.as_deref()));
+            quote!(::core::option::Option::Some(::full_stack_engine::models::UiNav {
+                order: #order,
+                icon: #icon,
+            }))
+        }
+    };
+    let nav = if opts.parent.is_some() {
+        quote!(::core::option::Option::None)
+    } else {
+        nav_tokens(opts.nav.as_ref())
+    };
+    let public_nav = if opts.public_nav.is_some() {
+        nav_tokens(opts.public_nav.as_ref())
+    } else {
+        quote!(::core::option::Option::None)
+    };
     let actions: Vec<String> = opts.actions.iter().map(ToString::to_string).collect();
     let (api, disabled) = (opts.api, opts.disabled);
     let (no_create, no_edit, no_delete) = (opts.no_create, opts.no_edit, opts.no_delete);
@@ -96,6 +124,9 @@ pub fn expand(args: TokenStream, item: &syn::ItemStruct) -> syn::Result<TokenStr
                     parent: #parent,
                     order_by: #order_by,
                     per_page: #per_page,
+                    public_order_by: #public_order_by,
+                    nav: #nav,
+                    public_nav: #public_nav,
                     actions: &[#(#actions),*],
                     relations: &__FSE_MODEL_UI_RELATIONS,
                     fields: &__FSE_MODEL_UI_FIELDS,
@@ -185,8 +216,54 @@ pub(crate) struct ModelOpts {
     /// `(column, descending)`.
     pub(crate) order_by: Option<(String, bool)>,
     pub(crate) per_page: Option<i64>,
+    /// `(column, descending)`, for the public list only.
+    pub(crate) public_order_by: Option<(String, bool)>,
+    pub(crate) nav: Option<NavOpt>,
+    pub(crate) public_nav: Option<NavOpt>,
     pub(crate) actions: Vec<syn::Ident>,
     pub(crate) link: Option<String>,
+}
+
+/// `nav` / `nav = false` / `nav(order = 2, icon = "heart")`.
+#[derive(Default)]
+pub(crate) struct NavOpt {
+    pub(crate) hidden: bool,
+    pub(crate) order: Option<i32>,
+    pub(crate) icon: Option<String>,
+}
+
+/// Parses the value of a `nav`/`public_nav` key (the key itself is already
+/// consumed).
+fn parse_nav(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<NavOpt> {
+    let mut nav = NavOpt::default();
+    if meta.input.peek(syn::Token![=]) {
+        let lit: syn::LitBool = meta.value()?.parse()?;
+        nav.hidden = !lit.value;
+    } else if meta.input.peek(syn::token::Paren) {
+        meta.parse_nested_meta(|inner| {
+            if inner.path.is_ident("order") {
+                let lit: syn::LitInt = inner.value()?.parse()?;
+                nav.order = Some(lit.base10_parse()?);
+            } else if inner.path.is_ident("icon") {
+                let lit: syn::LitStr = inner.value()?.parse()?;
+                let icon = lit.value();
+                if icon.is_empty()
+                    || !icon
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                {
+                    return Err(inner.error(
+                        "icon is a lowercase icon name, e.g. icon = \"calendar\"",
+                    ));
+                }
+                nav.icon = Some(icon);
+            } else {
+                return Err(inner.error("expected order = <number> or icon = \"name\""));
+            }
+            Ok(())
+        })?;
+    }
+    Ok(nav)
 }
 
 /// A foreign-key column the macro can name: `i64`/`Option<i64>`, with
@@ -315,6 +392,35 @@ fn model_opts(args: TokenStream, table: &TableDef) -> syn::Result<ModelOpts> {
                     }
                 }
                 opts.order_by = Some((column, desc));
+            } else if meta.path.is_ident("public_order_by") {
+                let lit: syn::LitStr = meta.value()?.parse()?;
+                let raw = lit.value();
+                let (column, desc) = match raw.strip_prefix('-') {
+                    Some(c) => (c.to_string(), true),
+                    None => (raw.clone(), false),
+                };
+                match table.column(&column) {
+                    Some(c) if !c.json => {}
+                    _ => {
+                        return Err(meta.error(format!(
+                            "public_order_by `{raw}` must name a column of {} (prefix `-` \
+                             for descending)",
+                            table.struct_name
+                        )));
+                    }
+                }
+                opts.public_order_by = Some((column, desc));
+            } else if meta.path.is_ident("nav") {
+                opts.nav = Some(parse_nav(&meta)?);
+            } else if meta.path.is_ident("public_nav") {
+                let nav = parse_nav(&meta)?;
+                if nav.hidden {
+                    return Err(meta.error(
+                        "public lists have no sidebar entry unless asked for — drop \
+                         public_nav = false",
+                    ));
+                }
+                opts.public_nav = Some(nav);
             } else if meta.path.is_ident("per_page") {
                 let lit: syn::LitInt = meta.value()?.parse()?;
                 let n: i64 = lit.base10_parse()?;
@@ -351,7 +457,8 @@ fn model_opts(args: TokenStream, table: &TableDef) -> syn::Result<ModelOpts> {
                 return Err(meta.error(
                     "unknown #[model(...)] key; expected permission, path, public_read, api, \
                      disabled, no_create, no_edit, no_delete, title_field, owner, parent, \
-                     order_by, per_page, actions(...), link or hooks",
+                     order_by, public_order_by, per_page, nav, public_nav, actions(...), link \
+                     or hooks",
                 ));
             }
             Ok(())
@@ -371,11 +478,32 @@ fn model_opts(args: TokenStream, table: &TableDef) -> syn::Result<ModelOpts> {
             || opts.owner.is_some()
             || opts.parent.is_some()
             || !opts.actions.is_empty()
-            || opts.order_by.is_some())
+            || opts.order_by.is_some()
+            || opts.public_order_by.is_some()
+            || opts.nav.is_some()
+            || opts.public_nav.is_some())
     {
         return Err(syn::Error::new(
             proc_macro2::Span::call_site(),
             "a link table only takes path and hooks besides link = ...",
+        ));
+    }
+    if opts.public_nav.is_some() && opts.public_read.is_none() {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "public_nav links the public list — it needs public_read",
+        ));
+    }
+    if opts.public_order_by.is_some() && opts.public_read.is_none() {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "public_order_by orders the public list — it needs public_read",
+        ));
+    }
+    if opts.parent.is_some() && opts.nav.as_ref().is_some_and(|n| !n.hidden) {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "a nested model has no sidebar entry — its pages are reached from the parent row",
         ));
     }
 

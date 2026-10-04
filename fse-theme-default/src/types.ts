@@ -136,6 +136,12 @@ export interface ModelDetailPage {
 export interface NavItem {
   table: string;
   href: string;
+  /** Already translated (`t.models.<table>.nav` / `.public_nav` / `.title`). */
+  label: string;
+  /** A `NavIcon` name. */
+  icon: string;
+  /** The public list's entry rather than the admin page. */
+  public: boolean;
 }
 
 /** The signed-in user as injected by the framework (absent when signed out). */

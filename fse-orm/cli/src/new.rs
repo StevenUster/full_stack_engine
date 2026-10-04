@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 use color_eyre::eyre::{Result, WrapErr, bail};
 
 /// The framework release this CLI scaffolds against.
-pub const FRAMEWORK_VERSION: &str = "11.0.0";
+pub const FRAMEWORK_VERSION: &str = "11.2.0";
 pub const ORM_VERSION: &str = "0.4.0";
-pub const THEME_VERSION: &str = "0.3.0";
+pub const THEME_VERSION: &str = "0.4.0";
 
 /// `(path in the new app, template contents)`.
 const FILES: &[(&str, &str)] = &[

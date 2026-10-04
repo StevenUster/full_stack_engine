@@ -1,6 +1,6 @@
 [package]
 name = "full_stack_engine"
-version = "11.1.1"
+version = "11.2.0"
 edition = "2024"
 description = "A lightweight, opinionated Rust web framework built on top of Actix-web, SQLx, and Tera."
 license = "MIT OR Apache-2.0"
@@ -21,7 +21,7 @@ path = "src/lib.rs"
 fse-orm = { version = "0.4.0", path = "../fse-orm/runtime" }
 # `#[model]`: re-parses structs with fse-schema, validates the app
 # attributes and registers the model via inventory for boot-time routes.
-full_stack_engine_macros = { version = "0.2.1", path = "macros" }
+full_stack_engine_macros = { version = "0.3.0", path = "macros" }
 fse-schema = { version = "0.4.0", path = "../fse-orm/schema" }
 inventory = "0.3"
 actix-web = "4.12.1"
