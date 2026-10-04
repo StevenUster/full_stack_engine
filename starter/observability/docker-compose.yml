@@ -1,32 +1,41 @@
 # Traces, errors and request metrics for a full_stack_engine app, in Grafana.
-# A separate deployment from the app: run it on any host the app can reach.
+# A separate deployment from the app — see README.md.
 #
-#   cp .example.env .env      # set OTLP_TOKEN and GRAFANA_ADMIN_PASSWORD
-#   docker compose up -d
+# Production (Dokploy, or any Traefik/Caddy/nginx in front): nothing here is
+# published. Route two domains to it through the reverse proxy:
+#   grafana.example.com -> service `grafana`,   port 3000
+#   otel.example.com    -> service `collector`, port 4318
 #
-# Then point the app at it (see README.md):
-#   OTEL_EXPORTER_OTLP_ENDPOINT=https://<this host>
-#   OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20<OTLP_TOKEN>
+# Local: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
 
-name: fse-observability
+x-logging: &logging
+  # Bounded logs. Docker's default keeps them forever, and Tempo's idle
+  # compaction scheduler writes a line every few seconds.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
-  # The only ingest port. Checks the bearer token, then forwards to Tempo,
-  # which has no authentication of its own and is never published.
+  # The only ingest point. Rejects any export without the bearer token, then
+  # forwards to Tempo, which has no authentication of its own.
   collector:
     image: otel/opentelemetry-collector-contrib:0.161.0
     restart: unless-stopped
     command: ["--config=/etc/collector.yaml"]
     environment:
-      OTLP_TOKEN: ${OTLP_TOKEN:?set OTLP_TOKEN in .env}
+      OTLP_TOKEN: ${OTLP_TOKEN:?set OTLP_TOKEN}
     volumes:
       - ./collector.yaml:/etc/collector.yaml:ro
-    ports:
-      - "${OTLP_BIND:-0.0.0.0}:${OTLP_PORT:-4318}:4318"
+    expose: ["4318"]
+    networks: [edge, internal]
+    # The collector's memory_limiter works in percent of this limit.
+    mem_limit: ${COLLECTOR_MEMORY:-512m}
+    logging: *logging
     depends_on: [tempo]
 
-  # Stores traces, and turns them into request-rate / error-rate / latency
-  # metrics (the span-metrics and service-graph processors).
+  # Stores traces, and derives request-rate / error-rate / latency metrics
+  # from them (span metrics + service graph).
   tempo:
     image: grafana/tempo:3.0.0
     restart: unless-stopped
@@ -36,9 +45,12 @@ services:
     volumes:
       - ./tempo.yaml:/etc/tempo.yaml:ro
       - tempo:/var/tempo
+    networks: [internal]
+    mem_limit: ${TEMPO_MEMORY:-2g}
+    logging: *logging
 
-  # Holds the metrics Tempo derives from traces. Receives them by remote write;
-  # never scrapes anything and is never published.
+  # Holds the metrics Tempo derives. Receives them by remote write; scrapes
+  # nothing.
   prometheus:
     image: prom/prometheus:v3.15.0
     restart: unless-stopped
@@ -46,31 +58,67 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=${METRICS_RETENTION:-30d}
+      # Whichever limit is hit first wins, so a traffic spike cannot fill the disk.
+      - --storage.tsdb.retention.size=${METRICS_RETENTION_SIZE:-5GB}
       - --web.enable-remote-write-receiver
       - --enable-feature=exemplar-storage
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus:/prometheus
+    networks: [internal]
+    mem_limit: ${PROMETHEUS_MEMORY:-1g}
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   grafana:
     image: grafana/grafana:13.2.3
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
-      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3000}
+      # Applies on the FIRST start only; afterwards the password lives in the
+      # `grafana` volume (see README.md to change it).
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD}
+      # The public URL. Grafana redirects to it after login and puts it in
+      # alert links — a wrong value sends people to localhost.
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:?set GRAFANA_ROOT_URL, e.g. https://grafana.example.com}
+      # Session cookie over HTTPS only. The local override turns it off,
+      # since localhost is plain HTTP.
+      GF_SECURITY_COOKIE_SECURE: ${GRAFANA_COOKIE_SECURE:-true}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/app.json
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana:/var/lib/grafana
-    ports:
-      - "${GRAFANA_BIND:-0.0.0.0}:${GRAFANA_PORT:-3000}:3000"
+    expose: ["3000"]
+    networks: [edge, internal]
+    mem_limit: ${GRAFANA_MEMORY:-512m}
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     depends_on: [tempo, prometheus]
+
+networks:
+  # Tempo and Prometheus live here only: no route out, and nothing outside
+  # this stack can reach them.
+  internal:
+    internal: true
+  # Collector and Grafana also join this one — for the reverse proxy to reach
+  # them, and for Grafana to send alert notifications out.
+  edge: {}
 
 volumes:
   tempo:

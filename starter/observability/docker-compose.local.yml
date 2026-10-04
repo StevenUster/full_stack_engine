@@ -1,0 +1,15 @@
+# For trying the stack on a laptop, without a reverse proxy:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+# Grafana on http://localhost:3000 (set GRAFANA_ROOT_URL=http://localhost:3000
+# in .env), OTLP on http://localhost:4318. Ports bind to 127.0.0.1 only. Never
+# use this file on a server: it bypasses TLS.
+services:
+  collector:
+    ports: ["127.0.0.1:4318:4318"]
+  grafana:
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      # localhost is plain HTTP; a Secure cookie would never be sent back.
+      GF_SECURITY_COOKIE_SECURE: "false"
